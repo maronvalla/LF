@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">La Familia Repartos</string>
+    <string name="title_activity_main">La Familia Repartos</string>
+    <string name="package_name">com.lafamilia.distribuidora</string>
+    <string name="custom_url_scheme">com.lafamilia.distribuidora</string>
+</resources>

@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-graphite-950 text-zinc-100;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.card {
+  @apply bg-graphite-900 border border-zinc-800 rounded-xl p-4;
+}
+
+.btn {
+  @apply px-3 py-2 rounded-lg text-sm font-semibold;
+}
+
+.btn-primary {
+  @apply bg-burnt-500 hover:bg-burnt-600 text-white;
+}
+
+.btn-muted {
+  @apply bg-zinc-800 hover:bg-zinc-700 text-zinc-100;
+}
+
+.input {
+  @apply w-full bg-graphite-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-burnt-500;
+}
+
+.chip {
+  @apply px-2 py-1 rounded-full text-xs font-semibold;
+}
+
+
+@media print {
+    @page {
+        margin: 0;
+        size: 58mm auto;
+    }
+    body * {
+        visibility: hidden;
+    }
+    .ticket-print, .ticket-print * {
+        visibility: visible;
+    }
+    .ticket-print {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 58mm;
+        margin: 0;
+        padding: 0;
+    }
+    .no-print {
+        display: none !important;
+    }
+}
