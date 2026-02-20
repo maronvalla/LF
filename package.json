@@ -1,0 +1,16 @@
+{
+  "name": "lf-internal-system",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "geocode:customers": "cd backend && node scripts/geocode-customers.js",
+    "dev": "powershell -Command \"Start-Process powershell -ArgumentList '-NoExit','-Command','cd backend; npm run dev'; cd desktop; npm run dev\"",
+    "migrate": "npm --prefix backend run migrate",
+    "seed": "npm --prefix backend run seed",
+    "start": "npm --prefix backend run start",
+    "check": "npm --prefix backend run test:smoke && npm --prefix desktop run build"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}
