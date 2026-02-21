@@ -126,6 +126,7 @@ export default function Consolidado({ user, setToast }) {
   const [cashierSignature, setCashierSignature] = useState("");
   const [driverSignature, setDriverSignature] = useState("");
   const [savingControl, setSavingControl] = useState(false);
+  const [hasSavedControlForShift, setHasSavedControlForShift] = useState(false);
 
   const [controlOpen, setControlOpen] = useState(false);
   const [controlStep, setControlStep] = useState("checklist");
@@ -188,6 +189,7 @@ export default function Consolidado({ user, setToast }) {
           params: { date, slot },
         });
         const control = controlRes.data;
+        setHasSavedControlForShift(Boolean(control));
         if (control) {
           setCashierName(control.cashier_name || "");
           setDriverName(control.driver_name || "");
@@ -216,6 +218,8 @@ export default function Consolidado({ user, setToast }) {
           setCashierSignature("");
           setDriverSignature("");
         }
+      } else {
+        setHasSavedControlForShift(false);
       }
     } catch (err) {
       setOrders([]);
@@ -305,7 +309,7 @@ export default function Consolidado({ user, setToast }) {
 
     setSavingControl(true);
     try {
-      await api.post("/deliveries/consolidated-control", {
+      const { data } = await api.post("/deliveries/consolidated-control", {
         date,
         slot,
         cashierName: cashierName.trim(),
@@ -321,9 +325,14 @@ export default function Consolidado({ user, setToast }) {
           galponQty: Number(r.galponQty || 0),
         })),
       });
-      setToast?.({ message: "Control de consolidado guardado", type: "success" });
+      const autoMarkedLoaded = Number(data?.autoMarkedLoaded || 0);
+      setToast?.({
+        message: `Control de consolidado guardado. Pedidos pasados a CARGADO: ${autoMarkedLoaded}`,
+        type: "success",
+      });
       setControlOpen(false);
       setControlStep("checklist");
+      await load();
     } catch (err) {
       setToast?.({ message: err.response?.data?.message || "No se pudo guardar el control", type: "error" });
     } finally {
@@ -536,7 +545,31 @@ export default function Consolidado({ user, setToast }) {
             <button
               type="button"
               className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white w-full shadow-md"
-              onClick={() => {
+              onClick={async () => {
+                if (hasSavedControlForShift) {
+                  const shouldCancel = window.confirm(
+                    "Ya se registro el consolidado para este turno. Desea anularlo?"
+                  );
+                  if (!shouldCancel) return;
+                  try {
+                    const { data } = await api.post("/deliveries/consolidated-control/cancel", {
+                      date,
+                      slot,
+                    });
+                    const reverted = Number(data?.reverted || 0);
+                    setToast?.({
+                      message: `Consolidado anulado. Pedidos vueltos a PENDIENTE: ${reverted}`,
+                      type: "success",
+                    });
+                    await load();
+                  } catch (err) {
+                    setToast?.({
+                      message: err.response?.data?.message || "No se pudo anular el consolidado",
+                      type: "error",
+                    });
+                    return;
+                  }
+                }
                 setControlStep("checklist");
                 setControlOpen(true);
               }}

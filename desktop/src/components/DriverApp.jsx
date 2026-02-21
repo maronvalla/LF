@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { io } from 'socket.io-client';
 
-import api from '../api';
+import api, { socketOrigin } from '../api';
 
 const DEFAULT_FINAL_PAYMENT = {
   method: 'EFECTIVO',
@@ -44,7 +44,7 @@ export default function DriverApp({ onLogout }) {
   const [deliveries, setDeliveries] = useState([]);
   const [activeShift, setActiveShift] = useState('11');
   const [routeDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [trackingState, setTrackingState] = useState('INACTIVO');
+  const [trackingState, setTrackingState] = useState('INICIANDO');
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState('');
   const [financialSummary, setFinancialSummary] = useState({
@@ -70,19 +70,22 @@ export default function DriverApp({ onLogout }) {
   const activeShiftLabel = activeShift === '19' ? 'SALIDA 19:00' : 'SALIDA 11:00';
 
   useEffect(() => {
-    const host = window.location.hostname;
-    const socket = io(`http://${host}:4000`, {
-      withCredentials: true,
+    setTrackingState('INICIANDO');
+    const socket = io(socketOrigin, {
       transports: ['websocket', 'polling'],
     });
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      setTrackingState('CONECTADO');
+      setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'CONECTADO'));
     });
 
     socket.on('disconnect', () => {
-      setTrackingState('DESCONECTADO');
+      setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'DESCONECTADO'));
+    });
+
+    socket.on('connect_error', () => {
+      setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'API_DESCONECTADA'));
     });
 
     if (!navigator.geolocation) {
@@ -92,21 +95,40 @@ export default function DriverApp({ onLogout }) {
       };
     }
 
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        const payload = {
-          lat: Number(position.coords.latitude),
-          lng: Number(position.coords.longitude),
-          ts: new Date().toISOString(),
-        };
-        socket.emit('camion_ubicacion', payload);
-      },
-      () => {
+    const emitPosition = (position) => {
+      const payload = {
+        lat: Number(position.coords.latitude),
+        lng: Number(position.coords.longitude),
+        ts: new Date().toISOString(),
+      };
+      socket.emit('camion_ubicacion', payload);
+    };
+
+    const onGeoError = (error) => {
+      if (Number(error?.code) === 1) {
         setTrackingState('GPS_DENEGADO');
+        return;
+      }
+      setTrackingState('GPS_ERROR');
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        emitPosition(position);
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          emitPosition,
+          onGeoError,
+          {
+            enableHighAccuracy: true,
+            maximumAge: 10000,
+            timeout: 15000,
+          }
+        );
       },
+      onGeoError,
       {
         enableHighAccuracy: true,
-        maximumAge: 10000,
+        maximumAge: 0,
         timeout: 15000,
       }
     );
@@ -467,6 +489,26 @@ export default function DriverApp({ onLogout }) {
     }
   };
 
+  const handleRevertToPending = async (deliveryId) => {
+    setDeliverySubmitState(deliveryId, { loading: true, error: '' });
+    try {
+      const coords = await getCurrentCoords();
+      await api.post(`/deliveries/${deliveryId}/mark-status`, {
+        status: 'PENDIENTE',
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+      handleStatusChange(deliveryId, 'PENDIENTE');
+      await loadDriverBoard();
+    } catch (err) {
+      setDeliverySubmitState(deliveryId, {
+        error: err.response?.data?.message || 'No se pudo volver a pendiente.',
+      });
+    } finally {
+      setDeliverySubmitState(deliveryId, { loading: false });
+    }
+  };
+
   const openGPS = (lat, lng) => {
     if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) || (!Number(lat) && !Number(lng))) {
       return;
@@ -678,7 +720,7 @@ export default function DriverApp({ onLogout }) {
                   </div>
                 ) : (
                   <button
-                    onClick={() => handleStatusChange(delivery.id, 'PENDIENTE')}
+                    onClick={() => handleRevertToPending(delivery.id)}
                     className="w-full h-12 bg-zinc-950 text-zinc-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:text-white transition-colors"
                   >
                     Deshacer / Volver a Pendiente

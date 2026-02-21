@@ -62,6 +62,11 @@ const consolidatedControlSchema = z.object({
     .default([]),
 });
 
+const consolidatedControlCancelSchema = z.object({
+  date: z.string().date(),
+  slot: z.enum(["11", "19"]),
+});
+
 function requireConsolidatedControlRole(req, res) {
   const role = String(req.user?.role || "").toUpperCase();
   if (role === "ADMIN" || role === "CAJERO") return null;
@@ -523,6 +528,88 @@ router.post(
 
       await client.query("COMMIT");
       res.json({ ...upsert.rows[0], autoMarkedLoaded: markedLoaded.rowCount });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  })
+);
+
+router.post(
+  "/consolidated-control/cancel",
+  requirePermission("sales.manage"),
+  asyncHandler(async (req, res) => {
+    const blocked = requireConsolidatedControlRole(req, res);
+    if (blocked) return;
+
+    const parsed = consolidatedControlCancelSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Datos invalidos para anular control de consolidado" });
+    }
+
+    const { date, slot } = parsed.data;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const existing = await client.query(
+        `
+          SELECT id
+          FROM delivery_consolidated_controls
+          WHERE control_date = $1
+            AND slot = $2
+          FOR UPDATE
+        `,
+        [date, slot]
+      );
+
+      if (!existing.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "No existe control de consolidado para ese turno" });
+      }
+
+      const reverted = await client.query(
+        `
+          UPDATE sales
+          SET
+            delivery_status = 'PENDIENTE',
+            status = CASE WHEN status = 'CARGADO' THEN 'PREPARADO' ELSE status END,
+            updated_at = now()
+          WHERE (is_delivery = true OR sale_type = 'ENVIO')
+            AND scheduled_date = $1
+            AND delivery_slot = $2
+            AND delivery_status = 'CARGADO'
+            AND status <> 'ANULADO'
+          RETURNING id, sale_number, delivery_status, status
+        `,
+        [date, slot]
+      );
+
+      await client.query(
+        `
+          DELETE FROM delivery_consolidated_controls
+          WHERE id = $1
+        `,
+        [existing.rows[0].id]
+      );
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "DELIVERY_CONSOLIDATED_CONTROL_CANCEL",
+        entity: "delivery_consolidated_controls",
+        entityId: existing.rows[0].id,
+        metadata: {
+          date,
+          slot,
+          revertedToPending: reverted.rowCount,
+        },
+        client,
+      });
+
+      await client.query("COMMIT");
+      res.json({ ok: true, reverted: reverted.rowCount });
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
