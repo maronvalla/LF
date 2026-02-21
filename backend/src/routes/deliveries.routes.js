@@ -632,6 +632,16 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // Lock the sale row first
+      const lockRes = await client.query(
+        `SELECT * FROM sales WHERE id = $1 AND (is_delivery = true OR sale_type = 'ENVIO') FOR UPDATE`,
+        [req.params.id]
+      );
+      if (!lockRes.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Pedido de envio no encontrado" });
+      }
+      // Now get sale with total (no FOR UPDATE needed, row is locked)
       const found = await client.query(
         `
           SELECT
@@ -640,9 +650,7 @@ router.post(
           FROM sales s
           LEFT JOIN sale_items si ON si.sale_id = s.id
           WHERE s.id = $1
-            AND (s.is_delivery = true OR s.sale_type = 'ENVIO')
           GROUP BY s.id
-          FOR UPDATE
         `,
         [req.params.id]
       );
