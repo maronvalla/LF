@@ -11,10 +11,29 @@ const normalizedApiUrl = rawApiUrl
 const baseURL = normalizedApiUrl.endsWith("/api")
   ? normalizedApiUrl
   : `${normalizedApiUrl}/api`;
+export const apiOrigin = normalizedApiUrl.replace(/\/api$/i, "");
+
+function ensureSocketPort4000(urlLike) {
+  const trimmed = String(urlLike || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.port) return parsed.origin;
+    return `${parsed.protocol}//${parsed.hostname}:4000`;
+  } catch {
+    const hasPort = /:\d+$/.test(trimmed);
+    return hasPort ? trimmed : `${trimmed}:4000`;
+  }
+}
+
+// Socket.IO necesita conectarse directo al puerto 4000.
+const rawSocketUrl = (import.meta.env.VITE_SOCKET_URL || "").trim();
+export const socketOrigin =
+  ensureSocketPort4000(rawSocketUrl) || ensureSocketPort4000(apiOrigin);
 
 const api = axios.create({
   baseURL,
-  withCredentials: true,
 });
 
 export function setToken(token) {
