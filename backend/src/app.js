@@ -29,20 +29,8 @@ const app = express();
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const explicit = (process.env.CORS_ORIGIN || "http://localhost:5173")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const isExplicit = explicit.includes(origin);
-      const isLan =
-        /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
-        /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
-        /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}:\d+$/.test(origin);
-      const isCapacitor =
-        origin === "capacitor://localhost" || origin === "http://localhost";
-      if (isExplicit || isLan || isCapacitor) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
+      // Permitir cualquier origen para desarrollo y uso móvil local
+      return callback(null, true);
     },
     credentials: true,
   })

@@ -1,28 +1,14 @@
 const http = require("http");
 const { Server } = require("socket.io");
-const { app } = require("./app"); 
-const { pool } = require("./db"); 
+const { app } = require("./app");
+const { pool } = require("./db");
 
 const port = process.env.PORT || 4000;
 const server = http.createServer(app);
 
 function isAllowedSocketOrigin(origin) {
-  if (!origin) return true;
-  const explicit = (process.env.CORS_ORIGIN || "http://localhost:5173")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (explicit.includes(origin)) return true;
-
-  const isLan =
-    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
-    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
-    /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}:\d+$/.test(origin);
-  if (isLan) return true;
-
-  // Capacitor origins (Android/iOS apps)
-  const isCapacitor = origin === "capacitor://localhost" || origin === "http://localhost";
-  return isCapacitor;
+  // Permitir cualquier origen para desarrollo y uso móvil local
+  return true;
 }
 
 const io = new Server(server, {
