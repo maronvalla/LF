@@ -106,7 +106,12 @@ async function listDeliveryOrders(date, slot) {
         s.sale_number,
         s.scheduled_date,
         s.delivery_slot,
-        s.delivery_status,
+        CASE
+          WHEN COALESCE(NULLIF(TRIM(UPPER(s.delivery_status)), ''), 'PENDIENTE') = 'PENDIENTE'
+            AND UPPER(COALESCE(s.status, '')) = 'CARGADO'
+          THEN 'CARGADO'
+          ELSE COALESCE(NULLIF(TRIM(UPPER(s.delivery_status)), ''), 'PENDIENTE')
+        END AS delivery_status,
         s.delivery_payment,
         s.delivery_payment_method,
         s.delivery_final_payment_method,
@@ -793,8 +798,34 @@ router.post(
         return res.status(404).json({ message: "Pedido de envio no encontrado" });
       }
       if (sale.delivery_status !== "CARGADO") {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ message: "Solo pedidos CARGADO pueden marcarse ENTREGADO" });
+        // Data repair fallback: if control exists for the turn, promote this order to CARGADO.
+        const consolidated = await client.query(
+          `
+            SELECT id
+            FROM delivery_consolidated_controls
+            WHERE control_date = $1
+              AND slot = $2
+            LIMIT 1
+          `,
+          [sale.scheduled_date, sale.delivery_slot]
+        );
+        if (!consolidated.rows[0]) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "Solo pedidos CARGADO pueden marcarse ENTREGADO" });
+        }
+
+        await client.query(
+          `
+            UPDATE sales
+            SET
+              delivery_status = 'CARGADO',
+              status = CASE WHEN status IN ('PENDIENTE', 'PREPARADO') THEN 'CARGADO' ELSE status END,
+              updated_at = now()
+            WHERE id = $1
+          `,
+          [sale.id]
+        );
+        sale.delivery_status = "CARGADO";
       }
 
       const saleTotal = Number(sale.sale_total || 0);
