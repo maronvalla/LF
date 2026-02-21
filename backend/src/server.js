@@ -18,7 +18,11 @@ function isAllowedSocketOrigin(origin) {
     /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
     /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/.test(origin) ||
     /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}:\d+$/.test(origin);
-  return isLan;
+  if (isLan) return true;
+
+  // Capacitor origins (Android/iOS apps)
+  const isCapacitor = origin === "capacitor://localhost" || origin === "http://localhost";
+  return isCapacitor;
 }
 
 const io = new Server(server, {
