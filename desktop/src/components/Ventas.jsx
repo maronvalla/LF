@@ -792,7 +792,7 @@ export default function Ventas({ user, setToast }) {
       </div>
 
       {/* Row 3: Items Grid */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg flex-1 flex flex-col min-h-[300px] relative shrink-0">
+      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg flex-1 flex flex-col min-h-[380px] relative shrink-0">
         <div className="p-4 border-b border-zinc-800/50 flex flex-col gap-2 shrink-0">
           <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest block mb-1">Carga Rápida</label>
           <div className="flex gap-2 w-full items-end">
@@ -909,26 +909,26 @@ export default function Ventas({ user, setToast }) {
       </div>
 
       {/* Footer / Resumen */}
-      <div className="flex flex-col md:flex-row gap-4 shrink-0">
+      <div className="flex flex-col md:flex-row gap-3 shrink-0">
         {/* Left summary blocks */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-4 flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 items-center shrink-0">
+        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 items-center shrink-0">
           <div>
-            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Subtotal Neto</div>
-            <div className="text-xl font-bold text-white">${subtotal.toFixed(2)}</div>
+            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1">Subtotal Neto</div>
+            <div className="text-lg md:text-xl font-bold text-white">${subtotal.toFixed(2)}</div>
           </div>
           <div>
-            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Descuento Global</div>
-            <div className="text-xl font-bold text-white">$0.00</div>
+            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1">Descuento Global</div>
+            <div className="text-lg md:text-xl font-bold text-white">$0.00</div>
           </div>
           <div>
-            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Ítems</div>
-            <div className="text-xl font-bold text-[#e85d04]">{draft.items.reduce((acc, i) => acc + Number(i.qty), 0)}</div>
+            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1">Ítems</div>
+            <div className="text-lg md:text-xl font-bold text-[#e85d04]">{draft.items.reduce((acc, i) => acc + Number(i.qty), 0)}</div>
           </div>
 
           <div className="flex justify-end pr-2 md:col-span-1 col-span-2">
             {selectedIdx >= 0 && draft.items.length > 0 && (
               <button
-                className="text-rose-500 text-[10px] font-black uppercase tracking-wider hover:bg-rose-500/10 px-4 py-2.5 rounded-lg border border-rose-500/20 transition-colors w-full md:w-auto"
+                className="text-rose-500 text-[10px] font-black uppercase tracking-wider hover:bg-rose-500/10 px-4 py-2 rounded-lg border border-rose-500/20 transition-colors w-full md:w-auto"
                 onClick={() => {
                   setDraft((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== selectedIdx) }));
                   setSelectedIdx((x) => Math.max(0, x - 1));
@@ -941,24 +941,24 @@ export default function Ventas({ user, setToast }) {
         </div>
 
         {/* Right total & action */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-5 w-full md:w-72 flex flex-col items-center justify-center text-center shrink-0">
+        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3.5 w-full md:w-64 flex flex-col items-center justify-center text-center shrink-0">
           <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1 w-full flex justify-between px-2">
             <span>Total General</span>
           </div>
-          <div className="text-4xl md:text-4xl leading-none font-black text-white w-full mb-4 px-2 text-right truncate">
+          <div className="text-3xl md:text-3xl leading-none font-black text-white w-full mb-3 px-2 text-right truncate">
             ${subtotal.toFixed(2)}
           </div>
 
-          <div className="w-full grid grid-cols-2 md:grid-cols-1 gap-3 content-center">
+          <div className="w-full grid grid-cols-2 md:grid-cols-1 gap-2 content-center">
             <button
-              className="w-full bg-zinc-700 hover:bg-zinc-600 text-white font-black py-3 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-zinc-700 hover:bg-zinc-600 text-white font-black py-2.5 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={submitBudget}
               disabled={draft.items.length === 0}
             >
               <span className="text-[11px] md:text-sm">PRESUPUESTO</span>
             </button>
             <button
-              className="w-full bg-[#e85d04] hover:bg-[#d14f00] text-white font-black py-3 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-[#e85d04] hover:bg-[#d14f00] text-white font-black py-2.5 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={() => setShowPaymentModal(true)}
               disabled={draft.items.length === 0}
             >
