@@ -73,7 +73,13 @@ export default function DriverApp({ onLogout }) {
   useEffect(() => {
     setTrackingState('INICIANDO');
     console.log('[DriverApp] Connecting socket to:', socketOrigin);
-    const socket = io(socketOrigin);
+    const socket = io(socketOrigin, {
+      transports: ['websocket', 'polling'], // Start with websocket directly if possible, fallback to polling
+      tryAllTransports: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
+      timeout: 12000,
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -495,20 +501,20 @@ export default function DriverApp({ onLogout }) {
     }
   };
 
-  const handleRevertToPending = async (deliveryId) => {
+  const handleRevertToLoaded = async (deliveryId) => {
     setDeliverySubmitState(deliveryId, { loading: true, error: '' });
     try {
       const coords = await getCurrentCoords();
       await api.post(`/deliveries/${deliveryId}/mark-status`, {
-        status: 'PENDIENTE',
+        status: 'CARGADO',
         lat: coords.lat,
         lng: coords.lng,
       });
-      handleStatusChange(deliveryId, 'PENDIENTE');
+      handleStatusChange(deliveryId, 'CARGADO');
       await loadDriverBoard();
     } catch (err) {
       setDeliverySubmitState(deliveryId, {
-        error: err.response?.data?.message || 'No se pudo volver a pendiente.',
+        error: err.response?.data?.message || 'No se pudo volver a cargado.',
       });
     } finally {
       setDeliverySubmitState(deliveryId, { loading: false });
@@ -647,7 +653,14 @@ export default function DriverApp({ onLogout }) {
                 </button>
 
                 {/* Status Actions */}
-                {delivery.status === 'PENDIENTE' ? (
+                {delivery.status === 'ENTREGADO' || delivery.status === 'RECHAZADO' || delivery.status === 'NO_ESTABA' ? (
+                  <button
+                    onClick={() => handleRevertToLoaded(delivery.id)}
+                    className="w-full h-12 bg-zinc-950 text-zinc-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:text-white transition-colors"
+                  >
+                    Deshacer / Volver a Cargado
+                  </button>
+                ) : (
                   <div className="space-y-3">
                     <div className="rounded-2xl border border-zinc-700 bg-zinc-950 p-3 space-y-3">
                       <label className="text-[11px] uppercase tracking-wider font-bold text-zinc-400 block">
@@ -728,13 +741,6 @@ export default function DriverApp({ onLogout }) {
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => handleRevertToPending(delivery.id)}
-                    className="w-full h-12 bg-zinc-950 text-zinc-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:text-white transition-colors"
-                  >
-                    Deshacer / Volver a Pendiente
-                  </button>
                 )}
               </div>
             </div>

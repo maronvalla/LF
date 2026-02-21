@@ -2,6 +2,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const { app } = require("./app");
 const { pool } = require("./db");
+const { setIO } = require("./realtime");
 
 const port = process.env.PORT || 4000;
 const server = http.createServer(app);
@@ -20,6 +21,7 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+setIO(io);
 
 io.on("connection", (socket) => {
   console.log("🟢 Nuevo dispositivo conectado al radar:", socket.id);

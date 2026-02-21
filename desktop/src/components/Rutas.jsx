@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import api from "../api";
+import { io } from "socket.io-client";
+import api, { socketOrigin } from "../api";
 
 // Fix Leaflet default icons
 import icon from "leaflet/dist/images/marker-icon.png";
@@ -123,6 +124,44 @@ export default function Rutas({ setToast }) {
     setOptimizedRoute(null);
     setMetrics(null);
     setSkippedOrders([]);
+  }, [fecha, salida]);
+
+  useEffect(() => {
+    const socket = io(socketOrigin, {
+      transports: ["websocket", "polling"],
+      tryAllTransports: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
+      timeout: 12000,
+    });
+
+    const onDeliveryStatusChanged = (event = {}) => {
+      const eventDate = String(event.scheduled_date || "").slice(0, 10);
+      const eventSlot = String(event.delivery_slot || "");
+      if (!eventDate || !eventSlot) return;
+      if (eventDate !== fecha || eventSlot !== salida) return;
+
+      const saleId = String(event.sale_id || "");
+      if (!saleId) return;
+
+      const nextStatus = String(event.delivery_status || "").toUpperCase();
+      if (!nextStatus) return;
+
+      setOrders((prev) =>
+        prev.map((order) =>
+          String(order.id) === saleId
+            ? { ...order, delivery_status: nextStatus }
+            : order
+        )
+      );
+    };
+
+    socket.on("delivery_status_changed", onDeliveryStatusChanged);
+
+    return () => {
+      socket.off("delivery_status_changed", onDeliveryStatusChanged);
+      socket.disconnect();
+    };
   }, [fecha, salida]);
 
   // Optimize route

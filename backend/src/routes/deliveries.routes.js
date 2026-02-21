@@ -4,6 +4,7 @@ const { pool } = require("../db");
 const { requirePermission, isAdmin } = require("../middleware/rbac");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
+const { getIO } = require("../realtime");
 
 const router = express.Router();
 
@@ -73,6 +74,20 @@ function requireConsolidatedControlRole(req, res) {
   return res.status(403).json({ message: "Solo CAJERO o ADMIN pueden controlar el consolidado" });
 }
 
+function emitDeliveryStatusChanged(row) {
+  const io = getIO();
+  if (!io || !row) return;
+
+  io.emit("delivery_status_changed", {
+    sale_id: row.id,
+    sale_number: row.sale_number || null,
+    delivery_status: row.delivery_status || null,
+    scheduled_date: row.scheduled_date || null,
+    delivery_slot: row.delivery_slot || null,
+    updated_at: row.delivery_status_updated_at || row.updated_at || new Date().toISOString(),
+  });
+}
+
 async function getOrCreateDelivery(client, userId, deliveryDate, shift) {
   const found = await client.query(
     "SELECT * FROM deliveries WHERE delivery_date = $1 AND shift = $2 FOR UPDATE",
@@ -107,7 +122,7 @@ async function listDeliveryOrders(date, slot) {
         s.scheduled_date,
         s.delivery_slot,
         CASE
-          WHEN COALESCE(NULLIF(TRIM(UPPER(s.delivery_status)), ''), 'PENDIENTE') = 'PENDIENTE'
+          WHEN NULLIF(TRIM(UPPER(s.delivery_status)), '') IS NULL
             AND UPPER(COALESCE(s.status, '')) = 'CARGADO'
           THEN 'CARGADO'
           ELSE COALESCE(NULLIF(TRIM(UPPER(s.delivery_status)), ''), 'PENDIENTE')
@@ -734,7 +749,9 @@ router.post(
       });
 
       await client.query("COMMIT");
-      res.json(updated.rows[0]);
+      const updatedSale = updated.rows[0];
+      emitDeliveryStatusChanged(updatedSale);
+      res.json(updatedSale);
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
@@ -900,7 +917,9 @@ router.post(
         client,
       });
       await client.query("COMMIT");
-      res.json(updated.rows[0]);
+      const updatedSale = updated.rows[0];
+      emitDeliveryStatusChanged(updatedSale);
+      res.json(updatedSale);
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
