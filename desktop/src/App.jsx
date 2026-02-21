@@ -15,6 +15,7 @@ import Proveedores from "./components/Proveedores";
 import Rutas from "./components/Rutas";
 import Consolidado from "./components/Consolidado";
 import Configuracion from "./components/Configuracion";
+import Caja from "./components/Caja";
 
 const TABS = [
   "Dashboard",
@@ -24,6 +25,7 @@ const TABS = [
   "🏷️ Ventas",
   "🛵 Reparto",
   "📊 Consolidado",
+  "💰 Caja",
   "🧭 Configuracion",
   "🗺️ Rutas",
   "📝 ConsultarVentas",
@@ -47,7 +49,7 @@ const SHORTCUTS = {
 
 const ROLE_TABS = {
   ADMIN: TABS.filter((t) => t !== "Dashboard"),
-  CAJERO: ["📦 Productos", "👥 Clientes", "🛒 Compras", "📝 ConsultarVentas", "📊 Consolidado", "🗺️ Rutas", "🚚 Proveedores"],
+  CAJERO: ["📦 Productos", "👥 Clientes", "🛒 Compras", "📝 ConsultarVentas", "📊 Consolidado", "💰 Caja", "🗺️ Rutas", "🚚 Proveedores"],
   VENDEDOR: ["🏷️ Ventas", "🗺️ Rutas"],
 };
 
@@ -562,7 +564,7 @@ function Sales({ user, setToast }) {
               <option value="PAGADO_LOCAL">PAGADO EN LOCAL</option>
               <option value="TRANSFER_PREVIA">TRANSFERENCIA PREVIA</option>
               <option value="COBRAR_EN_ENTREGA">COBRAR EN ENTREGA</option>
-              <option value="PAGO_LOCAL_TRANSFERENCIA">PAGO LOCAL TRANSFERENCIA</option>
+              <option value="PAGO_ENTREGA_TRANSFERENCIA">PAGO ENTREGA TRANSFERENCIA</option>
             </select>
           </div>
           <div className="col-span-2">
@@ -778,11 +780,16 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.defaultPrevented) return;
+
       const role = String(user?.role || "").toUpperCase();
       const allowedTabs = ROLE_TABS[role] || [];
       const allowedShortcuts = Object.fromEntries(
         Object.entries(SHORTCUTS).filter(([, tab]) => allowedTabs.includes(tab))
       );
+
+      const hasOpenModal = Boolean(document.querySelector(".fixed.inset-0"));
+      if (hasOpenModal) return;
 
       // Global Escape listener to return Home
       if (e.key === "Escape" && activeTab !== "Dashboard") {
@@ -873,6 +880,11 @@ export default function App() {
               borderClass = "hover:border-rose-500/50";
               shadowClass = "hover:shadow-[0_10px_40px_rgba(244,63,94,0.1)]";
               gradientClass = "from-rose-500/10";
+            } else if (tab.includes("Caja")) {
+              colorClass = "group-hover:text-yellow-400";
+              borderClass = "hover:border-yellow-400/50";
+              shadowClass = "hover:shadow-[0_10px_40px_rgba(250,204,21,0.1)]";
+              gradientClass = "from-yellow-400/10";
             }
 
             return (
@@ -932,7 +944,7 @@ export default function App() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-auto p-4 md:p-6 pb-6">
+          <div className="flex-1 overflow-auto p-4 md:p-6 pb-6 pt-20">
             {activeTab === "Dashboard" && <Dashboard user={user} setToast={setToast} />}
             {activeTab === "📦 Productos" && <Productos user={user} setToast={setToast} />}
             {activeTab === "👥 Clientes" && <Clientes setToast={setToast} />}
@@ -947,6 +959,7 @@ export default function App() {
                 <AdminTrackingMap user={user} />
               ))}
             {activeTab === "📊 Consolidado" && <Consolidado user={user} setToast={setToast} />}
+            {activeTab === "💰 Caja" && <Caja user={user} setToast={setToast} />}
             {activeTab === "🧭 Configuracion" && <Configuracion user={user} setToast={setToast} />}
             {activeTab === "🗺️ Rutas" && <Rutas setToast={setToast} />}
             {activeTab === "🏢 Inventario" && <Inventario setToast={setToast} />}

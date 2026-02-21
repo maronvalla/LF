@@ -4,4 +4,4 @@ dist
 backend/.env
 desktop/.env
 npm-debug.log*
-
+desktop/release/

@@ -3,6 +3,8 @@ import api from "../api";
 import PaymentModal from "./PaymentModal";
 import SearchableSelect from "./SearchableSelect";
 import ProductSearchModal from "./ProductSearchModal";
+import { DEFAULT_TICKET_CONFIG, loadTicketConfig } from "../utils/ticketConfig";
+import { DEFAULT_DELIVERY_CONDITIONS, loadDeliveryConditions } from "../utils/deliveryPaymentConditions";
 
 
 const ROLES_VENDEDOR_HABILITADOS = ["VENDEDOR", "CAJERO", "ADMIN"];
@@ -21,6 +23,13 @@ export default function Ventas({ user, setToast }) {
   const [showQuickClientModal, setShowQuickClientModal] = useState(false);
   const [savingQuickClient, setSavingQuickClient] = useState(false);
   const [showQtyEditModal, setShowQtyEditModal] = useState(false);
+  const [showPrintPrompt, setShowPrintPrompt] = useState(false);
+  const [printPreviewLines, setPrintPreviewLines] = useState([]);
+  const [availablePrinters, setAvailablePrinters] = useState([]);
+  const [selectedPrinter, setSelectedPrinter] = useState("");
+  const [printPromptTitle, setPrintPromptTitle] = useState("Imprimir comprobante");
+  const [ticketConfig, setTicketConfig] = useState(DEFAULT_TICKET_CONFIG);
+  const [deliveryConditions, setDeliveryConditions] = useState(DEFAULT_DELIVERY_CONDITIONS);
   const [qtyEditValue, setQtyEditValue] = useState("");
   const [listaActiva, setListaActiva] = useState("MINORISTA");
   const [listaClienteOriginal, setListaClienteOriginal] = useState("MINORISTA");
@@ -29,6 +38,7 @@ export default function Ventas({ user, setToast }) {
 
   const customerSelectRef = useRef(null);
   const codeInputRef = useRef(null);
+  const printPromptResolverRef = useRef(null);
   const [showProductModal, setShowProductModal] = useState(false);
   const [quickClientDraft, setQuickClientDraft] = useState({
     name: "",
@@ -66,7 +76,17 @@ export default function Ventas({ user, setToast }) {
       }
     };
     load();
+    setTicketConfig(loadTicketConfig());
+    setDeliveryConditions(loadDeliveryConditions());
   }, [setToast]);
+
+  useEffect(() => {
+    if (!deliveryConditions.length) return;
+    const exists = deliveryConditions.some((c) => c.value === draft.paymentCondition);
+    if (!exists) {
+      setDraft((prev) => ({ ...prev, paymentCondition: deliveryConditions[0].value }));
+    }
+  }, [deliveryConditions, draft.paymentCondition]);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -112,6 +132,63 @@ export default function Ventas({ user, setToast }) {
     });
     setShowQtyEditModal(false);
   };
+
+  const askPrintConfirmation = (lines, title = "Imprimir comprobante") =>
+    new Promise(async (resolve) => {
+      printPromptResolverRef.current = resolve;
+      setPrintPreviewLines(Array.isArray(lines) ? lines : []);
+      setPrintPromptTitle(title);
+      try {
+        const printerApi = window?.desktopEnv?.listPrinters;
+        if (typeof printerApi === "function") {
+          const printers = (await printerApi()) || [];
+          setAvailablePrinters(printers);
+          const xp58 = printers.find((p) => /xp-?58/i.test(String(p.name || p.displayName || "")));
+          setSelectedPrinter(xp58?.name || printers[0]?.name || "");
+        } else {
+          setAvailablePrinters([]);
+          setSelectedPrinter("");
+        }
+      } catch {
+        setAvailablePrinters([]);
+        setSelectedPrinter("");
+      }
+      setShowPrintPrompt(true);
+    });
+
+  const resolvePrintConfirmation = (value) => {
+    const resolver = printPromptResolverRef.current;
+    printPromptResolverRef.current = null;
+    setShowPrintPrompt(false);
+    if (typeof resolver === "function") {
+      resolver({ shouldPrint: Boolean(value), deviceName: selectedPrinter || undefined });
+    }
+  };
+
+  useEffect(() => {
+    if (!showPrintPrompt) return undefined;
+    const onKeyDown = (e) => {
+      const key = String(e.key || "").toLowerCase();
+      if (key === "y") {
+        e.preventDefault();
+        resolvePrintConfirmation(true);
+      } else if (key === "n" || key === "escape") {
+        e.preventDefault();
+        resolvePrintConfirmation(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showPrintPrompt]);
+
+  useEffect(() => {
+    return () => {
+      if (printPromptResolverRef.current) {
+        printPromptResolverRef.current(false);
+        printPromptResolverRef.current = null;
+      }
+    };
+  }, []);
 
   const normalizarLista = (lista) => {
     const normalized = String(lista || "MINORISTA").toUpperCase();
@@ -235,6 +312,149 @@ export default function Ventas({ user, setToast }) {
     setQty(1);
   };
 
+  const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
+
+  const buildTicketLines = ({ saleData, paymentData }, opts = {}) => {
+    const MAX = 32;
+    const docLabel = opts.docLabel || "Factura B";
+    const includePayment = opts.includePayment !== false;
+    const budgetNotice = Boolean(opts.budgetNotice);
+    const repeat = (char, len) => new Array(Math.max(0, len) + 1).join(char);
+    const center = (text) => {
+      const t = String(text || "").slice(0, MAX);
+      const left = Math.max(0, Math.floor((MAX - t.length) / 2));
+      return `${repeat(" ", left)}${t}`;
+    };
+    const leftRight = (left, right) => {
+      const l = String(left || "");
+      const r = String(right || "");
+      const avail = Math.max(1, MAX - r.length);
+      const trimmedLeft = l.length > avail ? `${l.slice(0, avail - 1)}.` : l;
+      const spaces = Math.max(1, MAX - trimmedLeft.length - r.length);
+      return `${trimmedLeft}${repeat(" ", spaces)}${r}`;
+    };
+
+    const now = new Date();
+    const saleNumber = opts.ticketNumberOverride || saleData?.sale_number || saleData?.number || saleData?.id || "S/N";
+    const sellerName = vendedoresActivos.find((u) => u.id === draft.sellerId);
+    const sellerLabel = String(
+      sellerName?.full_name || sellerName?.fullName || sellerName?.username || user?.username || "N/A"
+    ).toUpperCase();
+    const paymentMethod = String(paymentData?.paymentMethod || "EFECTIVO").toUpperCase();
+
+    const formatDate = now.toLocaleDateString("es-AR");
+    const formatTime = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    const ticketNumber = String(saleNumber);
+    const customerLabel = String(draft.customerName || "CONSUMIDOR FINAL");
+
+    const templateVars = {
+      cliente: customerLabel,
+      vendedor: sellerLabel,
+      ticket: ticketNumber,
+      fecha: formatDate,
+      hora: formatTime,
+      total: formatMoney(subtotal),
+      pago: paymentMethod,
+      tipo: docLabel,
+    };
+
+    const applyTemplate = (line) =>
+      String(line || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => templateVars[key] ?? "");
+
+    const lines = [];
+    if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
+    if (ticketConfig.addressLine) lines.push(center(ticketConfig.addressLine));
+    if (ticketConfig.cityLine) lines.push(center(ticketConfig.cityLine));
+    lines.push(repeat("-", MAX));
+    if (ticketConfig.includeComprobante) lines.push(leftRight("Comprobante", docLabel));
+    if (ticketConfig.includeTicketNumber) lines.push(leftRight("Ticket", ticketNumber));
+    if (ticketConfig.includeDate) lines.push(leftRight("Fecha", formatDate));
+    if (ticketConfig.includeTime) lines.push(leftRight("Hora", formatTime));
+    if (ticketConfig.includeSeller) lines.push(leftRight("Vendedor", sellerLabel.slice(0, 16)));
+    lines.push(repeat("-", MAX));
+    if (ticketConfig.includeClient) {
+      lines.push(`Cliente: ${customerLabel.slice(0, MAX - 9)}`);
+      lines.push(repeat("-", MAX));
+    }
+    lines.push(leftRight("Cant x P.Unit", "Importe"));
+
+    draft.items.forEach((item) => {
+      const qtyLabel = Number(item.qty || 0).toString();
+      const unitPrice = Number(item.unitPrice || 0);
+      const lineTotal = Number(item.qty || 0) * unitPrice;
+      lines.push(String(item.name || "").toUpperCase().slice(0, MAX));
+      lines.push(leftRight(`${qtyLabel} x ${formatMoney(unitPrice)}`, formatMoney(lineTotal)));
+    });
+
+    lines.push(repeat("-", MAX));
+    lines.push(leftRight("TOTAL", formatMoney(subtotal)));
+    if (ticketConfig.includePaymentDetail && includePayment) {
+      lines.push(leftRight("Pago", paymentMethod));
+      if (paymentMethod === "MIXTO") {
+        lines.push(leftRight("Efectivo", formatMoney(paymentData?.cashAmount)));
+        lines.push(leftRight("Transfer.", formatMoney(paymentData?.transferAmount)));
+      } else if (paymentMethod === "EFECTIVO") {
+        lines.push(leftRight("Abona con", formatMoney(paymentData?.cashGiven)));
+        lines.push(leftRight("Vuelto", formatMoney(paymentData?.changeAmount)));
+      }
+    }
+
+    const customLines = Array.isArray(ticketConfig.customLines) ? ticketConfig.customLines : [];
+    if (customLines.length) {
+      lines.push(repeat("-", MAX));
+      customLines.forEach((line) => {
+        const rendered = applyTemplate(line);
+        if (rendered) lines.push(rendered.slice(0, MAX));
+      });
+    }
+
+    if (budgetNotice) {
+      lines.push(repeat("-", MAX));
+      lines.push(center("PRESUPUESTO SIN VALIDEZ FISCAL"));
+    }
+    lines.push(repeat("-", MAX));
+    if (ticketConfig.footerText) lines.push(center(ticketConfig.footerText));
+    lines.push("");
+    lines.push("");
+    lines.push("");
+    return lines;
+  };
+
+  const printReceipt = async ({ lines, deviceName }) => {
+    const ticket = { lines: Array.isArray(lines) ? lines : [] };
+    const canUseElectronPrinter =
+      typeof window !== "undefined" &&
+      window.desktopEnv &&
+      typeof window.desktopEnv.printTicket === "function";
+
+    if (canUseElectronPrinter) {
+      try {
+        await window.desktopEnv.printTicket({ ticket, deviceName });
+        return;
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        if (!/No handler registered for 'ticket:print'/i.test(msg)) {
+          throw err;
+        }
+      }
+    }
+
+    const printable = window.open("", "_blank", "width=420,height=900");
+    if (!printable) throw new Error("No se pudo abrir ventana de impresion");
+    printable.document.write(`
+      <html><head><title>Ticket</title><style>
+      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: 11px; }
+      .line { white-space: pre; }
+      </style></head><body>
+      ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
+      </body></html>
+    `);
+    printable.document.close();
+    printable.focus();
+    printable.print();
+    printable.close();
+  };
+
   const submit = async (paymentData) => {
     if (!draft.items.length) {
       setToast?.({ message: "Venta vacia", type: "error" });
@@ -255,6 +475,7 @@ export default function Ventas({ user, setToast }) {
 
     try {
       const vendedorId = draft.sellerId || localStorage.getItem(VENDEDOR_LOCAL_KEY) || user.id;
+      const selectedCondition = String(draft.paymentCondition || "PAGADO_LOCAL").toUpperCase();
       const payload = {
         ...draft,
         sellerId: vendedorId,
@@ -268,11 +489,25 @@ export default function Ventas({ user, setToast }) {
         })),
         saleType: isDelivery ? "ENVIO" : "MOSTRADOR",
         shift: isDelivery ? draft.shift : null,
-        paymentCondition: isDelivery ? draft.paymentCondition : null,
+        paymentCondition: isDelivery ? selectedCondition : null,
         deliveryAddress: isDelivery ? draft.deliveryAddress : null,
       };
 
-      await api.post("/sales", payload);
+      const saleResponse = await api.post("/sales", payload);
+
+      const lines = buildTicketLines({ saleData: saleResponse?.data, paymentData }, { docLabel: "Factura B" });
+      const printDecision = await askPrintConfirmation(lines, "Imprimir comprobante");
+      if (printDecision?.shouldPrint) {
+        try {
+          await printReceipt({ lines, deviceName: printDecision?.deviceName });
+        } catch (printError) {
+          console.error("No se pudo imprimir ticket:", printError);
+          setToast?.({
+            message: "Venta guardada. No se pudo imprimir el comprobante.",
+            type: "error",
+          });
+        }
+      }
 
       if (draft.customerId && cambioManualLista && listaActiva !== listaClienteOriginal) {
         const confirmarGuardar = window.confirm(
@@ -297,9 +532,60 @@ export default function Ventas({ user, setToast }) {
       setListaClienteOriginal("MINORISTA");
       setCambioManualLista(false);
       setIsDelivery(false);
+      setDeliveryConditions(loadDeliveryConditions());
     } catch (err) {
       setToast?.({ message: err.response?.data?.message || "Error al guardar", type: "error" });
     }
+  };
+
+  const submitBudget = async () => {
+    if (!draft.items.length) {
+      setToast?.({ message: "Presupuesto vacio", type: "error" });
+      return;
+    }
+    if (isDelivery && !draft.customerId) {
+      setToast?.({ message: "Para envio debes seleccionar un cliente registrado", type: "error" });
+      return;
+    }
+    if (isDelivery && !String(draft.deliveryAddress || "").trim()) {
+      setToast?.({ message: "Para envio la direccion es obligatoria", type: "error" });
+      return;
+    }
+    if (!isDelivery && !draft.customerId && !String(draft.customerName || "").trim()) {
+      setToast?.({ message: "Ingresa un nombre para el cliente del presupuesto", type: "error" });
+      return;
+    }
+
+    const now = new Date();
+    const budgetNumber = `PRES-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+      now.getDate()
+    ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+
+    const lines = buildTicketLines(
+      { saleData: { sale_number: budgetNumber }, paymentData: {} },
+      {
+        docLabel: "PRESUPUESTO",
+        includePayment: false,
+        ticketNumberOverride: budgetNumber,
+        budgetNotice: true,
+      }
+    );
+
+    const printDecision = await askPrintConfirmation(lines, "Imprimir presupuesto");
+    if (printDecision?.shouldPrint) {
+      try {
+        await printReceipt({ lines, deviceName: printDecision?.deviceName });
+      } catch (printError) {
+        console.error("No se pudo imprimir presupuesto:", printError);
+        setToast?.({
+          message: "No se pudo imprimir el presupuesto",
+          type: "error",
+        });
+        return;
+      }
+    }
+    setToast?.({ message: "Presupuesto generado", type: "success" });
+    setDeliveryConditions(loadDeliveryConditions());
   };
 
   const createQuickClient = async () => {
@@ -353,15 +639,15 @@ export default function Ventas({ user, setToast }) {
       </div>
 
       {/* Row 1: Top parameters */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-4 gap-6">
+      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 shrink-0">
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Comprobante</label>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Comprobante</label>
           <div className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-black text-[#e85d04]">
             {draft.invoiceType}
           </div>
         </div>
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Vendedor</label>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Vendedor</label>
           <select
             className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
             value={draft.sellerId}
@@ -375,7 +661,7 @@ export default function Ventas({ user, setToast }) {
           </select>
         </div>
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Cond. Pago / Lista</label>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Cond. Pago / Lista</label>
           <select
             className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
             value={listaActiva}
@@ -386,18 +672,18 @@ export default function Ventas({ user, setToast }) {
           </select>
         </div>
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Fecha</label>
-          <div className="w-full p-2.5 text-xs text-zinc-300 font-mono">
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Fecha</label>
+          <div className="w-full p-2.5 text-xs text-zinc-300 font-mono flex items-center h-[38px]">
             {new Date().toLocaleDateString('en-US')}
           </div>
         </div>
       </div>
 
       {/* Row 2: Customer */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 flex flex-col gap-3">
-        <div className="flex items-end gap-3 w-full">
-          <div className="flex-1">
-            <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Cliente</label>
+      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 flex flex-col gap-3 shrink-0">
+        <div className="flex flex-col md:flex-row items-end gap-3 w-full">
+          <div className="flex-1 w-full">
+            <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Cliente</label>
             <SearchableSelect
               inputRef={customerSelectRef}
               options={[
@@ -436,31 +722,33 @@ export default function Ventas({ user, setToast }) {
             </div>
           </div>
 
-          <button
-            className="bg-[#2a2a2a] hover:bg-[#333] text-white border border-zinc-700/50 rounded-lg px-6 h-[38px] flex flex-col items-center justify-center transition-colors"
-            onClick={() => customerSelectRef.current?.focus()}
-          >
-            <span className="text-xs font-bold leading-none mb-1">BUSCAR</span>
-            <span className="text-[9px] text-zinc-400 leading-none">(F3)</span>
-          </button>
+          <div className="flex gap-2 w-full md:w-auto">
+            <button
+              className="flex-1 md:flex-none bg-[#2a2a2a] hover:bg-[#333] text-white border border-zinc-700/50 rounded-lg px-6 h-[38px] flex flex-col items-center justify-center transition-colors"
+              onClick={() => customerSelectRef.current?.focus()}
+            >
+              <span className="text-xs font-bold leading-none mb-1">BUSCAR</span>
+              <span className="text-[9px] text-zinc-400 leading-none">(F3)</span>
+            </button>
 
-          <button
-            className="bg-[#e85d04] hover:bg-[#d14f00] text-white border border-[#e85d04]/60 rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[10px] font-black uppercase tracking-widest"
-            onClick={() => setShowQuickClientModal(true)}
-            type="button"
-          >
-            Registrar cliente
-          </button>
+            <button
+              className="flex-1 md:flex-none bg-[#e85d04] hover:bg-[#d14f00] text-white border border-[#e85d04]/60 rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[10px] font-black uppercase tracking-widest"
+              onClick={() => setShowQuickClientModal(true)}
+              type="button"
+            >
+              Registrar
+            </button>
+          </div>
         </div>
 
         {!isDelivery && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
             <div>
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">
                 Nombre cliente mostrador (no registrado)
               </label>
               <input
-                className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
+                className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]"
                 value={draft.customerName}
                 onChange={(e) => setDraft((prev) => ({ ...prev, customerId: "", customerName: e.target.value }))}
                 placeholder="Ej: Juan Perez"
@@ -473,42 +761,47 @@ export default function Ventas({ user, setToast }) {
         )}
 
         {isDelivery && (
-          <div className="grid grid-cols-4 gap-4 pt-3 border-t border-zinc-800/50 mt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-zinc-800/50 mt-1">
             <div>
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Salida Est.</label>
-              <select className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-xs font-bold text-white outline-none focus:border-[#e85d04]" value={draft.shift} onChange={(e) => setDraft((p) => ({ ...p, shift: e.target.value }))}>
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Salida Est.</label>
+              <select className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]" value={draft.shift} onChange={(e) => setDraft((p) => ({ ...p, shift: e.target.value }))}>
                 <option value="MANIANA">MAÑANA (11:00)</option>
                 <option value="TARDE">TARDE (19:00)</option>
               </select>
             </div>
             <div>
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Condición</label>
-              <select className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-xs font-bold text-white outline-none focus:border-[#e85d04]" value={draft.paymentCondition} onChange={(e) => setDraft((p) => ({ ...p, paymentCondition: e.target.value }))}>
-                <option value="PAGADO_LOCAL">PAGADO LOCAL</option>
-                <option value="TRANSFER_PREVIA">TRANSFERENCIA PREVIA</option>
-                <option value="COBRAR_EN_ENTREGA">COBRAR EN ENTREGA</option>
-                <option value="PAGO_LOCAL_TRANSFERENCIA">PAGO LOCAL TRANSFERENCIA</option>
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Condición</label>
+              <select
+                className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]"
+                value={draft.paymentCondition}
+                onChange={(e) => setDraft((p) => ({ ...p, paymentCondition: e.target.value }))}
+              >
+                {deliveryConditions.map((condition) => (
+                  <option key={condition.value} value={condition.value}>
+                    {condition.label}
+                  </option>
+                ))}
               </select>
             </div>
-            <div className="col-span-2">
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Dirección de Entrega</label>
-              <input className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-xs font-bold text-white outline-none focus:border-[#e85d04]" placeholder="Dirección..." value={draft.deliveryAddress} onChange={(e) => setDraft((p) => ({ ...p, deliveryAddress: e.target.value }))} />
+            <div className="col-span-1 sm:col-span-2">
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Dirección de Entrega</label>
+              <input className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]" placeholder="Dirección..." value={draft.deliveryAddress} onChange={(e) => setDraft((p) => ({ ...p, deliveryAddress: e.target.value }))} />
             </div>
           </div>
         )}
       </div>
 
       {/* Row 3: Items Grid */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg flex-1 flex flex-col min-h-0 relative">
-        <div className="p-4 border-b border-zinc-800/50 flex flex-col gap-1">
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest block mb-1">Carga Rápida</label>
-          <div className="flex gap-4 items-center">
+      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg flex-1 flex flex-col min-h-[300px] relative shrink-0">
+        <div className="p-4 border-b border-zinc-800/50 flex flex-col gap-2 shrink-0">
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest block mb-1">Carga Rápida</label>
+          <div className="flex gap-2 w-full items-end">
 
-            <div className="flex-1 flex gap-2 items-center">
-              <label className="text-sm font-black text-zinc-400 uppercase mr-2">Código:</label>
+            <div className="flex-1 flex gap-2 w-full items-center">
+              <label className="text-sm font-black text-zinc-400 uppercase hidden md:inline-block mr-2">Código:</label>
               <input
                 ref={codeInputRef}
-                className="w-1/3 min-w-[200px] bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-lg font-bold text-white outline-none focus:border-[#e85d04] placeholder-zinc-700 font-mono"
+                className="w-full md:w-1/3 md:min-w-[200px] bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-lg font-bold text-white outline-none focus:border-[#e85d04] placeholder-zinc-700 font-mono"
                 placeholder="Escanee o tipee el código..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -534,7 +827,7 @@ export default function Ventas({ user, setToast }) {
                 autoComplete="off"
               />
               <button
-                className="bg-[#2a2a2a] hover:bg-[#333] border border-zinc-700/50 text-white rounded w-[50px] h-[46px] flex flex-col items-center justify-center transition-colors shadow-md"
+                className="bg-[#2a2a2a] hover:bg-[#333] border border-zinc-700/50 text-white rounded w-[50px] h-[46px] flex flex-col items-center justify-center transition-colors shadow-md shrink-0"
                 onClick={() => setShowProductModal(true)}
                 title="Búsqueda de Artículos (F5)"
               >
@@ -543,8 +836,8 @@ export default function Ventas({ user, setToast }) {
               </button>
             </div>
 
-            <div className="w-24 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest">CANT</label>
+            <div className="w-full sm:w-24 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest">CANT</label>
               <input
                 type="number"
                 min={1}
@@ -556,7 +849,7 @@ export default function Ventas({ user, setToast }) {
           </div>
 
           {search && filteredProducts.length > 0 && (
-            <div className="absolute top-[85px] left-4 right-28 z-50 bg-[#1a1a1a] border border-zinc-700 rounded-lg shadow-2xl max-h-60 overflow-auto">
+            <div className="absolute top-[85px] left-4 right-4 z-50 bg-[#1a1a1a] border border-zinc-700 rounded-lg shadow-2xl max-h-60 overflow-auto">
               {filteredProducts.map((p) => (
                 <button
                   key={p.id}
@@ -576,9 +869,9 @@ export default function Ventas({ user, setToast }) {
           )}
         </div>
 
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-[11px] text-left">
-            <thead className="text-[9px] uppercase text-zinc-500 tracking-widest bg-[#121212] border-b border-zinc-800/50 sticky top-0 z-10">
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full text-xs md:text-[11px] text-left min-w-[600px]">
+            <thead className="text-[10px] md:text-[9px] uppercase text-zinc-500 tracking-widest bg-[#121212] border-b border-zinc-800/50 sticky top-0 z-10">
               <tr>
                 <th className="px-5 py-3 font-black w-20">CANT</th>
                 <th className="px-5 py-3 font-black w-40">CÓDIGO</th>
@@ -616,26 +909,26 @@ export default function Ventas({ user, setToast }) {
       </div>
 
       {/* Footer / Resumen */}
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row gap-4 shrink-0">
         {/* Left summary blocks */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-4 flex-1 grid grid-cols-4 gap-6 items-center">
+        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-4 flex-1 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 items-center shrink-0">
           <div>
-            <div className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Subtotal Neto</div>
+            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Subtotal Neto</div>
             <div className="text-xl font-bold text-white">${subtotal.toFixed(2)}</div>
           </div>
           <div>
-            <div className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Descuento Global</div>
+            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Descuento Global</div>
             <div className="text-xl font-bold text-white">$0.00</div>
           </div>
           <div>
-            <div className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Ítems</div>
+            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Ítems</div>
             <div className="text-xl font-bold text-[#e85d04]">{draft.items.reduce((acc, i) => acc + Number(i.qty), 0)}</div>
           </div>
 
-          <div className="flex justify-end pr-2">
+          <div className="flex justify-end pr-2 md:col-span-1 col-span-2">
             {selectedIdx >= 0 && draft.items.length > 0 && (
               <button
-                className="text-rose-500 text-[10px] font-black uppercase tracking-wider hover:bg-rose-500/10 px-4 py-2.5 rounded-lg border border-rose-500/20 transition-colors"
+                className="text-rose-500 text-[10px] font-black uppercase tracking-wider hover:bg-rose-500/10 px-4 py-2.5 rounded-lg border border-rose-500/20 transition-colors w-full md:w-auto"
                 onClick={() => {
                   setDraft((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== selectedIdx) }));
                   setSelectedIdx((x) => Math.max(0, x - 1));
@@ -648,25 +941,88 @@ export default function Ventas({ user, setToast }) {
         </div>
 
         {/* Right total & action */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-5 w-72 flex flex-col items-center justify-center text-center">
-          <div className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1 w-full flex justify-between px-2">
+        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-5 w-full md:w-72 flex flex-col items-center justify-center text-center shrink-0">
+          <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1 w-full flex justify-between px-2">
             <span>Total General</span>
           </div>
-          <div className="text-4xl leading-none font-black text-white w-full mb-3 px-2 text-right">
+          <div className="text-4xl md:text-4xl leading-none font-black text-white w-full mb-4 px-2 text-right truncate">
             ${subtotal.toFixed(2)}
           </div>
 
-          <button
-            className="w-full bg-[#e85d04] hover:bg-[#d14f00] text-white font-black py-3 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => setShowPaymentModal(true)}
-            disabled={draft.items.length === 0}
-          >
-            <span className="text-sm">COBRAR</span>
-          </button>
+          <div className="w-full grid grid-cols-2 md:grid-cols-1 gap-3 content-center">
+            <button
+              className="w-full bg-zinc-700 hover:bg-zinc-600 text-white font-black py-3 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={submitBudget}
+              disabled={draft.items.length === 0}
+            >
+              <span className="text-[11px] md:text-sm">PRESUPUESTO</span>
+            </button>
+            <button
+              className="w-full bg-[#e85d04] hover:bg-[#d14f00] text-white font-black py-3 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => setShowPaymentModal(true)}
+              disabled={draft.items.length === 0}
+            >
+              <span className="text-[11px] md:text-sm">COBRAR</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {showPaymentModal && <PaymentModal total={subtotal} onClose={() => setShowPaymentModal(false)} onConfirm={submit} />}
+      {showPaymentModal && (
+        <PaymentModal
+          total={subtotal}
+          onClose={() => setShowPaymentModal(false)}
+          onConfirm={submit}
+          requireCashGiven={String(user?.role || "").toUpperCase() !== "VENDEDOR"}
+        />
+      )}
+
+      {showPrintPrompt && (
+        <div className="fixed inset-0 bg-black/70 z-[80] flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-[#121212] p-5 space-y-4">
+            <div className="text-lg font-black uppercase tracking-wider text-[#e85d04]">{printPromptTitle}</div>
+            <div className="text-sm text-zinc-300">
+              Vista previa y confirmacion de impresion
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-500">Impresora</label>
+              <select
+                className="input mt-1"
+                value={selectedPrinter}
+                onChange={(e) => setSelectedPrinter(e.target.value)}
+              >
+                {!availablePrinters.length && <option value="">Predeterminada del sistema</option>}
+                {availablePrinters.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.displayName || p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="border border-zinc-800 rounded-lg bg-white text-black p-3 max-h-80 overflow-auto">
+              <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight">
+                {printPreviewLines.map((line, idx) => (
+                  <div key={`${line}-${idx}`} className="whitespace-pre">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="text-xs text-zinc-500">
+              Atajos: <span className="font-black text-zinc-300">Y</span> = SI,{" "}
+              <span className="font-black text-zinc-300">N</span> = NO
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" className="btn btn-muted" onClick={() => resolvePrintConfirmation(false)}>
+                No (N)
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => resolvePrintConfirmation(true)}>
+                Si (Y)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showProductModal && (
         <ProductSearchModal

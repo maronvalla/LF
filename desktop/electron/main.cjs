@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 
 const isDev = process.env.ELECTRON_DEV === "1";
@@ -21,6 +21,87 @@ function createWindow() {
   }
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
 }
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildTicketHtml(ticket) {
+  const lines = Array.isArray(ticket?.lines) ? ticket.lines : [];
+  const body = lines
+    .map((line) => `<div class="line">${escapeHtml(line)}</div>`)
+    .join("");
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ticket</title>
+  <style>
+    @page { size: 58mm auto; margin: 2mm; }
+    html, body { margin: 0; padding: 0; width: 58mm; background: #fff; color: #000; }
+    body { font-family: "Courier New", monospace; font-size: 11px; line-height: 1.25; }
+    .ticket { width: 54mm; padding: 1mm 0; }
+    .line { white-space: pre; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <div class="ticket">${body}</div>
+</body>
+</html>`;
+}
+
+ipcMain.handle("ticket:listPrinters", async () => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) return [];
+  const printers = await win.webContents.getPrintersAsync();
+  return printers.map((p) => ({ name: p.name, displayName: p.displayName || p.name }));
+});
+
+ipcMain.handle("ticket:print", async (_, payload) => {
+  const ticket = payload?.ticket || payload;
+  const deviceName = payload?.deviceName;
+  const html = buildTicketHtml(ticket);
+  const win = new BrowserWindow({
+    show: false,
+    width: 420,
+    height: 840,
+    webPreferences: {
+      sandbox: true,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    await new Promise((resolve, reject) => {
+      win.webContents.print(
+        {
+          silent: true,
+          printBackground: true,
+          deviceName: deviceName || undefined,
+          pageSize: { width: 58000, height: 200000 },
+        },
+        (success, failureReason) => {
+          if (!success) {
+            reject(new Error(failureReason || "No se pudo imprimir"));
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+    return { ok: true };
+  } finally {
+    win.destroy();
+  }
+});
 
 app.whenReady().then(createWindow);
 app.on("window-all-closed", () => {

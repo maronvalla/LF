@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 
-export default function PaymentModal({ total, onClose, onConfirm }) {
+export default function PaymentModal({ total, onClose, onConfirm, requireCashGiven = true }) {
   const [method, setMethod] = useState("EFECTIVO");
   const [cashGiven, setCashGiven] = useState("");
   const [mixedCash, setMixedCash] = useState("");
@@ -13,19 +13,37 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
   const isMixedValid = method === "MIXTO" && (Number(mixedCash) + Number(mixedTransfer) === total);
 
   // Habilitar o deshabilitar el botón de confirmar
-  const canConfirm = 
-    method === "TRANSFERENCIA" || 
-    (method === "EFECTIVO" && Number(cashGiven) >= total) || 
+  const canConfirm =
+    method === "TRANSFERENCIA" ||
+    (method === "EFECTIVO" && (requireCashGiven ? Number(cashGiven) >= total : true)) ||
     isMixedValid;
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!canConfirm) return;
 
+    const efectivoMixto = method === "MIXTO" ? Number(mixedCash || 0) : 0;
+    const transferenciaMixto = method === "MIXTO" ? Number(mixedTransfer || 0) : 0;
+    const abonaCon = method === "EFECTIVO" ? (requireCashGiven ? Number(cashGiven || 0) : Number(total || 0)) : 0;
+
     onConfirm({
       paymentMethod: method,
-      cashAmount: method === "MIXTO" ? Number(mixedCash) : (method === "EFECTIVO" ? total : 0),
-      transferAmount: method === "MIXTO" ? Number(mixedTransfer) : (method === "TRANSFERENCIA" ? total : 0),
+      cashAmount: method === "MIXTO" ? efectivoMixto : (method === "EFECTIVO" ? total : 0),
+      transferAmount: method === "MIXTO" ? transferenciaMixto : (method === "TRANSFERENCIA" ? total : 0),
+      cashGiven: abonaCon,
+      changeAmount: method === "EFECTIVO" ? Math.max(0, abonaCon - total) : 0,
     });
   };
 
@@ -55,16 +73,22 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
 
           {method === "EFECTIVO" && (
             <div className="space-y-3">
-              <div>
-                <label className="text-xs text-zinc-500 uppercase font-bold">Abona con $</label>
-                <input 
-                  type="number" 
-                  className="input w-full mt-1 text-lg font-mono"
-                  value={cashGiven}
-                  onChange={(e) => setCashGiven(e.target.value)}
-                  autoFocus
-                />
-              </div>
+              {requireCashGiven ? (
+                <div>
+                  <label className="text-xs text-zinc-500 uppercase font-bold">Abona con $</label>
+                  <input 
+                    type="number" 
+                    className="input w-full mt-1 text-lg font-mono"
+                    value={cashGiven}
+                    onChange={(e) => setCashGiven(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div className="bg-zinc-900 p-3 rounded border border-zinc-800 text-sm text-zinc-300">
+                  Cobro en efectivo exacto por ${Number(total || 0).toFixed(2)}
+                </div>
+              )}
               <div className="bg-zinc-900 p-3 rounded border border-zinc-800 flex justify-between items-center">
                 <span className="text-sm uppercase font-bold text-zinc-400">Vuelto:</span>
                 <span className={`text-xl font-mono font-black ${change >= 0 ? "text-emerald-500" : "text-rose-500"}`}>

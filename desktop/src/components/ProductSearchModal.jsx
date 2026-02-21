@@ -26,15 +26,19 @@ export default function ProductSearchModal({ products, onClose, onSelect }) {
     const handleKeyDown = (e) => {
         if (e.key === "Escape") {
             e.preventDefault();
+            e.stopPropagation();
             onClose();
         } else if (e.key === "ArrowDown") {
             e.preventDefault();
+            e.stopPropagation();
             setSelectedIndex(prev => Math.min(prev + 1, filtered.length - 1));
         } else if (e.key === "ArrowUp") {
             e.preventDefault();
+            e.stopPropagation();
             setSelectedIndex(prev => Math.max(prev - 1, 0));
         } else if (e.key === "Enter") {
             e.preventDefault();
+            e.stopPropagation();
             if (filtered[selectedIndex]) {
                 onSelect(filtered[selectedIndex]);
             }

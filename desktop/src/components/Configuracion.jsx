@@ -1,5 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api";
+import {
+  DEFAULT_TICKET_CONFIG,
+  loadTicketConfig,
+  saveTicketConfig,
+} from "../utils/ticketConfig";
+import {
+  DEFAULT_DELIVERY_CONDITIONS,
+  loadDeliveryConditions,
+  saveDeliveryConditions,
+} from "../utils/deliveryPaymentConditions";
+import {
+  DEFAULT_CAJA_CONFIG,
+  FREQUENCY_OPTIONS,
+  loadCajaConfig,
+  saveCajaConfig,
+  getFrequencyDescription,
+} from "../utils/cajaConfig";
 
 const FALLBACK = {
   local: { address: "Avenida Mitre 831, Aguilares", lat: -27.432028, lng: -65.616528 },
@@ -16,6 +33,9 @@ export default function Configuracion({ user, setToast }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FALLBACK);
+  const [ticketConfig, setTicketConfig] = useState(DEFAULT_TICKET_CONFIG);
+  const [deliveryConditions, setDeliveryConditions] = useState(DEFAULT_DELIVERY_CONDITIONS);
+  const [cajaConfig, setCajaConfig] = useState(DEFAULT_CAJA_CONFIG);
 
   const canEdit = useMemo(() => {
     const role = String(user?.role || "").toUpperCase();
@@ -49,6 +69,10 @@ export default function Configuracion({ user, setToast }) {
 
   useEffect(() => {
     load();
+    const cfg = loadTicketConfig();
+    setTicketConfig({ ...cfg, customLinesText: (cfg.customLines || []).join("\n") });
+    setDeliveryConditions(loadDeliveryConditions());
+    setCajaConfig(loadCajaConfig());
   }, []);
 
   const setPoint = (key, field, value) => {
@@ -124,6 +148,112 @@ export default function Configuracion({ user, setToast }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const setTicketField = (field, value) => {
+    setTicketConfig((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveTicketSettings = () => {
+    if (!canEdit) {
+      setToast?.({ message: "Solo ADMIN o CAJERO pueden editar ticket", type: "error" });
+      return;
+    }
+    try {
+      const normalized = saveTicketConfig({
+        ...ticketConfig,
+        customLines: String(
+          ticketConfig.customLinesText ?? (ticketConfig.customLines || []).join("\n")
+        )
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean),
+      });
+      setTicketConfig({ ...normalized, customLinesText: normalized.customLines.join("\n") });
+      setToast?.({ message: "Configuracion de ticket guardada", type: "success" });
+    } catch {
+      setToast?.({ message: "No se pudo guardar configuracion de ticket", type: "error" });
+    }
+  };
+
+  const resetTicketSettings = () => {
+    if (!canEdit) return;
+    const next = { ...DEFAULT_TICKET_CONFIG, customLinesText: DEFAULT_TICKET_CONFIG.customLines.join("\n") };
+    setTicketConfig(next);
+    saveTicketConfig(next);
+    setToast?.({ message: "Ticket restaurado a valores por defecto", type: "success" });
+  };
+
+  const addDeliveryCondition = () => {
+    setDeliveryConditions((prev) => [...prev, { value: "", label: "" }]);
+  };
+
+  const setDeliveryCondition = (index, field, value) => {
+    setDeliveryConditions((prev) =>
+      prev.map((row, i) =>
+        i === index
+          ? {
+              ...row,
+              [field]:
+                field === "value"
+                  ? String(value || "")
+                      .toUpperCase()
+                      .replace(/\s+/g, "_")
+                  : value,
+            }
+          : row
+      )
+    );
+  };
+
+  const removeDeliveryCondition = (index) => {
+    setDeliveryConditions((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const saveDeliveryConditionSettings = () => {
+    if (!canEdit) {
+      setToast?.({ message: "Solo ADMIN o CAJERO pueden editar condiciones", type: "error" });
+      return;
+    }
+    try {
+      const normalized = saveDeliveryConditions(deliveryConditions);
+      setDeliveryConditions(normalized);
+      setToast?.({ message: "Condiciones de cobro guardadas", type: "success" });
+    } catch {
+      setToast?.({ message: "No se pudieron guardar condiciones", type: "error" });
+    }
+  };
+
+  const resetDeliveryConditions = () => {
+    if (!canEdit) return;
+    const normalized = saveDeliveryConditions(DEFAULT_DELIVERY_CONDITIONS);
+    setDeliveryConditions(normalized);
+    setToast?.({ message: "Condiciones restauradas por defecto", type: "success" });
+  };
+
+  const setCajaField = (field, value) => {
+    setCajaConfig((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveCajaSettings = () => {
+    if (!canEdit) {
+      setToast?.({ message: "Solo ADMIN o CAJERO pueden editar frecuencia de caja", type: "error" });
+      return;
+    }
+    try {
+      const normalized = saveCajaConfig(cajaConfig);
+      setCajaConfig(normalized);
+      setToast?.({ message: "Frecuencia de control de caja guardada", type: "success" });
+    } catch {
+      setToast?.({ message: "No se pudo guardar configuracion de caja", type: "error" });
+    }
+  };
+
+  const resetCajaSettings = () => {
+    if (!canEdit) return;
+    const normalized = saveCajaConfig(DEFAULT_CAJA_CONFIG);
+    setCajaConfig(normalized);
+    setToast?.({ message: "Frecuencia de caja restaurada por defecto", type: "success" });
   };
 
   if (loading) {
@@ -249,6 +379,214 @@ export default function Configuracion({ user, setToast }) {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="card p-4 space-y-4">
+        <div className="text-xs uppercase font-bold text-zinc-500 tracking-wider">Configuracion de ticket</div>
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <input
+            className="input"
+            placeholder="Nombre del negocio"
+            value={ticketConfig.businessName || ""}
+            onChange={(e) => setTicketField("businessName", e.target.value)}
+            disabled={!canEdit}
+          />
+          <input
+            className="input"
+            placeholder="Direccion en ticket"
+            value={ticketConfig.addressLine || ""}
+            onChange={(e) => setTicketField("addressLine", e.target.value)}
+            disabled={!canEdit}
+          />
+          <input
+            className="input"
+            placeholder="Ciudad / Provincia"
+            value={ticketConfig.cityLine || ""}
+            onChange={(e) => setTicketField("cityLine", e.target.value)}
+            disabled={!canEdit}
+          />
+          <input
+            className="input"
+            placeholder="Pie de ticket"
+            value={ticketConfig.footerText || ""}
+            onChange={(e) => setTicketField("footerText", e.target.value)}
+            disabled={!canEdit}
+          />
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-2 text-sm">
+          {[
+            ["includeComprobante", "Mostrar comprobante"],
+            ["includeTicketNumber", "Mostrar nro ticket"],
+            ["includeDate", "Mostrar fecha"],
+            ["includeTime", "Mostrar hora"],
+            ["includeSeller", "Mostrar vendedor"],
+            ["includeClient", "Mostrar cliente"],
+            ["includePaymentDetail", "Mostrar detalle de pago"],
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2 text-zinc-300">
+              <input
+                type="checkbox"
+                checked={Boolean(ticketConfig[key])}
+                onChange={(e) => setTicketField(key, e.target.checked)}
+                disabled={!canEdit}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+
+        <div>
+          <label className="text-xs uppercase font-bold text-zinc-500">
+            Lineas personalizadas (una por linea)
+          </label>
+          <textarea
+            className="input mt-1 min-h-24"
+            placeholder={"Ej:\nTel: 381-000000\nCUIT: 20-00000000-0\nCliente: {{cliente}}\nTotal: {{total}}"}
+            value={ticketConfig.customLinesText ?? (ticketConfig.customLines || []).join("\n")}
+            onChange={(e) => setTicketField("customLinesText", e.target.value)}
+            disabled={!canEdit}
+          />
+          <div className="text-[11px] text-zinc-500 mt-1">
+            Variables disponibles: {"{{cliente}} {{vendedor}} {{ticket}} {{fecha}} {{hora}} {{total}} {{pago}}"}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button className="btn btn-muted" onClick={resetTicketSettings} disabled={!canEdit}>
+            Restaurar ticket
+          </button>
+          <button className="btn btn-primary" onClick={saveTicketSettings} disabled={!canEdit}>
+            Guardar ticket
+          </button>
+        </div>
+      </div>
+
+      <div className="card p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="text-xs uppercase font-bold text-zinc-500 tracking-wider">
+            Condiciones de cobro de envio
+          </div>
+          <button className="btn btn-muted" onClick={addDeliveryCondition} disabled={!canEdit}>
+            Agregar condicion
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {deliveryConditions.map((row, idx) => (
+            <div key={`${row.value}-${idx}`} className="grid md:grid-cols-7 gap-2">
+              <input
+                className="input md:col-span-2"
+                placeholder="VALOR_INTERNO"
+                value={row.value || ""}
+                onChange={(e) => setDeliveryCondition(idx, "value", e.target.value)}
+                disabled={!canEdit}
+              />
+              <input
+                className="input md:col-span-4"
+                placeholder="Texto visible"
+                value={row.label || ""}
+                onChange={(e) => setDeliveryCondition(idx, "label", e.target.value)}
+                disabled={!canEdit}
+              />
+              <button className="btn btn-muted" onClick={() => removeDeliveryCondition(idx)} disabled={!canEdit}>
+                Quitar
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button className="btn btn-muted" onClick={resetDeliveryConditions} disabled={!canEdit}>
+            Restaurar condiciones
+          </button>
+          <button className="btn btn-primary" onClick={saveDeliveryConditionSettings} disabled={!canEdit}>
+            Guardar condiciones
+          </button>
+        </div>
+      </div>
+
+      <div className="card p-4 space-y-4">
+        <div className="text-xs uppercase font-bold text-zinc-500 tracking-wider">
+          Frecuencia de control de caja
+        </div>
+        <p className="text-zinc-400 text-sm">
+          Define cada cuanto tiempo se debe realizar el control de caja.
+        </p>
+
+        <div className="grid md:grid-cols-3 gap-4">
+          <div>
+            <label className="text-xs uppercase font-bold text-zinc-500">Frecuencia</label>
+            <select
+              className="input mt-1 w-full"
+              value={cajaConfig.frequency}
+              onChange={(e) => setCajaField("frequency", e.target.value)}
+              disabled={!canEdit}
+            >
+              {Object.values(FREQUENCY_OPTIONS).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {cajaConfig.frequency === "SEMANAL" && (
+            <div>
+              <label className="text-xs uppercase font-bold text-zinc-500">Dia de la semana</label>
+              <select
+                className="input mt-1 w-full"
+                value={cajaConfig.weekDay}
+                onChange={(e) => setCajaField("weekDay", Number(e.target.value))}
+                disabled={!canEdit}
+              >
+                <option value={0}>Domingo</option>
+                <option value={1}>Lunes</option>
+                <option value={2}>Martes</option>
+                <option value={3}>Miercoles</option>
+                <option value={4}>Jueves</option>
+                <option value={5}>Viernes</option>
+                <option value={6}>Sabado</option>
+              </select>
+            </div>
+          )}
+
+          {cajaConfig.frequency === "PERSONALIZADO" && (
+            <div>
+              <label className="text-xs uppercase font-bold text-zinc-500">Cada cuantos dias</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                className="input mt-1 w-full"
+                placeholder="1"
+                value={cajaConfig.customDays || ""}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "");
+                  setCajaField("customDays", Number(val) || 1);
+                }}
+                disabled={!canEdit}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
+          <div className="text-sm text-zinc-300">
+            <span className="text-zinc-500">Configuracion actual:</span>{" "}
+            <span className="font-bold text-[#e85d04]">{getFrequencyDescription()}</span>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button className="btn btn-muted" onClick={resetCajaSettings} disabled={!canEdit}>
+            Restaurar frecuencia
+          </button>
+          <button className="btn btn-primary" onClick={saveCajaSettings} disabled={!canEdit}>
+            Guardar frecuencia
+          </button>
+        </div>
       </div>
 
       <div className="flex justify-end">

@@ -8,6 +8,22 @@ const { logAudit } = require("../services/audit");
 
 const router = express.Router();
 
+const deliveryConditionSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9_]{3,64}$/)
+  .nullable()
+  .optional();
+
+function normalizeDeliveryCondition(value) {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim().toUpperCase();
+  if (!raw) return null;
+  if (raw === "PAGO_LOCAL_TRANSFERENCIA") return "PAGO_ENTREGA_TRANSFERENCIA";
+  return raw.replace(/\s+/g, "_");
+}
+
 const createSaleSchema = z.object({
   customerId: z.string().uuid().nullable().optional(),
   sellerId: z.string().uuid().nullable().optional(),
@@ -18,14 +34,8 @@ const createSaleSchema = z.object({
   deliverySlot: z.enum(["11", "19"]).nullable().optional(),
   scheduledDate: z.string().date().optional(),
   paymentMethod: z.string().nullable().optional(),
-  paymentCondition: z
-    .enum(["PAGADO_LOCAL", "TRANSFER_PREVIA", "COBRAR_EN_ENTREGA", "PAGO_LOCAL_TRANSFERENCIA"])
-    .nullable()
-    .optional(),
-  deliveryPayment: z
-    .enum(["PAGADO_LOCAL", "TRANSFER_PREVIA", "COBRAR_EN_ENTREGA", "PAGO_LOCAL_TRANSFERENCIA"])
-    .nullable()
-    .optional(),
+  paymentCondition: deliveryConditionSchema,
+  deliveryPayment: deliveryConditionSchema,
   deliveryPaymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "MIXTO"]).nullable().optional(),
   deliveryAddress: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
@@ -100,10 +110,13 @@ router.post(
     const shiftFromSlot = data.deliverySlot === "11" ? "MANIANA" : data.deliverySlot === "19" ? "TARDE" : null;
     const shift = isDelivery ? shiftFromSlot || data.shift || proposeShift(new Date()) : data.shift || null;
     const deliverySlot = shift === "MANIANA" ? "11" : shift === "TARDE" ? "19" : null;
-    const deliveryPayment = data.deliveryPayment || data.paymentCondition || null;
+    const normalizedPaymentCondition = normalizeDeliveryCondition(data.paymentCondition);
+    const deliveryPayment = normalizeDeliveryCondition(data.deliveryPayment) || normalizedPaymentCondition || null;
     const deliveryPaymentMethod =
       data.deliveryPaymentMethod ||
-      (deliveryPayment === "PAGO_LOCAL_TRANSFERENCIA" ? "TRANSFERENCIA" : null);
+      (deliveryPayment === "PAGO_ENTREGA_TRANSFERENCIA" || deliveryPayment === "PAGO_LOCAL_TRANSFERENCIA"
+        ? "TRANSFERENCIA"
+        : null);
     const scheduledDate = data.scheduledDate || new Date().toISOString().slice(0, 10);
     const sellerId = data.vendedorId || data.sellerId || req.user.id;
     const saleNumber = buildSaleNumber();
@@ -127,7 +140,7 @@ router.post(
           shift,
           scheduledDate,
           data.paymentMethod || null,
-          data.paymentCondition || null,
+          normalizedPaymentCondition,
           data.deliveryAddress || null,
           data.notes || null,
           sellerId,

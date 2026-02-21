@@ -22,6 +22,7 @@ const brandsRoutes = require("./routes/brands.routes");
 const rubrosRoutes = require("./routes/rubros.routes");
 const importExportRoutes = require("./routes/import-export.routes");
 const settingsRoutes = require("./routes/settings.routes");
+const cajaRoutes = require("./routes/caja.routes");
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use("/api/brands", authRequired, brandsRoutes);
 app.use("/api/rubros", authRequired, rubrosRoutes);
 app.use("/api/import-export", authRequired, importExportRoutes);
 app.use("/api/settings", authRequired, settingsRoutes);
+app.use("/api/caja", authRequired, cajaRoutes);
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;

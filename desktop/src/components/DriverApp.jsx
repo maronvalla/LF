@@ -162,7 +162,9 @@ export default function DriverApp({ onLogout }) {
           const inferredMethod =
             row.finalMethod ||
             row.deliveryPaymentMethod ||
-            (String(row.deliveryPayment || '').toUpperCase() === 'PAGO_LOCAL_TRANSFERENCIA'
+            (['PAGO_LOCAL_TRANSFERENCIA', 'PAGO_ENTREGA_TRANSFERENCIA'].includes(
+              String(row.deliveryPayment || '').toUpperCase()
+            )
               ? 'TRANSFERENCIA'
               : 'EFECTIVO');
           if (!next[row.id]) {

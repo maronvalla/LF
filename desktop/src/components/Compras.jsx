@@ -144,7 +144,7 @@ export default function Compras({ user, setToast }) {
       </div>
 
       {/* Row 1: Top parameters */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-4 gap-6">
+      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
         <div>
           <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Tipo Comprobante</label>
           <select
@@ -160,7 +160,7 @@ export default function Compras({ user, setToast }) {
           </select>
         </div>
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Nº Comprobante</label>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Nº Comprobante</label>
           <input
             type="text"
             className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
@@ -170,7 +170,7 @@ export default function Compras({ user, setToast }) {
           />
         </div>
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Fecha Emisión</label>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Fecha Emisión</label>
           <input
             type="date"
             className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
@@ -179,7 +179,7 @@ export default function Compras({ user, setToast }) {
           />
         </div>
         <div>
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Operador</label>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Operador</label>
           <div className="w-full p-2.5 text-xs text-zinc-300 font-mono">
             {user?.username || "ADMIN"}
           </div>
@@ -188,9 +188,9 @@ export default function Compras({ user, setToast }) {
 
       {/* Row 2: Supplier */}
       <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 flex flex-col gap-3">
-        <div className="flex items-end gap-3 w-full">
-          <div className="flex-1">
-            <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Proveedor</label>
+        <div className="flex flex-col md:flex-row items-end gap-3 w-full">
+          <div className="flex-1 w-full">
+            <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Proveedor</label>
             <SearchableSelect
               inputRef={supplierSelectRef}
               options={suppliers.map(s => ({
@@ -224,11 +224,11 @@ export default function Compras({ user, setToast }) {
       {/* Row 3: Items Grid */}
       <div className="bg-[#121212] border border-zinc-800/80 rounded-lg flex-1 flex flex-col min-h-0 relative">
         <div className="p-4 border-b border-zinc-800/50 flex flex-col gap-1">
-          <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest block mb-1">Carga Rápida de Artículos</label>
-          <div className="flex gap-4 items-center">
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest block mb-1">Carga Rápida de Artículos</label>
+          <div className="flex flex-col sm:flex-row gap-4 items-end sm:items-center">
 
-            <div className="flex-1 flex gap-2 items-center">
-              <label className="text-sm font-black text-zinc-400 uppercase mr-2">Código:</label>
+            <div className="flex-1 flex gap-2 w-full items-center">
+              <label className="text-sm font-black text-zinc-400 uppercase hidden md:inline-block mr-2">Código:</label>
               <input
                 ref={codeInputRef}
                 className="w-1/3 min-w-[200px] bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-lg font-bold text-white outline-none focus:border-[#e85d04] placeholder-zinc-700 font-mono"
@@ -262,8 +262,8 @@ export default function Compras({ user, setToast }) {
               </button>
             </div>
 
-            <div className="w-32 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest absolute -top-5 left-0">Costo Unit.</label>
+            <div className="w-full sm:w-32 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest absolute -top-5 left-0">Costo Unit.</label>
               <span className="text-zinc-500 font-bold">$</span>
               <input
                 type="number"
@@ -275,8 +275,8 @@ export default function Compras({ user, setToast }) {
               />
             </div>
 
-            <div className="w-24 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
-              <label className="text-[9px] text-zinc-500 uppercase font-black tracking-widest absolute -top-5 left-0">CANT</label>
+            <div className="w-full sm:w-24 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
+              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest absolute -top-5 left-0">CANT</label>
               <input
                 type="number"
                 min={1}
@@ -299,9 +299,9 @@ export default function Compras({ user, setToast }) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-[11px] text-left">
-            <thead className="text-[9px] uppercase text-zinc-500 tracking-widest bg-[#121212] border-b border-zinc-800/50 sticky top-0 z-10">
+        <div className="flex-1 overflow-x-auto">
+          <table className="w-full text-xs md:text-[11px] text-left min-w-[600px]">
+            <thead className="text-[10px] md:text-[9px] uppercase text-zinc-500 tracking-widest bg-[#121212] border-b border-zinc-800/50 sticky top-0 z-10">
               <tr>
                 <th className="px-5 py-3 font-black w-20">CANT</th>
                 <th className="px-5 py-3 font-black w-40">CÓDIGO</th>
@@ -337,13 +337,13 @@ export default function Compras({ user, setToast }) {
       </div>
 
       {/* Footer / Resumen */}
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row gap-4">
         {/* Left summary blocks */}
         <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-4 flex-1 flex justify-between items-center">
 
           <div className="flex gap-12">
             <div>
-              <div className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Total Artículos</div>
+              <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5">Total Artículos</div>
               <div className="text-xl font-bold text-[#e85d04]">{draft.items.reduce((acc, i) => acc + Number(i.qty), 0)}</div>
             </div>
           </div>
@@ -364,11 +364,11 @@ export default function Compras({ user, setToast }) {
         </div>
 
         {/* Right total & action */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-5 w-72 flex flex-col items-center justify-center text-center">
-          <div className="text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1 w-full flex justify-between px-2">
+        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-5 w-full md:w-72 flex flex-col items-center justify-center text-center shrink-0">
+          <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1 w-full flex justify-between px-2">
             <span>Total Compra</span>
           </div>
-          <div className="text-4xl leading-none font-black text-white w-full mb-3 px-2 text-right">
+          <div className="text-4xl md:text-4xl leading-none font-black text-white w-full mb-4 px-2 text-right truncate">
             ${subtotal.toFixed(2)}
           </div>
 
@@ -377,7 +377,7 @@ export default function Compras({ user, setToast }) {
             onClick={submit}
             disabled={draft.items.length === 0 || !draft.supplierId}
           >
-            <span className="text-sm">GUARDAR COMPRA</span>
+            <span className="text-[11px] md:text-sm">GUARDAR COMPRA</span>
           </button>
         </div>
       </div>

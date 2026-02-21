@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
+import { DEFAULT_TICKET_CONFIG, loadTicketConfig } from "../utils/ticketConfig";
 
 function SignaturePad({ label, onChange, initialDataUrl }) {
   const canvasRef = useRef(null);
@@ -128,6 +129,12 @@ export default function Consolidado({ user, setToast }) {
 
   const [controlOpen, setControlOpen] = useState(false);
   const [controlStep, setControlStep] = useState("checklist");
+  const [showPrintPrompt, setShowPrintPrompt] = useState(false);
+  const [printPreviewLines, setPrintPreviewLines] = useState([]);
+  const [availablePrinters, setAvailablePrinters] = useState([]);
+  const [selectedPrinter, setSelectedPrinter] = useState("");
+  const [ticketConfig, setTicketConfig] = useState(DEFAULT_TICKET_CONFIG);
+  const printPromptResolverRef = useRef(null);
 
   const role = String(user?.role || "").toUpperCase();
   const canControl = role === "ADMIN" || role === "CAJERO";
@@ -137,6 +144,10 @@ export default function Consolidado({ user, setToast }) {
       setCashierName(user?.fullName || user?.full_name || user?.username || "");
     }
   }, [canControl, user]);
+
+  useEffect(() => {
+    setTicketConfig(loadTicketConfig());
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -334,6 +345,167 @@ export default function Consolidado({ user, setToast }) {
     });
   };
 
+  const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
+
+  const askPrintConfirmation = (lines) =>
+    new Promise(async (resolve) => {
+      printPromptResolverRef.current = resolve;
+      setPrintPreviewLines(Array.isArray(lines) ? lines : []);
+      try {
+        const printerApi = window?.desktopEnv?.listPrinters;
+        if (typeof printerApi === "function") {
+          const printers = (await printerApi()) || [];
+          setAvailablePrinters(printers);
+          const xp58 = printers.find((p) => /xp-?58/i.test(String(p.name || p.displayName || "")));
+          setSelectedPrinter(xp58?.name || printers[0]?.name || "");
+        } else {
+          setAvailablePrinters([]);
+          setSelectedPrinter("");
+        }
+      } catch {
+        setAvailablePrinters([]);
+        setSelectedPrinter("");
+      }
+      setShowPrintPrompt(true);
+    });
+
+  const resolvePrintConfirmation = (value) => {
+    const resolver = printPromptResolverRef.current;
+    printPromptResolverRef.current = null;
+    setShowPrintPrompt(false);
+    if (typeof resolver === "function") {
+      resolver({ shouldPrint: Boolean(value), deviceName: selectedPrinter || undefined });
+    }
+  };
+
+  useEffect(() => {
+    if (!showPrintPrompt) return undefined;
+    const onKeyDown = (e) => {
+      const key = String(e.key || "").toLowerCase();
+      if (key === "y") {
+        e.preventDefault();
+        resolvePrintConfirmation(true);
+      } else if (key === "n" || key === "escape") {
+        e.preventDefault();
+        resolvePrintConfirmation(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showPrintPrompt, selectedPrinter]);
+
+  useEffect(() => {
+    return () => {
+      if (printPromptResolverRef.current) {
+        printPromptResolverRef.current(false);
+        printPromptResolverRef.current = null;
+      }
+    };
+  }, []);
+
+  const printReceipt = async ({ lines, deviceName }) => {
+    const ticket = { lines: Array.isArray(lines) ? lines : [] };
+    const canUseElectronPrinter =
+      typeof window !== "undefined" &&
+      window.desktopEnv &&
+      typeof window.desktopEnv.printTicket === "function";
+
+    if (canUseElectronPrinter) {
+      try {
+        await window.desktopEnv.printTicket({ ticket, deviceName });
+        return;
+      } catch (err) {
+        const msg = String(err?.message || err || "");
+        if (!/No handler registered for 'ticket:print'/i.test(msg)) {
+          throw err;
+        }
+      }
+    }
+    const printable = window.open("", "_blank", "width=420,height=900");
+    if (!printable) throw new Error("No se pudo abrir ventana de impresion");
+    printable.document.write(`
+      <html><head><title>Boleta consolidado</title><style>
+      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: 11px; }
+      .line { white-space: pre; }
+      </style></head><body>
+      ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
+      </body></html>
+    `);
+    printable.document.close();
+    printable.focus();
+    printable.print();
+    printable.close();
+  };
+
+  const buildConsolidatedTicketLines = () => {
+    const MAX = 32;
+    const repeat = (char, len) => new Array(Math.max(0, len) + 1).join(char);
+    const center = (text) => {
+      const t = String(text || "").slice(0, MAX);
+      const left = Math.max(0, Math.floor((MAX - t.length) / 2));
+      return `${repeat(" ", left)}${t}`;
+    };
+    const leftRight = (left, right) => {
+      const l = String(left || "");
+      const r = String(right || "");
+      const avail = Math.max(1, MAX - r.length);
+      const trimmedLeft = l.length > avail ? `${l.slice(0, avail - 1)}.` : l;
+      const spaces = Math.max(1, MAX - trimmedLeft.length - r.length);
+      return `${trimmedLeft}${repeat(" ", spaces)}${r}`;
+    };
+    const now = new Date();
+    const shiftLabel = slot === "19" ? "TARDE 19:00" : "MANANA 11:00";
+    const lines = [];
+    if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
+    if (ticketConfig.addressLine) lines.push(center(ticketConfig.addressLine));
+    lines.push(center("BOLETA DE CONSOLIDADO"));
+    lines.push(repeat("-", MAX));
+    lines.push(leftRight("Fecha", now.toLocaleDateString("es-AR")));
+    lines.push(leftRight("Hora", now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })));
+    lines.push(leftRight("Turno", shiftLabel));
+    lines.push(leftRight("Pedidos", String(pedidosEnvio.length)));
+    lines.push(leftRight("Bultos", String(totalBultos)));
+    lines.push(leftRight("Envases", String(totalEnvasesRetornables)));
+    lines.push(repeat("-", MAX));
+    lines.push("MERCADERIA A SACAR");
+    lines.push(repeat("-", MAX));
+    consolidated.forEach((row) => {
+      lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
+      lines.push(leftRight("Cant", `${Number(row.total_qty || 0)}`));
+      const plan = pickPlanByProduct[row.product_id] || { localQty: 0, galponQty: Number(row.total_qty || 0) };
+      lines.push(leftRight("Local/Galpon", `${Number(plan.localQty || 0)}/${Number(plan.galponQty || 0)}`));
+      if (Number(row.total_returnable_units || 0) > 0) {
+        lines.push(leftRight("Envases", `${Number(row.total_returnable_units || 0)}`));
+      }
+      lines.push(repeat("-", MAX));
+    });
+    if (rejectedReturns.length) {
+      lines.push("DEVOLUCIONES POR RECHAZO");
+      lines.push(repeat("-", MAX));
+      rejectedReturns.forEach((row) => {
+        lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
+        lines.push(leftRight("Dev.", `${Number(row.qty_to_return || 0)}`));
+      });
+      lines.push(repeat("-", MAX));
+    }
+    lines.push(center("Control: ____ / Chofer: ____"));
+    lines.push("");
+    lines.push("");
+    return lines;
+  };
+
+  const printConsolidated = async () => {
+    const lines = buildConsolidatedTicketLines();
+    const decision = await askPrintConfirmation(lines);
+    if (!decision?.shouldPrint) return;
+    try {
+      await printReceipt({ lines, deviceName: decision?.deviceName });
+      setToast?.({ message: "Boleta de consolidado impresa", type: "success" });
+    } catch (err) {
+      setToast?.({ message: err?.message || "No se pudo imprimir boleta", type: "error" });
+    }
+  };
+
   return (
     <div className="h-full flex flex-col gap-4">
       <div className="px-1">
@@ -341,26 +513,29 @@ export default function Consolidado({ user, setToast }) {
         <p className="text-xs text-zinc-400 mt-1">Preparacion de carga con control secuencial y firmas</p>
       </div>
 
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-1 md:grid-cols-6 gap-3 md:gap-4 items-end">
         <div className="md:col-span-2">
-          <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Fecha</label>
-          <input type="date" className="input mt-1" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider block mb-1">Fecha</label>
+          <input type="date" className="input mt-1 w-full" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="md:col-span-2">
-          <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Turno</label>
-          <select className="input mt-1" value={slot} onChange={(e) => setSlot(e.target.value)}>
+          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider block mb-1">Turno</label>
+          <select className="input mt-1 w-full" value={slot} onChange={(e) => setSlot(e.target.value)}>
             <option value="11">11:00</option>
             <option value="19">19:00</option>
           </select>
         </div>
-        <div className="md:col-span-2 flex gap-2">
+        <div className="md:col-span-2 flex flex-col sm:flex-row gap-2 mt-2 md:mt-0">
           <button type="button" className="btn btn-primary w-full" onClick={load} disabled={loading}>
             {loading ? "Cargando..." : "Actualizar"}
+          </button>
+          <button type="button" className="btn btn-muted w-full" onClick={printConsolidated}>
+            Imprimir
           </button>
           {canControl ? (
             <button
               type="button"
-              className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white w-full"
+              className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white w-full shadow-md"
               onClick={() => {
                 setControlStep("checklist");
                 setControlOpen(true);
@@ -386,27 +561,32 @@ export default function Consolidado({ user, setToast }) {
         <div className="px-4 py-3 border-b border-zinc-800 text-sm font-black uppercase text-[#e85d04]">
           1) Previsualizacion de mercaderia a sacar
         </div>
-        <div className="overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="text-zinc-400 uppercase text-[10px] sticky top-0 bg-[#1a1a1a]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
+            <thead className="text-zinc-400 uppercase text-[10px] bg-[#1a1a1a]">
               <tr>
-                <th className="text-left px-4 py-3">SKU</th>
+                <th className="text-left px-4 py-3 whitespace-nowrap">SKU</th>
                 <th className="text-left px-4 py-3">Producto</th>
-                <th className="text-left px-4 py-3">Unidad</th>
-                <th className="text-right px-4 py-3">Cantidad</th>
-                <th className="text-right px-4 py-3">Envases</th>
+                <th className="text-left px-4 py-3 whitespace-nowrap">Unidad</th>
+                <th className="text-right px-4 py-3 whitespace-nowrap">Cantidad</th>
+                <th className="text-right px-4 py-3 whitespace-nowrap">Envases</th>
               </tr>
             </thead>
             <tbody>
               {consolidated.map((row) => (
-                <tr key={row.product_id} className="border-t border-zinc-800/60">
-                  <td className="px-4 py-2 text-zinc-400">{row.sku || "-"}</td>
-                  <td className="px-4 py-2 font-bold text-zinc-200">{row.name}</td>
-                  <td className="px-4 py-2 text-zinc-400 uppercase">{row.unit_label || "unidad"}</td>
-                  <td className="px-4 py-2 text-right font-black text-[#e85d04]">{Number(row.total_qty || 0)}</td>
-                  <td className="px-4 py-2 text-right font-black text-emerald-400">{Number(row.total_returnable_units || 0)}</td>
+                <tr key={row.product_id} className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
+                  <td className="px-4 py-3 text-zinc-400">{row.sku || "-"}</td>
+                  <td className="px-4 py-3 font-bold text-zinc-200">{row.name}</td>
+                  <td className="px-4 py-3 text-zinc-400 uppercase">{row.unit_label || "unidad"}</td>
+                  <td className="px-4 py-3 text-right font-black text-[#e85d04]">{Number(row.total_qty || 0)}</td>
+                  <td className="px-4 py-3 text-right font-black text-emerald-400">{Number(row.total_returnable_units || 0)}</td>
                 </tr>
               ))}
+              {!consolidated.length && (
+                <tr>
+                  <td colSpan={5} className="text-center py-6 text-zinc-500 font-bold">No hay mercadería</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -416,25 +596,25 @@ export default function Consolidado({ user, setToast }) {
         <div className="px-4 py-3 border-b border-zinc-800 text-sm font-black uppercase text-[#e85d04]">
           2) Definir de donde se saca cada cantidad (LOCAL / GALPON)
         </div>
-        <div className="overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="text-zinc-400 uppercase text-[10px] sticky top-0 bg-[#1a1a1a]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
+            <thead className="text-zinc-400 uppercase text-[10px] bg-[#1a1a1a]">
               <tr>
                 <th className="text-left px-4 py-3">Producto</th>
-                <th className="text-right px-4 py-3">Total</th>
-                <th className="text-right px-4 py-3">LOCAL</th>
-                <th className="text-right px-4 py-3">GALPON</th>
-                <th className="text-center px-4 py-3">Estado</th>
+                <th className="text-right px-4 py-3 whitespace-nowrap">Total</th>
+                <th className="text-right px-4 py-3 whitespace-nowrap">LOCAL</th>
+                <th className="text-right px-4 py-3 whitespace-nowrap">GALPON</th>
+                <th className="text-center px-4 py-3 whitespace-nowrap">Estado</th>
               </tr>
             </thead>
             <tbody>
               {pickPlanRows.map((row) => (
-                <tr key={row.product_id} className="border-t border-zinc-800/60">
-                  <td className="px-4 py-2 font-bold text-zinc-200">{row.name}</td>
-                  <td className="px-4 py-2 text-right font-black text-[#e85d04]">{Number(row.total_qty || 0)}</td>
-                  <td className="px-4 py-2 text-right">
+                <tr key={row.product_id} className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
+                  <td className="px-4 py-3 font-bold text-zinc-200">{row.name}</td>
+                  <td className="px-4 py-3 text-right font-black text-[#e85d04]">{Number(row.total_qty || 0)}</td>
+                  <td className="px-4 py-3 text-right">
                     <input
-                      className="input w-24 ml-auto text-right"
+                      className="input w-20 md:w-24 ml-auto text-right"
                       type="number"
                       min="0"
                       step="1"
@@ -442,9 +622,9 @@ export default function Consolidado({ user, setToast }) {
                       onChange={(e) => setPlan(row.product_id, "localQty", e.target.value, row.total_qty)}
                     />
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-3 text-right">
                     <input
-                      className="input w-24 ml-auto text-right"
+                      className="input w-20 md:w-24 ml-auto text-right"
                       type="number"
                       min="0"
                       step="1"
@@ -452,7 +632,7 @@ export default function Consolidado({ user, setToast }) {
                       onChange={(e) => setPlan(row.product_id, "galponQty", e.target.value, row.total_qty)}
                     />
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="px-4 py-3 text-center">
                     {row.mismatch ? (
                       <span className="text-xs font-black text-rose-400">NO CUADRA</span>
                     ) : (
@@ -461,6 +641,11 @@ export default function Consolidado({ user, setToast }) {
                   </td>
                 </tr>
               ))}
+              {!pickPlanRows.length && (
+                <tr>
+                  <td colSpan={5} className="text-center py-6 text-zinc-500 font-bold">No hay mercadería</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -470,96 +655,147 @@ export default function Consolidado({ user, setToast }) {
         <div className="px-4 py-3 border-b border-zinc-800 text-sm font-black uppercase text-[#e85d04]">
           Mercaderia a Devolver por Rechazos
         </div>
-        <div className="overflow-auto flex-1">
-          <table className="w-full text-sm">
-            <thead className="text-zinc-400 uppercase text-[10px] sticky top-0 bg-[#1a1a1a]">
+        <div className="overflow-x-auto flex-1">
+          <table className="w-full text-sm min-w-[500px]">
+            <thead className="text-zinc-400 uppercase text-[10px] bg-[#1a1a1a]">
               <tr>
-                <th className="text-left px-4 py-3">SKU</th>
+                <th className="text-left px-4 py-3 whitespace-nowrap">SKU</th>
                 <th className="text-left px-4 py-3">Producto</th>
-                <th className="text-left px-4 py-3">Unidad</th>
-                <th className="text-right px-4 py-3">Cantidad Dev.</th>
+                <th className="text-left px-4 py-3 whitespace-nowrap">Unidad</th>
+                <th className="text-right px-4 py-3 whitespace-nowrap">Cantidad Dev.</th>
               </tr>
             </thead>
             <tbody>
               {rejectedReturns.map((row) => (
-                <tr key={row.product_id} className="border-t border-zinc-800/60">
-                  <td className="px-4 py-2 text-zinc-400">{row.sku || "-"}</td>
-                  <td className="px-4 py-2 font-bold text-zinc-200">{row.name}</td>
-                  <td className="px-4 py-2 text-zinc-400 uppercase">{row.unit_label || "unidad"}</td>
-                  <td className="px-4 py-2 text-right font-black text-yellow-400">{Number(row.qty_to_return || 0)}</td>
+                <tr key={row.product_id} className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
+                  <td className="px-4 py-3 text-zinc-400">{row.sku || "-"}</td>
+                  <td className="px-4 py-3 font-bold text-zinc-200">{row.name}</td>
+                  <td className="px-4 py-3 text-zinc-400 uppercase">{row.unit_label || "unidad"}</td>
+                  <td className="px-4 py-3 text-right font-black text-yellow-400">{Number(row.qty_to_return || 0)}</td>
                 </tr>
               ))}
+              {!rejectedReturns.length && (
+                <tr>
+                  <td colSpan={4} className="text-center py-6 text-zinc-500 font-bold">No hay rechazos</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
       {controlOpen && canControl ? (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-5xl bg-[#121212] border border-zinc-800 rounded-2xl p-4 space-y-4 max-h-[92vh] overflow-auto">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-black uppercase text-[#e85d04]">Control Secuencial de Consolidado</div>
-              <button className="btn btn-muted" onClick={() => setControlOpen(false)}>Cerrar</button>
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-5xl bg-[#121212] border border-zinc-800 rounded-2xl p-4 md:p-6 space-y-4 my-auto">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="text-sm md:text-base font-black uppercase text-[#e85d04]">Control Secuencial de Consolidado</div>
+              <button className="btn btn-muted w-full sm:w-auto" onClick={() => setControlOpen(false)}>Cerrar</button>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-xs font-black uppercase">
-              <div className={`p-2 rounded ${controlStep === "checklist" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>1. Checklist</div>
-              <div className={`p-2 rounded ${controlStep === "cashier" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>2. Firma Cajero</div>
-              <div className={`p-2 rounded ${controlStep === "driver" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>3. Firma Chofer</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] md:text-xs font-black uppercase">
+              <div className={`p-2 rounded flex items-center justify-center ${controlStep === "checklist" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>1. Checklist</div>
+              <div className={`p-2 rounded flex items-center justify-center ${controlStep === "cashier" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>2. Firma Cajero</div>
+              <div className={`p-2 rounded flex items-center justify-center ${controlStep === "driver" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>3. Firma Chofer</div>
             </div>
 
             {controlStep === "checklist" ? (
               <div className="space-y-3">
                 <div className="text-xs text-zinc-400">Marcar con tilde la mercaderia verificada ({checklistDoneCount}/{consolidated.length})</div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[50vh] overflow-y-auto pr-2">
                   {consolidated.map((row) => (
-                    <label key={row.product_id} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg p-2 cursor-pointer">
+                    <label key={row.product_id} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:bg-zinc-800 transition-colors">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 accent-[#e85d04]"
+                        className="h-5 w-5 md:h-4 md:w-4 accent-[#e85d04]"
                         checked={Boolean(checklistByProduct[row.product_id])}
                         onChange={(e) => setChecklistByProduct((prev) => ({ ...prev, [row.product_id]: e.target.checked }))}
                       />
-                      <span className="text-sm font-bold text-zinc-200">{row.name}</span>
-                      <span className="ml-auto text-xs font-black text-emerald-400">{Boolean(checklistByProduct[row.product_id]) ? "?" : ""}</span>
+                      <span className="text-sm md:text-xs font-bold text-zinc-200 line-clamp-1">{row.name}</span>
+                      <span className="ml-auto text-xs font-black text-emerald-400">{Boolean(checklistByProduct[row.product_id]) ? "✔" : ""}</span>
                     </label>
                   ))}
                 </div>
-                <div className="flex justify-end">
-                  <button className="btn btn-primary" disabled={!allChecklistDone || !allPickPlanValid} onClick={() => setControlStep("cashier")}>Confirmar checklist</button>
+                <div className="flex justify-end pt-2">
+                  <button className="btn btn-primary w-full sm:w-auto py-3 md:py-2 text-sm md:text-xs font-bold" disabled={!allChecklistDone || !allPickPlanValid} onClick={() => setControlStep("cashier")}>Confirmar checklist</button>
                 </div>
               </div>
             ) : null}
 
             {controlStep === "cashier" ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
                   <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Nombre Cajero</label>
-                  <input className="input mt-1" value={cashierName} onChange={(e) => setCashierName(e.target.value)} />
+                  <input className="input mt-1 w-full" value={cashierName} onChange={(e) => setCashierName(e.target.value)} />
                 </div>
                 <SignaturePad label="Firma Cajero" initialDataUrl={cashierSignature} onChange={setCashierSignature} />
-                <div className="flex justify-between">
-                  <button className="btn btn-muted" onClick={() => setControlStep("checklist")}>Volver</button>
-                  <button className="btn btn-primary" disabled={!cashierName.trim() || !cashierSignature} onClick={() => setControlStep("driver")}>Continuar a firma chofer</button>
+                <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-2">
+                  <button className="btn btn-muted w-full sm:w-auto py-3 md:py-2" onClick={() => setControlStep("checklist")}>Volver</button>
+                  <button className="btn btn-primary w-full sm:w-auto py-3 md:py-2 font-bold" disabled={!cashierName.trim() || !cashierSignature} onClick={() => setControlStep("driver")}>Continuar a firma chofer</button>
                 </div>
               </div>
             ) : null}
 
             {controlStep === "driver" ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
                   <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Nombre Chofer</label>
-                  <input className="input mt-1" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+                  <input className="input mt-1 w-full" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
                 </div>
                 <SignaturePad label="Firma Chofer" initialDataUrl={driverSignature} onChange={setDriverSignature} />
-                <div className="flex justify-between">
-                  <button className="btn btn-muted" onClick={() => setControlStep("cashier")}>Volver</button>
-                  <button className="btn btn-primary" disabled={savingControl || !driverName.trim() || !driverSignature} onClick={saveControl}>
+                <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-2">
+                  <button className="btn btn-muted w-full sm:w-auto py-3 md:py-2" onClick={() => setControlStep("cashier")}>Volver</button>
+                  <button className="btn btn-primary w-full sm:w-auto py-3 md:py-2 font-bold" disabled={savingControl || !driverName.trim() || !driverSignature} onClick={saveControl}>
                     {savingControl ? "Guardando..." : "Guardar control firmado"}
                   </button>
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {showPrintPrompt ? (
+        <div className="fixed inset-0 bg-black/70 z-[210] flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-[#121212] p-5 space-y-4">
+            <div className="text-lg font-black uppercase tracking-wider text-[#e85d04]">
+              Imprimir boleta consolidado
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-500">Impresora</label>
+              <select
+                className="input mt-1"
+                value={selectedPrinter}
+                onChange={(e) => setSelectedPrinter(e.target.value)}
+              >
+                {!availablePrinters.length && <option value="">Predeterminada del sistema</option>}
+                {availablePrinters.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.displayName || p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="border border-zinc-800 rounded-lg bg-white text-black p-3 max-h-80 overflow-auto">
+              <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight">
+                {printPreviewLines.map((line, idx) => (
+                  <div key={`${line}-${idx}`} className="whitespace-pre">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="text-xs text-zinc-500">
+              Atajos: <span className="font-black text-zinc-300">Y</span> = SI,{" "}
+              <span className="font-black text-zinc-300">N</span> = NO
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" className="btn btn-muted" onClick={() => resolvePrintConfirmation(false)}>
+                No (N)
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => resolvePrintConfirmation(true)}>
+                Si (Y)
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
