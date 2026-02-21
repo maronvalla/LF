@@ -485,7 +485,7 @@ router.post(
           WHERE (is_delivery = true OR sale_type = 'ENVIO')
             AND scheduled_date = $1
             AND delivery_slot = $2
-            AND delivery_status = 'PENDIENTE'
+            AND COALESCE(NULLIF(TRIM(UPPER(delivery_status)), ''), 'PENDIENTE') = 'PENDIENTE'
             AND status <> 'ANULADO'
           RETURNING id, sale_number, delivery_status, status
         `,
@@ -639,7 +639,7 @@ router.post(
       WHERE (is_delivery = true OR sale_type = 'ENVIO')
         AND scheduled_date = $1
         AND delivery_slot = $2
-        AND delivery_status = 'PENDIENTE'
+        AND COALESCE(NULLIF(TRIM(UPPER(delivery_status)), ''), 'PENDIENTE') = 'PENDIENTE'
         AND status <> 'ANULADO'
       RETURNING id, sale_number, delivery_status, status
     `,
