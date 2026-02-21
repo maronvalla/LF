@@ -45,6 +45,7 @@ export default function DriverApp({ onLogout }) {
   const [activeShift, setActiveShift] = useState('11');
   const [routeDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [trackingState, setTrackingState] = useState('INICIANDO');
+  const [trackingError, setTrackingError] = useState('');
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState('');
   const [financialSummary, setFinancialSummary] = useState({
@@ -71,25 +72,30 @@ export default function DriverApp({ onLogout }) {
 
   useEffect(() => {
     setTrackingState('INICIANDO');
-    const socket = io(socketOrigin, {
-      transports: ['websocket', 'polling'],
-    });
+    console.log('[DriverApp] Connecting socket to:', socketOrigin);
+    const socket = io(socketOrigin);
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      console.log('[DriverApp] Socket connected');
+      setTrackingError('');
       setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'CONECTADO'));
     });
 
     socket.on('disconnect', () => {
+      console.log('[DriverApp] Socket disconnected');
       setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'DESCONECTADO'));
     });
 
-    socket.on('connect_error', () => {
+    socket.on('connect_error', (err) => {
+      console.log('[DriverApp] Socket connect_error:', err?.message || err);
+      setTrackingError(String(err?.message || 'Error de conexion Socket.IO'));
       setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'API_DESCONECTADA'));
     });
 
     if (!navigator.geolocation) {
       setTrackingState('SIN_GEOLOCATION');
+      // Do not disconnect the socket here, so the API at least stays 'CONECTADO'
       return () => {
         socket.disconnect();
       };
@@ -547,6 +553,11 @@ export default function DriverApp({ onLogout }) {
           <div className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-1">
             Radar: {trackingState}
           </div>
+          {trackingError ? (
+            <div className="text-[10px] text-rose-400 font-bold mt-1 max-w-[220px] break-words">
+              {trackingError}
+            </div>
+          ) : null}
           <div className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-1">
             Fecha: {routeDate}
           </div>
@@ -603,13 +614,12 @@ export default function DriverApp({ onLogout }) {
                       {index + 1}
                     </div>
                     <span
-                      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        delivery.status === 'PENDIENTE'
-                          ? 'bg-yellow-500/20 text-yellow-500'
-                          : delivery.status === 'ENTREGADO'
-                            ? 'bg-emerald-500/20 text-emerald-500'
-                            : 'bg-rose-500/20 text-rose-500'
-                      }`}
+                      className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${delivery.status === 'PENDIENTE'
+                        ? 'bg-yellow-500/20 text-yellow-500'
+                        : delivery.status === 'ENTREGADO'
+                          ? 'bg-emerald-500/20 text-emerald-500'
+                          : 'bg-rose-500/20 text-rose-500'
+                        }`}
                     >
                       {delivery.status}
                     </span>
