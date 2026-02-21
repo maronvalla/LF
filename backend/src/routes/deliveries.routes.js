@@ -428,61 +428,107 @@ router.post(
     }
 
     const d = parsed.data;
-    const upsert = await pool.query(
-      `
-        INSERT INTO delivery_consolidated_controls(
-          control_date, slot, cashier_user_id, cashier_name, driver_name,
-          cashier_signature_base64, driver_signature_base64, total_orders, total_items,
-          checklist_json, pick_plan_json
-        )
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
-        ON CONFLICT (control_date, slot)
-        DO UPDATE SET
-          cashier_user_id = EXCLUDED.cashier_user_id,
-          cashier_name = EXCLUDED.cashier_name,
-          driver_name = EXCLUDED.driver_name,
-          cashier_signature_base64 = EXCLUDED.cashier_signature_base64,
-          driver_signature_base64 = EXCLUDED.driver_signature_base64,
-          total_orders = EXCLUDED.total_orders,
-          total_items = EXCLUDED.total_items,
-          checklist_json = EXCLUDED.checklist_json,
-          pick_plan_json = EXCLUDED.pick_plan_json,
-          updated_at = now()
-        RETURNING *
-      `,
-      [
-        d.date,
-        d.slot,
-        req.user.id,
-        d.cashierName.trim(),
-        d.driverName.trim(),
-        d.cashierSignatureBase64,
-        d.driverSignatureBase64,
-        Number(d.totalOrders || 0),
-        Number(d.totalItems || 0),
-        JSON.stringify(d.checklist || {}),
-        JSON.stringify(d.pickPlan || []),
-      ]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    await logAudit({
-      actorUserId: req.user.id,
-      action: "DELIVERY_CONSOLIDATED_CONTROL_SAVE",
-      entity: "delivery_consolidated_controls",
-      entityId: upsert.rows[0].id,
-      metadata: {
-        date: d.date,
-        slot: d.slot,
-        cashierName: d.cashierName,
-        driverName: d.driverName,
-        totalOrders: Number(d.totalOrders || 0),
-        totalItems: Number(d.totalItems || 0),
-        checklistCount: Object.keys(d.checklist || {}).length,
-        pickPlanCount: Array.isArray(d.pickPlan) ? d.pickPlan.length : 0,
-      },
-    });
+      const upsert = await client.query(
+        `
+          INSERT INTO delivery_consolidated_controls(
+            control_date, slot, cashier_user_id, cashier_name, driver_name,
+            cashier_signature_base64, driver_signature_base64, total_orders, total_items,
+            checklist_json, pick_plan_json
+          )
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
+          ON CONFLICT (control_date, slot)
+          DO UPDATE SET
+            cashier_user_id = EXCLUDED.cashier_user_id,
+            cashier_name = EXCLUDED.cashier_name,
+            driver_name = EXCLUDED.driver_name,
+            cashier_signature_base64 = EXCLUDED.cashier_signature_base64,
+            driver_signature_base64 = EXCLUDED.driver_signature_base64,
+            total_orders = EXCLUDED.total_orders,
+            total_items = EXCLUDED.total_items,
+            checklist_json = EXCLUDED.checklist_json,
+            pick_plan_json = EXCLUDED.pick_plan_json,
+            updated_at = now()
+          RETURNING *
+        `,
+        [
+          d.date,
+          d.slot,
+          req.user.id,
+          d.cashierName.trim(),
+          d.driverName.trim(),
+          d.cashierSignatureBase64,
+          d.driverSignatureBase64,
+          Number(d.totalOrders || 0),
+          Number(d.totalItems || 0),
+          JSON.stringify(d.checklist || {}),
+          JSON.stringify(d.pickPlan || []),
+        ]
+      );
 
-    res.json(upsert.rows[0]);
+      // After signed consolidated control, mark pending delivery orders as loaded.
+      const markedLoaded = await client.query(
+        `
+          UPDATE sales
+          SET
+            delivery_status = 'CARGADO',
+            status = CASE WHEN status IN ('PENDIENTE', 'PREPARADO') THEN 'CARGADO' ELSE status END,
+            updated_at = now()
+          WHERE (is_delivery = true OR sale_type = 'ENVIO')
+            AND scheduled_date = $1
+            AND delivery_slot = $2
+            AND delivery_status = 'PENDIENTE'
+            AND status <> 'ANULADO'
+          RETURNING id, sale_number, delivery_status, status
+        `,
+        [d.date, d.slot]
+      );
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "DELIVERY_CONSOLIDATED_CONTROL_SAVE",
+        entity: "delivery_consolidated_controls",
+        entityId: upsert.rows[0].id,
+        metadata: {
+          date: d.date,
+          slot: d.slot,
+          cashierName: d.cashierName,
+          driverName: d.driverName,
+          totalOrders: Number(d.totalOrders || 0),
+          totalItems: Number(d.totalItems || 0),
+          checklistCount: Object.keys(d.checklist || {}).length,
+          pickPlanCount: Array.isArray(d.pickPlan) ? d.pickPlan.length : 0,
+          autoMarkedLoaded: markedLoaded.rowCount,
+        },
+        client,
+      });
+
+      if (markedLoaded.rowCount > 0) {
+        await logAudit({
+          actorUserId: req.user.id,
+          action: "DELIVERY_MARK_LOADED",
+          entity: "sales",
+          metadata: {
+            date: d.date,
+            slot: d.slot,
+            affected: markedLoaded.rowCount,
+            source: "CONSOLIDATED_CONTROL_SAVE",
+          },
+          client,
+        });
+      }
+
+      await client.query("COMMIT");
+      res.json({ ...upsert.rows[0], autoMarkedLoaded: markedLoaded.rowCount });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   })
 );
 
