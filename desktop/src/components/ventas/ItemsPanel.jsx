@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 export default function ItemsPanel({
   codeInputRef,
   search,
-  qty,
   filteredProducts,
   draftItems,
   selectedIdx,
@@ -29,7 +28,7 @@ export default function ItemsPanel({
     <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl flex-[1_1_auto] min-h-0 flex flex-col relative shrink overflow-hidden">
       <div className="p-2.5 border-b border-[#d8d8dc] flex flex-col gap-2 shrink-0">
         <div className="text-[16px] md:text-[18px] leading-none font-black text-zinc-900">Carga Rapida de Items</div>
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_auto_auto] gap-2 items-end">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_auto] gap-2 items-end">
           <div className="relative flex gap-2 w-full items-center">
             <label className="text-[11px] font-black text-zinc-700 uppercase mr-2 shrink-0">Codigo:</label>
             <input
@@ -94,18 +93,6 @@ export default function ItemsPanel({
                 ))}
               </div>
             ) : null}
-          </div>
-
-          <div className="w-full sm:w-20">
-            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-1">Cantidad</label>
-            <input
-              type="number"
-              min={1}
-              className="w-full bg-white border border-[#cfcfd4] rounded-lg text-center text-base font-bold py-1.5 text-zinc-900 outline-none focus:border-[#d97706]"
-              value={qty}
-              onChange={(event) => onQtyChange(event.target.value)}
-              disabled={disabled}
-            />
           </div>
 
           <button

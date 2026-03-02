@@ -27,6 +27,7 @@ import {
   getSuggestedDeliverySchedule,
   loadDeliveryShiftConfig,
 } from "../utils/deliveryShiftConfig";
+import { productMatchesSearch } from "../utils/productSearch";
 
 
 const ROLES_VENDEDOR_HABILITADOS = ["VENDEDOR", "CAJERO", "ADMIN"];
@@ -590,15 +591,10 @@ export default function Ventas({
   );
 
   const filteredProducts = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     if (!q) return [];
     return products
-      .filter(
-        (p) =>
-          p.name?.toLowerCase().includes(q) ||
-          p.sku?.toLowerCase().includes(q) ||
-          String(p.codigo || "").toLowerCase().includes(q)
-      )
+      .filter((p) => productMatchesSearch(p, q))
       .slice(0, 20);
   }, [products, search]);
 

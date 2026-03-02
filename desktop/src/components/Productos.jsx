@@ -248,6 +248,11 @@ export default function Productos({ user, setToast }) {
     setShowNewProduct(true);
   };
 
+  const activeProducts = useMemo(
+    () => products.filter((product) => product.is_active !== false && product.isActive !== false),
+    [products]
+  );
+
   const startBulkEdit = () => {
     const nextDrafts = {};
     const nextOriginals = {};
@@ -721,11 +726,6 @@ export default function Productos({ user, setToast }) {
       ...new Set([...prev, ...problematicProducts.map((entry) => entry.product.id)]),
     ]);
   };
-
-  const activeProducts = useMemo(
-    () => products.filter((product) => product.is_active !== false && product.isActive !== false),
-    [products]
-  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1451,6 +1451,7 @@ export default function Productos({ user, setToast }) {
                     <th className="text-right py-2">Minorista</th>
                     <th className="text-right py-2">Mayorista</th>
                     <th className="text-left py-2">Otras listas</th>
+                    <th className="text-right py-2">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1576,6 +1577,16 @@ export default function Productos({ user, setToast }) {
                                 />
                               </div>
                             ))}
+                        </td>
+                        <td className="py-2 text-right">
+                          <button
+                            type="button"
+                            className="btn rounded-lg bg-rose-900/70 px-3 py-1 text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={bulkSaving || deletingProductId === p.id}
+                            onClick={() => deleteProduct(p)}
+                          >
+                            {deletingProductId === p.id ? "Borrando..." : "Borrar"}
+                          </button>
                         </td>
                       </tr>
                     );

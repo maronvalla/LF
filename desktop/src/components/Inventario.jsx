@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import useStockControlStatus from "../hooks/useStockControlStatus";
+import { productMatchesSearch } from "../utils/productSearch";
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -145,13 +146,19 @@ export default function Inventario({ user, setToast }) {
   }, [activeLocationCode, controlDrafts, products]);
 
   const visibleCurrentLocationRows = useMemo(() => {
-    const query = String(stockControlQuery || "").trim().toLowerCase();
+    const query = String(stockControlQuery || "").trim();
     if (!query) return currentLocationRows;
-    return currentLocationRows.filter((row) => {
-      const name = String(row.name || "").toLowerCase();
-      const code = String(row.code || "").toLowerCase();
-      return name.includes(query) || code.includes(query);
-    });
+    return currentLocationRows.filter((row) =>
+      productMatchesSearch(
+        {
+          name: row.name,
+          codigo: row.code,
+          sku: row.code,
+          id: row.id,
+        },
+        query
+      )
+    );
   }, [currentLocationRows, stockControlQuery]);
 
   const handleTransfer = async () => {

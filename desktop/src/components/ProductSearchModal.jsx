@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { productMatchesSearch } from "../utils/productSearch";
 
 export default function ProductSearchModal({ products, onClose, onSelect }) {
   const [search, setSearch] = useState("");
@@ -9,11 +10,7 @@ export default function ProductSearchModal({ products, onClose, onSelect }) {
     search.trim() === ""
       ? products.slice(0, 100)
       : products
-        .filter(
-          (product) =>
-            (product.name || "").toLowerCase().includes(search.toLowerCase()) ||
-            (product.codigo || product.sku || "").toLowerCase().includes(search.toLowerCase())
-        )
+        .filter((product) => productMatchesSearch(product, search))
         .slice(0, 100);
 
   useEffect(() => {
