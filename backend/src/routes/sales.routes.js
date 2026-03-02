@@ -6,6 +6,7 @@ const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { buildSaleNumber, proposeShift } = require("../utils/sales");
 const { logAudit } = require("../services/audit");
+const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
 
 const router = express.Router();
 
@@ -54,6 +55,26 @@ const createSaleSchema = z.object({
 
 const cancelSaleSchema = z.object({
   reason: z.string().trim().min(3).max(300),
+});
+
+const createBudgetSchema = z.object({
+  customerId: z.string().uuid().nullable().optional(),
+  customerName: z.string().trim().min(1).max(200),
+  saleType: z.enum(["MOSTRADOR", "ENVIO"]),
+  shift: z.enum(["MANIANA", "TARDE"]).nullable().optional(),
+  scheduledDate: z.string().date().nullable().optional(),
+  deliveryAddress: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  budgetNumber: z.string().trim().min(3).max(80),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        qty: z.number().int().positive(),
+        unitPrice: z.number().int().nonnegative(),
+      })
+    )
+    .min(1),
 });
 
 const checkoutSaleSchema = z.object({
@@ -366,6 +387,91 @@ router.get(
   })
 );
 
+router.post(
+  "/budgets",
+  requirePermission("sales.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = createBudgetSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Datos invalidos" });
+    }
+
+    const data = parsed.data;
+    const customerName = String(data.customerName || "").trim() || "CONSUMIDOR FINAL";
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const totalAmount = data.items.reduce(
+        (acc, item) => acc + Number(item.qty || 0) * Number(item.unitPrice || 0),
+        0
+      );
+
+      const budgetRes = await client.query(
+        `
+          INSERT INTO budgets(
+            budget_number,
+            customer_id,
+            customer_name_snapshot,
+            sale_type,
+            shift,
+            scheduled_date,
+            delivery_address,
+            notes,
+            total_amount,
+            created_by
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          RETURNING *
+        `,
+        [
+          data.budgetNumber,
+          data.customerId || null,
+          customerName,
+          data.saleType,
+          data.shift || null,
+          data.scheduledDate || null,
+          data.deliveryAddress || null,
+          data.notes || null,
+          totalAmount,
+          req.user.id,
+        ]
+      );
+
+      for (const item of data.items) {
+        const lineTotal = Number(item.qty || 0) * Number(item.unitPrice || 0);
+        await client.query(
+          `
+            INSERT INTO budget_items(budget_id, product_id, qty, unit_price, line_total)
+            VALUES ($1,$2,$3,$4,$5)
+          `,
+          [budgetRes.rows[0].id, item.productId, item.qty, item.unitPrice, lineTotal]
+        );
+      }
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "BUDGET_CREATE",
+        entity: "budgets",
+        entityId: budgetRes.rows[0].id,
+        metadata: {
+          after: budgetRes.rows[0],
+          items: data.items,
+        },
+        client,
+      });
+
+      await client.query("COMMIT");
+      res.status(201).json(budgetRes.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
+
 router.get(
   "/:id",
   requirePermission("sales.manage"),
@@ -600,6 +706,9 @@ router.post(
       });
 
       await client.query("COMMIT");
+      if (String(sale.sale_type || "").toUpperCase() === "MOSTRADOR") {
+        await notifyCriticalStockForProductIds(itemsRes.rows.map((item) => item.product_id));
+      }
       const fullSale = await getSaleWithItems(client, sale.id);
       res.json(fullSale || updated.rows[0]);
     } catch (err) {
@@ -671,6 +780,7 @@ router.post(
         client,
       });
       await client.query("COMMIT");
+      await notifyCriticalStockForProductIds(itemsRes.rows.map((item) => item.product_id));
       res.json(updated.rows[0]);
     } catch (err) {
       await client.query("ROLLBACK");
@@ -747,6 +857,10 @@ router.post(
       });
 
       await client.query("COMMIT");
+      if (shouldRestoreInventory) {
+        const restoredItems = await client.query("SELECT product_id FROM sale_items WHERE sale_id = $1", [sale.id]);
+        await notifyCriticalStockForProductIds(restoredItems.rows.map((item) => item.product_id));
+      }
       res.json({ ...updated.rows[0], cancel_reason: parsed.data.reason });
     } catch (err) {
       await client.query("ROLLBACK");

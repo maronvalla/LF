@@ -22,6 +22,11 @@ const {
   normalizeRoleDefinitions,
   saveRoleDefinitions,
 } = require("../services/roles");
+const {
+  loadTelegramAlertsConfig,
+  normalizeTelegramAlertsConfig,
+  saveTelegramAlertsConfig,
+} = require("../services/telegram-alerts");
 
 const router = express.Router();
 
@@ -108,6 +113,12 @@ const roleDefinitionSchema = z.object({
 
 const roleDefinitionsSchema = z.object({
   roles: z.array(roleDefinitionSchema).max(50),
+});
+
+const telegramAlertsSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  botToken: z.string().trim().max(255).optional().default(""),
+  chatIds: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
 });
 
 async function loadLocations() {
@@ -335,6 +346,33 @@ router.get(
   asyncHandler(async (_req, res) => {
     const roles = await loadRoleDefinitions();
     res.json({ roles, permissions: ALL_PERMISSIONS });
+  })
+);
+
+router.get(
+  "/telegram-alerts",
+  requirePermission("settings.manage"),
+  asyncHandler(async (_req, res) => {
+    const settings = await loadTelegramAlertsConfig();
+    res.json(settings);
+  })
+);
+
+router.put(
+  "/telegram-alerts",
+  requirePermission("settings.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = telegramAlertsSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        message: "Configuracion de Telegram invalida",
+        issues: parsed.error.issues,
+      });
+    }
+
+    const saved = await saveTelegramAlertsConfig(normalizeTelegramAlertsConfig(parsed.data));
+    res.json({ ok: true, ...saved });
   })
 );
 

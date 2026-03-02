@@ -5,6 +5,7 @@ const { requirePermission } = require("../middleware/rbac");
 const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
+const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
 
 const router = express.Router();
 
@@ -234,6 +235,7 @@ router.post(
             });
 
             await client.query("COMMIT");
+            await notifyCriticalStockForProductIds(data.items.map((item) => item.productId));
             res.status(201).json(purchase.rows[0]);
         } catch (err) {
             await client.query("ROLLBACK");

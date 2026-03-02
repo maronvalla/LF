@@ -397,6 +397,97 @@ router.get(
 );
 
 router.get(
+  "/purchase-suggestion",
+  requirePermission("deliveries.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = deliveryQuerySchema.safeParse({
+      date: req.query.date,
+      slot: req.query.slot,
+    });
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Query invalida. Use date=YYYY-MM-DD&slot=11|19" });
+    }
+
+    const { rows } = await pool.query(
+      `
+        WITH delivery_products AS (
+          SELECT
+            si.product_id,
+            SUM(si.qty)::int AS delivery_qty
+          FROM sales s
+          JOIN sale_items si ON si.sale_id = s.id
+          WHERE (s.is_delivery = true OR s.sale_type = 'ENVIO')
+            AND s.scheduled_date = $1
+            AND s.delivery_slot = $2
+            AND s.status <> 'ANULADO'
+          GROUP BY si.product_id
+        ),
+        stock_totals AS (
+          SELECT
+            ib.product_id,
+            COALESCE(SUM(ib.quantity), 0)::int AS existing_stock
+          FROM inventory_balances ib
+          GROUP BY ib.product_id
+        )
+        SELECT
+          p.id AS product_id,
+          COALESCE(p.sku, '') AS sku,
+          p.name,
+          p.unit_label,
+          COALESCE(pr.name, '-') AS rubro_name,
+          COALESCE(pb.name, '-') AS brand_name,
+          COALESCE(pc.name, '-') AS category_name,
+          COALESCE(p.cost, 0)::int AS unit_cost,
+          COALESCE(p.price_mayorista, p.price_minorista, 0)::int AS wholesale_price,
+          COALESCE(p.min_stock, 0)::int AS min_stock,
+          COALESCE(st.existing_stock, 0)::int AS existing_stock,
+          dp.delivery_qty,
+          GREATEST(COALESCE(p.min_stock, 0) - COALESCE(st.existing_stock, 0), 0)::int AS qty_to_order,
+          GREATEST(COALESCE(p.min_stock, 0) - COALESCE(st.existing_stock, 0), 0) * COALESCE(p.cost, 0)::int AS line_total_cost
+        FROM delivery_products dp
+        JOIN products p ON p.id = dp.product_id
+        LEFT JOIN stock_totals st ON st.product_id = p.id
+        LEFT JOIN product_rubros pr ON pr.id = p.rubro_id
+        LEFT JOIN product_brands pb ON pb.id = p.brand_id
+        LEFT JOIN product_categories pc ON pc.id = p.category_id
+        WHERE p.is_active = TRUE
+        ORDER BY qty_to_order DESC, p.name ASC
+      `,
+      [parsed.data.date, parsed.data.slot]
+    );
+
+    const items = rows.map((row) => ({
+      productId: row.product_id,
+      sku: row.sku,
+      name: row.name,
+      unitLabel: row.unit_label,
+      rubroName: row.rubro_name,
+      brandName: row.brand_name,
+      categoryName: row.category_name,
+      unitCost: Number(row.unit_cost || 0),
+      wholesalePrice: Number(row.wholesale_price || 0),
+      minStock: Number(row.min_stock || 0),
+      existingStock: Number(row.existing_stock || 0),
+      deliveryQty: Number(row.delivery_qty || 0),
+      qtyToOrder: Number(row.qty_to_order || 0),
+      lineTotalCost: Number(row.line_total_cost || 0),
+    }));
+
+    const suggestedItems = items.filter((item) => item.qtyToOrder > 0);
+    const totalCost = suggestedItems.reduce((acc, item) => acc + item.lineTotalCost, 0);
+
+    res.json({
+      ok: true,
+      date: parsed.data.date,
+      slot: parsed.data.slot,
+      totalItems: suggestedItems.length,
+      totalCost,
+      items: suggestedItems,
+    });
+  })
+);
+
+router.get(
   "/consolidated-control",
   requirePermission("sales.manage"),
   asyncHandler(async (req, res) => {

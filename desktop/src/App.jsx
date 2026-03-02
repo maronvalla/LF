@@ -22,6 +22,7 @@ const CuentaCorriente = lazy(() => import("./components/CuentaCorriente"));
 const Configuracion = lazy(() => import("./components/Configuracion"));
 const Caja = lazy(() => import("./components/Caja"));
 const Dashboard = lazy(() => import("./components/Dashboard"));
+const Informes = lazy(() => import("./components/Informes"));
 
 function AppSectionLoader({ isDark }) {
   return (
@@ -46,6 +47,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [pendingCashOrders, setPendingCashOrders] = useState([]);
   const [pendingOrderToOpen, setPendingOrderToOpen] = useState("");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!hydrateToken()) return;
@@ -76,8 +78,6 @@ export default function App() {
   const role = String(user?.role || "").toUpperCase();
   const allowedTabs = useMemo(() => ROLE_TABS[role] || [], [role]);
   const canManageCashOrders = role === "ADMIN" || role === "CAJERO";
-
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!user || role === "REPARTIDOR") return;
@@ -186,6 +186,8 @@ export default function App() {
         return role === "REPARTIDOR" ? <DriverApp onLogout={handleLogout} /> : <AdminTrackingMap user={user} />;
       case "📊 Consolidado":
         return <Consolidado user={user} setToast={setToast} />;
+      case "Informes":
+        return <Informes user={user} setToast={setToast} />;
       case "🧾 Cuenta Corriente":
         return <CuentaCorriente user={user} setToast={setToast} />;
       case "💰 Caja":
@@ -220,7 +222,7 @@ export default function App() {
   const isDark = (localStorage.getItem("appTheme") || "light") === "dark";
 
   return (
-    <div className={`h-screen flex font-sans overflow-hidden ${isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900'}`}>
+    <div className={`h-screen flex font-sans overflow-hidden ${isDark ? "bg-zinc-950 text-white" : "bg-zinc-50 text-zinc-900"}`}>
       {activeTab === "Dashboard" ? (
         <HomeNavigation
           user={user}
@@ -238,14 +240,14 @@ export default function App() {
           <div className="absolute top-4 left-4 z-50 flex gap-2">
             <button
               onClick={() => setActiveTab("Dashboard")}
-              className={`hidden md:flex px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all shadow-xl items-center gap-2 ${isDark ? 'bg-[#121212] border border-zinc-800 hover:border-zinc-600 text-zinc-400 hover:text-white' : 'bg-white border border-zinc-200 hover:border-[#e85d04] text-zinc-600 hover:text-[#e85d04]'}`}
+              className={`hidden md:flex px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all shadow-xl items-center gap-2 ${isDark ? "bg-[#121212] border border-zinc-800 hover:border-zinc-600 text-zinc-400 hover:text-white" : "bg-white border border-zinc-200 hover:border-[#e85d04] text-zinc-600 hover:text-[#e85d04]"}`}
             >
               <span>VOLVER AL INICIO</span>
-              <kbd className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-normal ${isDark ? 'bg-zinc-800' : 'bg-zinc-100'}`}>ESC</kbd>
+              <kbd className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-normal ${isDark ? "bg-zinc-800" : "bg-zinc-100"}`}>ESC</kbd>
             </button>
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className={`md:hidden p-2 rounded-lg transition-all shadow-md ${isDark ? 'bg-[#121212] border border-zinc-800 text-zinc-400' : 'bg-white border border-zinc-200 text-zinc-600'} ${isMobileMenuOpen ? (isDark ? 'bg-zinc-800 text-white' : 'bg-zinc-100 text-[#e85d04]') : ''}`}
+              className={`md:hidden p-2 rounded-lg transition-all shadow-md ${isDark ? "bg-[#121212] border border-zinc-800 text-zinc-400" : "bg-white border border-zinc-200 text-zinc-600"} ${isMobileMenuOpen ? (isDark ? "bg-zinc-800 text-white" : "bg-zinc-100 text-[#e85d04]") : ""}`}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 {isMobileMenuOpen ? (
@@ -280,8 +282,8 @@ export default function App() {
                       key={tab}
                       onClick={() => setActiveTab(tab)}
                       className={`p-4 rounded-xl border text-left font-bold shadow-sm transition-colors ${activeTab === tab
-                        ? (isDark ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-100 border-[#e85d04] text-[#e85d04]')
-                        : (isDark ? 'bg-[#121212] border-zinc-800 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-700')
+                        ? (isDark ? "bg-zinc-800 border-zinc-700 text-white" : "bg-zinc-100 border-[#e85d04] text-[#e85d04]")
+                        : (isDark ? "bg-[#121212] border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-700")
                         }`}
                     >
                       {tab}

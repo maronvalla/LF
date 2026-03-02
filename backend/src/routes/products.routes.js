@@ -5,6 +5,7 @@ const { requirePermission } = require("../middleware/rbac");
 const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
+const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
 
 const router = express.Router();
 
@@ -215,6 +216,7 @@ router.post(
         client,
       });
       await client.query("COMMIT");
+      await notifyCriticalStockForProductIds([rows[0].id]);
       res.status(201).json(rows[0]);
     } catch (err) {
       await client.query("ROLLBACK");
@@ -285,6 +287,7 @@ router.put(
       entityId: rows[0].id,
       metadata: { before: before.rows[0], after: rows[0] },
     });
+    await notifyCriticalStockForProductIds([rows[0].id]);
     res.json(rows[0]);
   })
 );

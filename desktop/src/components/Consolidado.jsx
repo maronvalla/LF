@@ -126,6 +126,11 @@ export default function Consolidado({ user, setToast }) {
   const [orders, setOrders] = useState([]);
   const [consolidated, setConsolidated] = useState([]);
   const [rejectedReturns, setRejectedReturns] = useState([]);
+  const [purchaseSuggestion, setPurchaseSuggestion] = useState({
+    items: [],
+    totalItems: 0,
+    totalCost: 0,
+  });
 
   const [pickPlanByProduct, setPickPlanByProduct] = useState({});
   const [checklistByProduct, setChecklistByProduct] = useState({});
@@ -162,9 +167,10 @@ export default function Consolidado({ user, setToast }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [ordersRes, consolidatedRes] = await Promise.all([
+      const [ordersRes, consolidatedRes, purchaseSuggestionRes] = await Promise.all([
         api.get("/deliveries", { params: { date, slot } }),
         api.get("/deliveries/consolidated", { params: { date, slot } }),
+        api.get("/deliveries/purchase-suggestion", { params: { date, slot } }),
       ]);
 
       const nextOrders = Array.isArray(ordersRes.data) ? ordersRes.data : [];
@@ -180,6 +186,11 @@ export default function Consolidado({ user, setToast }) {
       setOrders(nextOrders);
       setConsolidated(nextConsolidated);
       setRejectedReturns(nextRejectedReturns);
+      setPurchaseSuggestion({
+        items: Array.isArray(purchaseSuggestionRes.data?.items) ? purchaseSuggestionRes.data.items : [],
+        totalItems: Number(purchaseSuggestionRes.data?.totalItems || 0),
+        totalCost: Number(purchaseSuggestionRes.data?.totalCost || 0),
+      });
 
       const defaultPlan = {};
       const defaultChecklist = {};
@@ -242,6 +253,7 @@ export default function Consolidado({ user, setToast }) {
       setOrders([]);
       setConsolidated([]);
       setRejectedReturns([]);
+      setPurchaseSuggestion({ items: [], totalItems: 0, totalCost: 0 });
       setToast?.({
         message: err.response?.data?.message || "No se pudo cargar consolidado",
         type: "error",
@@ -277,6 +289,11 @@ export default function Consolidado({ user, setToast }) {
         0,
       ),
     [rejectedReturns],
+  );
+
+  const purchaseSuggestionItems = useMemo(
+    () => (Array.isArray(purchaseSuggestion.items) ? purchaseSuggestion.items : []),
+    [purchaseSuggestion.items],
   );
 
   const pedidosEnvio = useMemo(
@@ -603,6 +620,81 @@ export default function Consolidado({ user, setToast }) {
         type: "error",
       });
     }
+  };
+
+  const printPurchaseSuggestionPdf = () => {
+    if (!purchaseSuggestionItems.length) {
+      setToast?.({ message: "No hay sugerencias de pedido para imprimir", type: "error" });
+      return;
+    }
+
+    const printable = window.open("", "_blank", "width=1100,height=900");
+    if (!printable) {
+      setToast?.({ message: "No se pudo abrir la vista de impresion", type: "error" });
+      return;
+    }
+
+    const rows = purchaseSuggestionItems
+      .map(
+        (item) => `
+          <tr>
+            <td>${item.sku || "-"}</td>
+            <td>${String(item.name || "")}</td>
+            <td>${Number(item.minStock || 0)}</td>
+            <td>${Number(item.existingStock || 0)}</td>
+            <td>${Number(item.qtyToOrder || 0)}</td>
+            <td>$${Number(item.unitCost || 0).toFixed(2)}</td>
+            <td>$${Number(item.lineTotalCost || 0).toFixed(2)}</td>
+          </tr>
+        `,
+      )
+      .join("");
+
+    printable.document.write(`
+      <html>
+        <head>
+          <title>Pedido sugerido por stock critico</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+            h1 { margin: 0 0 6px; font-size: 24px; }
+            .meta { margin-bottom: 18px; color: #4b5563; font-size: 13px; }
+            .totals { margin: 0 0 18px; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px 10px; text-align: left; }
+            th { background: #f3f4f6; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+            tfoot td { font-weight: 700; background: #f9fafb; }
+          </style>
+        </head>
+        <body>
+          <h1>Pedido sugerido por stock critico</h1>
+          <div class="meta">Fecha: ${date} | Turno: ${slot === "11" ? "11:00" : "19:00"}</div>
+          <div class="totals">Productos a pedir: ${purchaseSuggestion.totalItems} | Total compra estimada: $${Number(purchaseSuggestion.totalCost || 0).toFixed(2)}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Codigo</th>
+                <th>Descripcion</th>
+                <th>Stock minimo</th>
+                <th>Stock actual</th>
+                <th>Pedido</th>
+                <th>Costo unit.</th>
+                <th>Total pedido</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="6">Total compra</td>
+                <td>$${Number(purchaseSuggestion.totalCost || 0).toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </body>
+      </html>
+    `);
+    printable.document.close();
+    printable.focus();
+    printable.print();
   };
 
   return (

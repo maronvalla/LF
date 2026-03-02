@@ -13,6 +13,7 @@ const {
   userCanManageStockControl,
 } = require("../services/stock-control");
 const { loadTransferPairs } = require("../services/inventory-transfer-settings");
+const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
 
 const router = express.Router();
 
@@ -396,6 +397,7 @@ async function transferHandler(req, res, payload) {
     });
 
     await client.query("COMMIT");
+    await notifyCriticalStockForProductIds([productId]);
     return res.status(201).json({
       ok: true,
       movement: movement.rows[0],
@@ -510,6 +512,7 @@ router.post(
       });
 
       await client.query("COMMIT");
+      await notifyCriticalStockForProductIds([productId]);
       return res.status(201).json({
         ok: true,
         movement: movement.rows[0],

@@ -17,6 +17,7 @@ const ALL_PERMISSIONS = [
   "delivery.override",
   "purchases.manage",
   "current-account.manage",
+  "reports.view",
 ];
 
 const DEFAULT_ROLE_DEFINITIONS = [
@@ -37,6 +38,7 @@ const DEFAULT_ROLE_DEFINITIONS = [
       "purchases.manage",
       "dashboard.view",
       "current-account.manage",
+      "reports.view",
     ],
   },
   {
@@ -64,6 +66,7 @@ const TABS_BY_PERMISSION = [
   { permission: "users.manage", tabs: ["⚙️ Usuarios"] },
   { permission: "settings.manage", tabs: ["🧭 Configuracion"] },
   { permission: "current-account.manage", tabs: ["🧾 Cuenta Corriente"] },
+  { permission: "reports.view", tabs: ["Informes"] },
 ];
 
 function normalizeRoleKey(value) {
