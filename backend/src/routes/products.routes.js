@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const { pool } = require("../db");
-const { requirePermission } = require("../middleware/rbac");
+const { requirePermission, requireAnyPermission } = require("../middleware/rbac");
 const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
@@ -60,7 +60,7 @@ function normalizeIncomingPriceLists(priceLists, priceMinorista, priceMayorista)
 
 router.get(
   "/",
-  requirePermission("inventory.view"),
+  requireAnyPermission("inventory.view", "sales.manage"),
   asyncHandler(async (_req, res) => {
     try {
       const { rows } = await pool.query(`

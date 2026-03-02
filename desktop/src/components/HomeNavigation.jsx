@@ -2,6 +2,14 @@ import { useState, useEffect, useRef } from "react";
 import api from "../api";
 import { SHORTCUTS } from "../config/navigation";
 
+function normalizeTabToken(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "")
+    .toUpperCase();
+}
+
 function getTabAppearance(tab, isDark) {
   if (isDark) {
     let colorClass = "group-hover:text-[#e85d04]";
@@ -126,7 +134,9 @@ export default function HomeNavigation({
   const externalTab = allowedTabs.find((tab) => tab.includes("Configuracion"));
   const sideTabOrder = ["Ventas", "Compras", "Clientes", "Productos", "Consolidado", "ConsultarVentas"];
   const sideTabs = sideTabOrder
-    .map((label) => allowedTabs.find((tab) => tab.includes(label)))
+    .map((label) =>
+      allowedTabs.find((tab) => normalizeTabToken(tab) === normalizeTabToken(label))
+    )
     .filter(Boolean);
   const menuTabs = allowedTabs.filter((tab) => tab !== externalTab && !sideTabs.includes(tab));
 

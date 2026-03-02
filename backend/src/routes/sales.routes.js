@@ -31,11 +31,14 @@ const createSaleSchema = z.object({
   customerName: z.string().trim().min(1).max(200).nullable().optional(),
   sellerId: z.string().uuid().nullable().optional(),
   vendedorId: z.string().uuid().nullable().optional(),
+  sellerName: z.string().trim().min(1).max(200).nullable().optional(),
+  sellerNameSnapshot: z.string().trim().min(1).max(200).nullable().optional(),
   saleType: z.enum(["MOSTRADOR", "ENVIO"]),
   isDelivery: z.boolean().optional(),
   shift: z.enum(["MANIANA", "TARDE"]).nullable().optional(),
   deliverySlot: z.enum(["11", "19"]).nullable().optional(),
   scheduledDate: z.string().date().optional(),
+  invoiceType: z.string().trim().min(1).max(80).optional(),
   paymentMethod: z.string().nullable().optional(),
   paymentCondition: deliveryConditionSchema,
   deliveryPayment: deliveryConditionSchema,
@@ -60,12 +63,14 @@ const cancelSaleSchema = z.object({
 const createBudgetSchema = z.object({
   customerId: z.string().uuid().nullable().optional(),
   customerName: z.string().trim().min(1).max(200),
+  sellerName: z.string().trim().min(1).max(200).nullable().optional(),
   saleType: z.enum(["MOSTRADOR", "ENVIO"]),
   shift: z.enum(["MANIANA", "TARDE"]).nullable().optional(),
   scheduledDate: z.string().date().nullable().optional(),
   deliveryAddress: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   budgetNumber: z.string().trim().min(3).max(80),
+  invoiceType: z.string().trim().min(1).max(80).optional(),
   items: z
     .array(
       z.object({
@@ -277,7 +282,7 @@ async function getSaleWithItems(client, saleId) {
       SELECT
         s.*,
         COALESCE(c.name, s.customer_name_snapshot, 'CONSUMIDOR FINAL') AS customer_name,
-        u.full_name AS created_by_name,
+        COALESCE(NULLIF(TRIM(s.seller_name_snapshot), ''), u.full_name, u.username) AS created_by_name,
         u.username AS created_by_username
       FROM sales s
       LEFT JOIN customers c ON c.id = s.customer_id
@@ -422,7 +427,7 @@ router.get(
       SELECT
         s.*,
         COALESCE(c.name, s.customer_name_snapshot, 'CONSUMIDOR FINAL') AS customer_name,
-        u.full_name AS created_by_name,
+        COALESCE(NULLIF(TRIM(s.seller_name_snapshot), ''), u.full_name, u.username) AS created_by_name,
         u.username AS created_by_username,
         COALESCE(SUM(si.line_total), 0)::numeric AS total_amount
       FROM sales s
@@ -458,7 +463,7 @@ router.get(
         COALESCE(c.name, s.customer_name_snapshot, 'CONSUMIDOR FINAL') AS customer_name,
         COALESCE(SUM(si.line_total), 0)::numeric AS total_amount,
         COALESCE(SUM(si.qty), 0)::int AS total_items,
-        creator.full_name AS created_by_name,
+        COALESCE(NULLIF(TRIM(s.seller_name_snapshot), ''), creator.full_name, creator.username) AS created_by_name,
         creator.username AS created_by_username
       FROM sales s
       LEFT JOIN customers c ON c.id = s.customer_id
@@ -494,6 +499,11 @@ router.post(
         (acc, item) => acc + Number(item.qty || 0) * Number(item.unitPrice || 0),
         0
       );
+      const sellerNameSnapshot =
+        String(data.sellerName || "").trim() ||
+        String(req.user?.fullName || req.user?.full_name || req.user?.username || "").trim() ||
+        null;
+      const invoiceType = String(data.invoiceType || "Presupuesto").trim() || "Presupuesto";
 
       const budgetRes = await client.query(
         `
@@ -507,9 +517,11 @@ router.post(
             delivery_address,
             notes,
             total_amount,
-            created_by
+            created_by,
+            seller_name_snapshot,
+            invoice_type
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
           RETURNING *
         `,
         [
@@ -523,6 +535,8 @@ router.post(
           data.notes || null,
           totalAmount,
           req.user.id,
+          sellerNameSnapshot,
+          invoiceType,
         ]
       );
 
@@ -599,6 +613,11 @@ router.post(
         : null);
     const scheduledDate = data.scheduledDate || new Date().toISOString().slice(0, 10);
     const sellerId = data.vendedorId || data.sellerId || req.user.id;
+    const sellerNameSnapshot =
+      String(data.sellerNameSnapshot || data.sellerName || "").trim() ||
+      String(req.user?.fullName || req.user?.full_name || req.user?.username || "").trim() ||
+      null;
+    const invoiceType = String(data.invoiceType || "Factura B").trim() || "Factura B";
     const saleNumber = buildSaleNumber();
     const customerName =
       String(data.customerName || "").trim() ||
@@ -620,10 +639,10 @@ router.post(
         INSERT INTO sales(
           sale_number, customer_id, sale_type, shift, scheduled_date, status, 
           payment_method, payment_condition, delivery_address, notes, created_by,
-          customer_name_snapshot,
+          customer_name_snapshot, seller_name_snapshot, invoice_type,
           is_delivery, delivery_slot, delivery_payment, delivery_payment_method, delivery_status
         )
-        VALUES ($1,$2,$3,$4,$5,'PENDIENTE',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'PENDIENTE')
+        VALUES ($1,$2,$3,$4,$5,'PENDIENTE',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'PENDIENTE')
         RETURNING *
       `,
         [
@@ -638,6 +657,8 @@ router.post(
           data.notes || null,
           sellerId,
           customerName || null,
+          sellerNameSnapshot,
+          invoiceType,
           isDelivery,
           deliverySlot,
           deliveryPayment,

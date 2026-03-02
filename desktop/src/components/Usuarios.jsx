@@ -66,6 +66,23 @@ export default function Usuarios({ user, setToast }) {
     }
   };
 
+  const deleteUser = async (row) => {
+    const label = row.full_name || row.username || "este usuario";
+    const confirmed = window.confirm(`Seguro que quieres borrar a ${label}?`);
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/users/${row.id}`);
+      setToast?.({ message: "Usuario borrado correctamente", type: "success" });
+      fetchUsers();
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo borrar el usuario",
+        type: "error",
+      });
+    }
+  };
+
   if (String(user?.role || "").toUpperCase() !== "ADMIN") {
     return <div className="card rounded-lg p-6 bg-zinc-900 border-zinc-800">Solo ADMIN</div>;
   }
@@ -94,12 +111,13 @@ export default function Usuarios({ user, setToast }) {
                 <th className="px-5 py-4 font-bold">Nombre</th>
                 <th className="px-5 py-4 font-bold">Rol</th>
                 <th className="px-5 py-4 font-bold text-center">Activo</th>
+                <th className="px-5 py-4 font-bold text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/50">
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center py-10 text-zinc-600">
+                  <td colSpan={5} className="text-center py-10 text-zinc-600">
                     No hay usuarios registrados.
                   </td>
                 </tr>
@@ -115,6 +133,16 @@ export default function Usuarios({ user, setToast }) {
                     </td>
                     <td className="px-5 py-3 text-center text-zinc-400">
                       {u.is_active ? "Si" : "No"}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => deleteUser(u)}
+                        disabled={!u.is_active || String(u.id) === String(user?.id || "")}
+                        className="rounded-lg border border-rose-500/30 bg-rose-950/30 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-rose-300 transition-colors hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Borrar
+                      </button>
                     </td>
                   </tr>
                 ))

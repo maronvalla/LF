@@ -121,6 +121,10 @@ const telegramAlertsSchema = z.object({
   chatIds: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
 });
 
+const sellerAliasesSchema = z.object({
+  aliasesByUser: z.record(z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(80)).max(20)).default({}),
+});
+
 async function loadLocations() {
   const { rows } = await pool.query("SELECT value FROM app_settings WHERE key = 'locations' LIMIT 1");
   if (!rows.length || !rows[0].value) return FALLBACK_LOCATIONS;
@@ -232,6 +236,37 @@ async function loadPriceLists() {
   return normalizePriceLists(parsed.data);
 }
 
+function normalizeSellerAliases(input) {
+  const next = {};
+  const source = input?.aliasesByUser && typeof input.aliasesByUser === "object" ? input.aliasesByUser : {};
+
+  for (const [userId, aliases] of Object.entries(source)) {
+    const normalizedAliases = Array.from(
+      new Set(
+        (Array.isArray(aliases) ? aliases : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      )
+    ).slice(0, 20);
+
+    if (normalizedAliases.length) {
+      next[String(userId)] = normalizedAliases;
+    }
+  }
+
+  return { aliasesByUser: next };
+}
+
+async function loadSellerAliases() {
+  const { rows } = await pool.query(
+    "SELECT value FROM app_settings WHERE key = 'seller_aliases' LIMIT 1"
+  );
+  if (!rows.length || !rows[0].value) return { aliasesByUser: {} };
+  const parsed = sellerAliasesSchema.safeParse(rows[0].value);
+  if (!parsed.success) return { aliasesByUser: {} };
+  return normalizeSellerAliases(parsed.data);
+}
+
 router.get(
   "/locations",
   asyncHandler(async (_req, res) => {
@@ -331,6 +366,15 @@ router.get(
 );
 
 router.get(
+  "/seller-aliases",
+  requirePermission("sales.manage"),
+  asyncHandler(async (_req, res) => {
+    const settings = await loadSellerAliases();
+    res.json(settings);
+  })
+);
+
+router.get(
   "/inventory-transfer-pairs",
   asyncHandler(async (_req, res) => {
     const locations = await loadLocations();
@@ -397,6 +441,34 @@ router.put(
 
     const saved = await saveRoleDefinitions(normalized);
     res.json({ ok: true, roles: saved, permissions: ALL_PERMISSIONS });
+  })
+);
+
+router.put(
+  "/seller-aliases",
+  requirePermission("users.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = sellerAliasesSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        message: "Configuracion de nombres operativos invalida",
+        issues: parsed.error.issues,
+      });
+    }
+
+    const payload = normalizeSellerAliases(parsed.data);
+    await pool.query(
+      `
+        INSERT INTO app_settings(key, value, updated_at)
+        VALUES ('seller_aliases', $1::jsonb, NOW())
+        ON CONFLICT (key)
+        DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+      `,
+      [JSON.stringify(payload)]
+    );
+
+    res.json({ ok: true, ...payload });
   })
 );
 

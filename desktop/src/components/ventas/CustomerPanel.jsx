@@ -69,8 +69,9 @@ export default function CustomerPanel({
             onClick={() => customerSelectRef.current?.focus()}
             type="button"
             disabled={readOnly}
+            title="Buscar cliente (F3)"
           >
-            Buscar
+            Buscar (F3)
           </button>
           <button
             className="bg-[#f07c0f] hover:bg-[#df6f08] text-white border border-[#d86b07] rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"

@@ -17,6 +17,8 @@ const createUserSchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
+const userIdSchema = z.string().uuid();
+
 router.get(
   "/",
   requirePermission("users.manage"),
@@ -57,6 +59,52 @@ router.post(
       metadata: { after: rows[0] },
     });
     res.status(201).json(rows[0]);
+  })
+);
+
+router.delete(
+  "/:id",
+  requirePermission("users.manage"),
+  asyncHandler(async (req, res) => {
+    const parsedId = userIdSchema.safeParse(req.params.id);
+    if (!parsedId.success) {
+      return res.status(400).json({ message: "Usuario invalido" });
+    }
+    if (String(req.user?.id || "") === String(parsedId.data)) {
+      return res.status(400).json({ message: "No puedes borrar tu propio usuario" });
+    }
+
+    const beforeRes = await pool.query(
+      "SELECT id, username, role, full_name, is_active, created_at FROM users WHERE id = $1 LIMIT 1",
+      [parsedId.data]
+    );
+    const before = beforeRes.rows[0];
+    if (!before) {
+      return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+    if (!before.is_active) {
+      return res.status(400).json({ message: "El usuario ya estaba borrado" });
+    }
+
+    const { rows } = await pool.query(
+      `
+        UPDATE users
+        SET is_active = FALSE
+        WHERE id = $1
+        RETURNING id, username, role, full_name, is_active, created_at
+      `,
+      [parsedId.data]
+    );
+
+    await logAudit({
+      actorUserId: req.user.id,
+      action: "USER_DELETE",
+      entity: "users",
+      entityId: parsedId.data,
+      metadata: { before, after: rows[0] },
+    });
+
+    res.json({ ok: true, user: rows[0] });
   })
 );
 

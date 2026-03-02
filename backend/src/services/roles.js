@@ -38,7 +38,6 @@ const DEFAULT_ROLE_DEFINITIONS = [
       "purchases.manage",
       "dashboard.view",
       "current-account.manage",
-      "reports.view",
     ],
   },
   {
@@ -138,7 +137,11 @@ async function getPermissionsForRole(roleKey, client = pool) {
   const normalizedRole = normalizeRoleKey(roleKey);
   const roles = await loadRoleDefinitions(client);
   const role = roles.find((item) => item.key === normalizedRole);
-  return role ? role.permissions : [];
+  const permissions = role ? role.permissions : [];
+  if (normalizedRole === "CAJERO") {
+    return permissions.filter((permission) => permission !== "reports.view");
+  }
+  return permissions;
 }
 
 async function roleExists(roleKey, client = pool) {

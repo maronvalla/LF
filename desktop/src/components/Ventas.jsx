@@ -32,6 +32,7 @@ import { productMatchesSearch } from "../utils/productSearch";
 
 const ROLES_VENDEDOR_HABILITADOS = ["VENDEDOR", "CAJERO", "ADMIN"];
 const VENDEDOR_LOCAL_KEY = "vendedorActivoLocal";
+const SELLER_SELECTION_SEPARATOR = "::";
 const isTypingTarget = (target) => {
   const tag = String(target?.tagName || "").toUpperCase();
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
@@ -51,10 +52,22 @@ const parseOptionalCoordinate = (value) => {
   return Number.isFinite(parsed) ? parsed : NaN;
 };
 const getProductLocalStock = (product) => Number(product?.stock_local ?? product?.stockLocal ?? 0);
-const buildEmptySaleDraft = (schedule, sellerId = "") => ({
+const getUserDisplayName = (user) =>
+  String(user?.full_name || user?.fullName || user?.username || "SIN NOMBRE").trim();
+const buildSellerSelectionKey = (sellerId, sellerName = "") =>
+  `${String(sellerId || "")}${SELLER_SELECTION_SEPARATOR}${String(sellerName || "").trim()}`;
+const parseSellerSelectionKey = (value) => {
+  const [sellerId, ...rest] = String(value || "").split(SELLER_SELECTION_SEPARATOR);
+  return {
+    sellerId: String(sellerId || "").trim(),
+    sellerName: rest.join(SELLER_SELECTION_SEPARATOR).trim(),
+  };
+};
+const buildEmptySaleDraft = (schedule, sellerId = "", sellerName = "") => ({
   customerId: "",
   customerName: "CONSUMIDOR FINAL",
   sellerId: sellerId || "",
+  sellerName: sellerName || "",
   paymentMethod: "EFECTIVO",
   invoiceType: "Factura B",
   items: [],
@@ -84,6 +97,7 @@ export default function Ventas({
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [users, setUsers] = useState([]);
+  const [sellerAliasesByUser, setSellerAliasesByUser] = useState({});
   const [priceLists, setPriceLists] = useState(DEFAULT_PRICE_LISTS);
   const [priceListsConfig, setPriceListsConfig] = useState({
     lists: DEFAULT_PRICE_LISTS,
@@ -144,11 +158,12 @@ export default function Ventas({
   useEffect(() => {
     const load = async () => {
       try {
-        const [productsRes, customersRes, usersRes, priceListsRes] = await Promise.allSettled([
+        const [productsRes, customersRes, usersRes, priceListsRes, sellerAliasesRes] = await Promise.allSettled([
           api.get("/products"),
           api.get("/customers"),
           api.get("/users"),
           api.get("/settings/price-lists"),
+          api.get("/settings/seller-aliases"),
         ]);
 
         if (productsRes.status !== "fulfilled") {
@@ -157,17 +172,38 @@ export default function Ventas({
 
         setProducts((productsRes.value.data || []).filter((x) => x.is_active !== false));
         setCustomers(customersRes.status === "fulfilled" ? customersRes.value.data || [] : []);
-        setUsers(usersRes.status === "fulfilled" ? usersRes.value.data || [] : []);
+        const loadedUsers = usersRes.status === "fulfilled" ? usersRes.value.data || [] : [];
+        const hasCurrentUser = loadedUsers.some((row) => String(row.id) === String(user?.id || ""));
+        setUsers(hasCurrentUser || !user?.id
+          ? loadedUsers
+          : [
+              ...loadedUsers,
+              {
+                id: user.id,
+                username: user.username,
+                full_name: user.full_name || user.fullName || user.username,
+                role: user.role,
+                is_active: true,
+              },
+            ]);
         const normalizedPriceLists =
           priceListsRes.status === "fulfilled"
             ? normalizePriceListsConfig(priceListsRes.value.data)
             : { lists: DEFAULT_PRICE_LISTS, defaultKey: defaultPriceListKey };
         setPriceLists(normalizedPriceLists.lists);
         setPriceListsConfig(normalizedPriceLists);
+        setSellerAliasesByUser(
+          sellerAliasesRes.status === "fulfilled" && sellerAliasesRes.value.data?.aliasesByUser
+            ? sellerAliasesRes.value.data.aliasesByUser
+            : {}
+        );
 
-        if (customersRes.status !== "fulfilled" || usersRes.status !== "fulfilled") {
+        const partialFailures = [];
+        if (customersRes.status !== "fulfilled") partialFailures.push("clientes");
+        if (usersRes.status !== "fulfilled" && role === "ADMIN") partialFailures.push("usuarios");
+        if (partialFailures.length) {
           setToast?.({
-            message: "Se cargaron ventas con datos parciales. Revisa clientes o usuarios.",
+            message: `Se cargaron ventas con datos parciales. Revisa ${partialFailures.join(" o ")}.`,
             type: "error",
           });
         }
@@ -179,7 +215,7 @@ export default function Ventas({
     setTicketConfig(loadTicketConfig());
     setDeliveryConditions(loadDeliveryConditions());
     setDeliveryShiftConfig(loadDeliveryShiftConfig());
-  }, [setToast]);
+  }, [setToast, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,8 +297,13 @@ export default function Ventas({
 
   const resetSaleState = () => {
     const nextDefaultList = getDefaultPriceListKey(priceListsConfig);
+    const sellerName = draft.sellerName || getUserDisplayName(user);
     setDraft(
-      buildEmptySaleDraft(getSuggestedDeliverySchedule(deliveryShiftConfig), draft.sellerId || user?.id || "")
+      buildEmptySaleDraft(
+        getSuggestedDeliverySchedule(deliveryShiftConfig),
+        draft.sellerId || user?.id || "",
+        sellerName
+      )
     );
     setListaActiva(nextDefaultList);
     setListaClienteOriginal(nextDefaultList);
@@ -309,8 +350,9 @@ export default function Ventas({
         customerId,
         customerName,
         sellerId: data?.created_by || draft.sellerId || user?.id || "",
+        sellerName: String(data?.created_by_name || draft.sellerName || getUserDisplayName(user)).trim(),
         paymentMethod: "EFECTIVO",
-        invoiceType: "Factura B",
+        invoiceType: data?.invoice_type || draft.invoiceType || "Factura B",
         items,
         shift: data?.shift || getSuggestedDeliverySchedule(deliveryShiftConfig).shift,
         scheduledDate:
@@ -347,6 +389,7 @@ export default function Ventas({
       const priceShortcut = isPriceShortcut(e);
       const customerShortcut = e.key === "F3";
       const productShortcut = e.key === "F5";
+      const focusSearchShortcut = e.key === "Enter";
       const removeShortcut =
         (e.ctrlKey || e.metaKey) && String(e.key || "").toLowerCase() === "r";
 
@@ -356,11 +399,16 @@ export default function Ventas({
         !priceShortcut &&
         !customerShortcut &&
         !productShortcut &&
+        !focusSearchShortcut &&
         !removeShortcut
       ) {
         return;
       }
 
+      if (focusSearchShortcut && !typing) {
+        e.preventDefault();
+        codeInputRef.current?.focus();
+      }
       if (customerShortcut) {
         e.preventDefault();
         customerSelectRef.current?.focus();
@@ -573,22 +621,45 @@ export default function Ventas({
     });
   }, [users]);
 
-  const setVendedorActual = (sellerId) => {
+  const sellerOptions = useMemo(() => {
+    return vendedoresActivos.flatMap((seller) => {
+      const aliases = Array.isArray(sellerAliasesByUser?.[seller.id]) ? sellerAliasesByUser[seller.id] : [];
+      const labels = aliases.length ? aliases : [getUserDisplayName(seller)];
+      return labels.map((label) => {
+        const sellerName = String(label || "").trim() || getUserDisplayName(seller);
+        return {
+          key: buildSellerSelectionKey(seller.id, sellerName),
+          sellerId: seller.id,
+          sellerName,
+          label: sellerName,
+        };
+      });
+    });
+  }, [sellerAliasesByUser, vendedoresActivos]);
+
+  const setVendedorActual = (selectionKey) => {
+    const { sellerId, sellerName } = parseSellerSelectionKey(selectionKey);
     if (!sellerId) return;
-    setDraft((prev) => ({ ...prev, sellerId }));
-    localStorage.setItem(VENDEDOR_LOCAL_KEY, sellerId);
+    setDraft((prev) => ({ ...prev, sellerId, sellerName }));
+    localStorage.setItem(VENDEDOR_LOCAL_KEY, buildSellerSelectionKey(sellerId, sellerName));
   };
 
   useEffect(() => {
-    if (!vendedoresActivos.length) return;
-    const persistedSellerId = localStorage.getItem(VENDEDOR_LOCAL_KEY);
-    const sellerExiste = (id) => vendedoresActivos.some((u) => u.id === id);
-    const fallbackSellerId = sellerExiste(user?.id) ? user.id : vendedoresActivos[0].id;
-    const initialSellerId = sellerExiste(persistedSellerId) ? persistedSellerId : fallbackSellerId;
-    if (!sellerExiste(persistedSellerId)) localStorage.removeItem(VENDEDOR_LOCAL_KEY);
-    setDraft((prev) => (prev.sellerId === initialSellerId ? prev : { ...prev, sellerId: initialSellerId }));
-    localStorage.setItem(VENDEDOR_LOCAL_KEY, initialSellerId);
-  }, [vendedoresActivos, user?.id]);
+    if (!sellerOptions.length) return;
+    const persistedSelection = localStorage.getItem(VENDEDOR_LOCAL_KEY);
+    const currentSelection = buildSellerSelectionKey(draft.sellerId, draft.sellerName);
+    const findOption = (selectionKey) => sellerOptions.find((option) => option.key === selectionKey);
+    const fallbackOption =
+      sellerOptions.find((option) => String(option.sellerId) === String(user?.id || "")) || sellerOptions[0];
+    const initialOption = findOption(currentSelection) || findOption(persistedSelection) || fallbackOption;
+    if (!findOption(persistedSelection)) localStorage.removeItem(VENDEDOR_LOCAL_KEY);
+    setDraft((prev) =>
+      prev.sellerId === initialOption.sellerId && prev.sellerName === initialOption.sellerName
+        ? prev
+        : { ...prev, sellerId: initialOption.sellerId, sellerName: initialOption.sellerName }
+    );
+    localStorage.setItem(VENDEDOR_LOCAL_KEY, initialOption.key);
+  }, [draft.sellerId, draft.sellerName, sellerOptions, user?.id]);
 
   const subtotal = useMemo(
     () => draft.items.reduce((acc, i) => acc + Number(i.qty) * Number(i.unitPrice), 0),
@@ -648,7 +719,7 @@ export default function Ventas({
 
   const buildTicketLines = ({ saleData, paymentData }, opts = {}) => {
     const MAX = 32;
-    const docLabel = opts.docLabel || "Factura B";
+    const docLabel = opts.docLabel || draft.invoiceType || "Factura B";
     const includePayment = opts.includePayment !== false;
     const budgetNotice = Boolean(opts.budgetNotice);
     const repeat = (char, len) => new Array(Math.max(0, len) + 1).join(char);
@@ -668,9 +739,8 @@ export default function Ventas({
 
     const now = new Date();
     const saleNumber = opts.ticketNumberOverride || saleData?.sale_number || saleData?.number || saleData?.id || "S/N";
-    const sellerName = vendedoresActivos.find((u) => u.id === draft.sellerId);
     const sellerLabel = String(
-      sellerName?.full_name || sellerName?.fullName || sellerName?.username || user?.username || "N/A"
+      draft.sellerName || getUserDisplayName(vendedoresActivos.find((u) => u.id === draft.sellerId)) || user?.username || "N/A"
     ).toUpperCase();
     const paymentMethod = String(paymentData?.paymentMethod || "EFECTIVO").toUpperCase();
 
@@ -815,15 +885,22 @@ export default function Ventas({
       throw new Error("Ingresa un nombre para el cliente de mostrador");
     }
 
-    const vendedorId = draft.sellerId || localStorage.getItem(VENDEDOR_LOCAL_KEY) || user.id;
+    const persistedSeller = parseSellerSelectionKey(localStorage.getItem(VENDEDOR_LOCAL_KEY));
+    const vendedorId = draft.sellerId || persistedSeller.sellerId || user.id;
+    const sellerName = String(
+      draft.sellerName || persistedSeller.sellerName || getUserDisplayName(user)
+    ).trim();
     const selectedCondition = String(draft.paymentCondition || "PAGADO_LOCAL").toUpperCase();
 
     return {
       ...draft,
       sellerId: vendedorId,
       vendedorId,
+      sellerName,
+      sellerNameSnapshot: sellerName,
       customerId: draft.customerId || null,
       customerName: String(draft.customerName || "").trim() || "CONSUMIDOR FINAL",
+      invoiceType: String(draft.invoiceType || "Factura B").trim() || "Factura B",
       items: draft.items.map((i) => ({
         productId: i.productId,
         qty: Number(i.qty),
@@ -849,7 +926,10 @@ export default function Ventas({
 
   const submitOrderOnly = async () => {
     try {
-      const payload = buildSalePayload();
+      const payload = {
+        ...buildSalePayload(),
+        paymentMethod: null,
+      };
       const { data } = await api.post("/sales", payload);
       await persistCustomerPriceListChange();
       setToast?.({
@@ -861,6 +941,12 @@ export default function Ventas({
     } catch (err) {
       setToast?.({ message: err.response?.data?.message || err.message || "Error al guardar", type: "error" });
     }
+  };
+
+  const confirmAndSubmitOrderOnly = async () => {
+    const confirmed = window.confirm("Seguro que desea enviar la orden?");
+    if (!confirmed) return;
+    await submitOrderOnly();
   };
 
   const submit = async (paymentData) => {
@@ -883,7 +969,7 @@ export default function Ventas({
 
       const lines = buildTicketLines(
         { saleData: checkoutResponse?.data, paymentData },
-        { docLabel: "Factura B" }
+        { docLabel: draft.invoiceType || "Factura B" }
       );
       const printDecision = await askPrintConfirmation(lines, "Imprimir comprobante");
       if (printDecision?.shouldPrint) {
@@ -934,7 +1020,7 @@ export default function Ventas({
     const lines = buildTicketLines(
       { saleData: { sale_number: budgetNumber }, paymentData: {} },
       {
-        docLabel: "PRESUPUESTO",
+        docLabel: draft.invoiceType || "PRESUPUESTO",
         includePayment: false,
         ticketNumberOverride: budgetNumber,
         budgetNotice: true,
@@ -1053,7 +1139,11 @@ export default function Ventas({
   const handleSearchEnter = () => {
     if (readOnlyPendingOrder) return;
     if (!search.trim()) {
-      if (!isSellerOnly) setShowPaymentModal(true);
+      if (isSellerOnly) {
+        confirmAndSubmitOrderOnly();
+      } else {
+        setShowPaymentModal(true);
+      }
       return;
     }
 
