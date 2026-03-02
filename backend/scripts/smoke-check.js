@@ -15,11 +15,8 @@ function checkEnviosRouteUniqueness() {
 }
 
 function checkAppDashboardIntegrity() {
-  const appPath = path.join(__dirname, "../../desktop/src/App.jsx");
-  const appRaw = fs.readFileSync(appPath, "utf8");
-  const dashboardMatch = appRaw.match(/function Dashboard[\s\S]*?function Sales/);
-  assert.ok(dashboardMatch, "No se pudo ubicar el bloque Dashboard en App.jsx");
-  const dashboardBlock = dashboardMatch[0];
+  const dashboardPath = path.join(__dirname, "../../desktop/src/components/Dashboard.jsx");
+  const dashboardBlock = fs.readFileSync(dashboardPath, "utf8");
   assert.ok(
     !dashboardBlock.includes("LISTAS_PRECIO.includes"),
     "Dashboard contiene logica de listas de precio fuera de scope"

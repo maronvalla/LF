@@ -1,28 +1,109 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import api from "../api";
 import PaymentModal from "./PaymentModal";
-import SearchableSelect from "./SearchableSelect";
 import ProductSearchModal from "./ProductSearchModal";
+import CustomerPanel from "./ventas/CustomerPanel";
+import ItemsPanel from "./ventas/ItemsPanel";
+import PrintPromptModal from "./ventas/PrintPromptModal";
+import QtyEditModal from "./ventas/QtyEditModal";
+import QuickClientModal from "./ventas/QuickClientModal";
+import SalesMetaBar from "./ventas/SalesMetaBar";
+import SalesSummary from "./ventas/SalesSummary";
+import ClientMapPickerModal from "./clientes/ClientMapPickerModal";
 import { DEFAULT_TICKET_CONFIG, loadTicketConfig } from "../utils/ticketConfig";
 import { DEFAULT_DELIVERY_CONDITIONS, loadDeliveryConditions } from "../utils/deliveryPaymentConditions";
+import {
+  DEFAULT_PRICE_LIST_KEY,
+  DEFAULT_PRICE_LISTS,
+  getDefaultPriceListKey,
+  getPriceListLabel,
+  normalizePriceListKey,
+  normalizePriceListsConfig,
+} from "../utils/priceLists";
+import {
+  DEFAULT_DELIVERY_SHIFT_CONFIG,
+  getDeliveryShiftOptions,
+  getScheduledDateForShift,
+  getSuggestedDeliverySchedule,
+  loadDeliveryShiftConfig,
+} from "../utils/deliveryShiftConfig";
 
 
 const ROLES_VENDEDOR_HABILITADOS = ["VENDEDOR", "CAJERO", "ADMIN"];
 const VENDEDOR_LOCAL_KEY = "vendedorActivoLocal";
+const isTypingTarget = (target) => {
+  const tag = String(target?.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+};
 
-export default function Ventas({ user, setToast }) {
-  const LISTAS_PRECIO = ["MINORISTA", "MAYORISTA"];
+const isQtyShortcut = (event) =>
+  event.key === "*" || event.key === "Multiply" || event.code === "NumpadMultiply";
+
+const isPriceShortcut = (event) =>
+  event.key === "/" || event.key === "Divide" || event.code === "NumpadDivide";
+const DEFAULT_MAP_CENTER = { lat: -27.432028, lng: -65.616528 };
+const parseOptionalCoordinate = (value) => {
+  if (value === null || value === undefined) return NaN;
+  const text = String(value).trim();
+  if (!text) return NaN;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : NaN;
+};
+const getProductLocalStock = (product) => Number(product?.stock_local ?? product?.stockLocal ?? 0);
+const buildEmptySaleDraft = (schedule, sellerId = "") => ({
+  customerId: "",
+  customerName: "CONSUMIDOR FINAL",
+  sellerId: sellerId || "",
+  paymentMethod: "EFECTIVO",
+  invoiceType: "Factura B",
+  items: [],
+  shift: schedule.shift,
+  scheduledDate: schedule.scheduledDate,
+  paymentCondition: "PAGADO_LOCAL",
+  deliveryAddress: "",
+});
+
+export default function Ventas({
+  user,
+  setToast,
+  pendingOrderId = "",
+  onPendingOrderHandled,
+  onOrdersChanged,
+}) {
+  const role = String(user?.role || "").toUpperCase();
+  const isSellerOnly = role === "VENDEDOR";
+  const canChargeOrders = role === "ADMIN" || role === "CAJERO";
+  const [activeOrderId, setActiveOrderId] = useState("");
+  const readOnlyPendingOrder = Boolean(activeOrderId && canChargeOrders);
+  const defaultPriceListKey = getDefaultPriceListKey({
+    lists: DEFAULT_PRICE_LISTS,
+    defaultKey: DEFAULT_PRICE_LIST_KEY,
+  });
 
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [users, setUsers] = useState([]);
+  const [priceLists, setPriceLists] = useState(DEFAULT_PRICE_LISTS);
+  const [priceListsConfig, setPriceListsConfig] = useState({
+    lists: DEFAULT_PRICE_LISTS,
+    defaultKey: defaultPriceListKey,
+  });
   const [search, setSearch] = useState("");
   const [qty, setQty] = useState(1);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [loadingPendingOrder, setLoadingPendingOrder] = useState(false);
   const [showQuickClientModal, setShowQuickClientModal] = useState(false);
   const [savingQuickClient, setSavingQuickClient] = useState(false);
+  const [quickClientAddressSearch, setQuickClientAddressSearch] = useState("");
+  const [quickClientAddressOptions, setQuickClientAddressOptions] = useState([]);
+  const [quickClientAddressLoading, setQuickClientAddressLoading] = useState(false);
+  const [quickClientAddressDropdownOpen, setQuickClientAddressDropdownOpen] = useState(false);
+  const [showQuickClientMapPicker, setShowQuickClientMapPicker] = useState(false);
+  const [quickClientMapPosition, setQuickClientMapPosition] = useState(DEFAULT_MAP_CENTER);
+  const [quickClientMapResolvingAddress, setQuickClientMapResolvingAddress] = useState(false);
   const [showQtyEditModal, setShowQtyEditModal] = useState(false);
+  const [showPriceEditModal, setShowPriceEditModal] = useState(false);
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [printPreviewLines, setPrintPreviewLines] = useState([]);
   const [availablePrinters, setAvailablePrinters] = useState([]);
@@ -30,11 +111,16 @@ export default function Ventas({ user, setToast }) {
   const [printPromptTitle, setPrintPromptTitle] = useState("Imprimir comprobante");
   const [ticketConfig, setTicketConfig] = useState(DEFAULT_TICKET_CONFIG);
   const [deliveryConditions, setDeliveryConditions] = useState(DEFAULT_DELIVERY_CONDITIONS);
+  const [deliveryShiftConfig, setDeliveryShiftConfig] = useState(DEFAULT_DELIVERY_SHIFT_CONFIG);
   const [qtyEditValue, setQtyEditValue] = useState("");
-  const [listaActiva, setListaActiva] = useState("MINORISTA");
-  const [listaClienteOriginal, setListaClienteOriginal] = useState("MINORISTA");
+  const [priceEditValue, setPriceEditValue] = useState("");
+  const [listaActiva, setListaActiva] = useState(defaultPriceListKey);
+  const [listaClienteOriginal, setListaClienteOriginal] = useState(defaultPriceListKey);
   const [cambioManualLista, setCambioManualLista] = useState(false);
   const [isDelivery, setIsDelivery] = useState(false);
+  const [canOverrideLinePrice, setCanOverrideLinePrice] = useState(
+    ["ADMIN", "CAJERO"].includes(role)
+  );
 
   const customerSelectRef = useRef(null);
   const codeInputRef = useRef(null);
@@ -46,31 +132,44 @@ export default function Ventas({ user, setToast }) {
     address: "",
     zone: "",
     notes: "",
+    latitude: "",
+    longitude: "",
   });
 
-  const [draft, setDraft] = useState({
-    customerId: "",
-    customerName: "CONSUMIDOR FINAL",
-    sellerId: user?.id || "",
-    paymentMethod: "EFECTIVO",
-    invoiceType: "Factura B",
-    items: [],
-    shift: "MANIANA",
-    paymentCondition: "PAGADO_LOCAL",
-    deliveryAddress: "",
-  });
+  const [draft, setDraft] = useState(
+    buildEmptySaleDraft(getSuggestedDeliverySchedule(DEFAULT_DELIVERY_SHIFT_CONFIG), user?.id || "")
+  );
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [p, c, u] = await Promise.all([
+        const [productsRes, customersRes, usersRes, priceListsRes] = await Promise.allSettled([
           api.get("/products"),
-          api.get("/customers").catch(() => ({ data: [] })),
-          api.get("/users").catch(() => ({ data: [] })),
+          api.get("/customers"),
+          api.get("/users"),
+          api.get("/settings/price-lists"),
         ]);
-        setProducts((p.data || []).filter((x) => x.is_active !== false));
-        setCustomers(c.data || []);
-        setUsers(u.data || []);
+
+        if (productsRes.status !== "fulfilled") {
+          throw productsRes.reason;
+        }
+
+        setProducts((productsRes.value.data || []).filter((x) => x.is_active !== false));
+        setCustomers(customersRes.status === "fulfilled" ? customersRes.value.data || [] : []);
+        setUsers(usersRes.status === "fulfilled" ? usersRes.value.data || [] : []);
+        const normalizedPriceLists =
+          priceListsRes.status === "fulfilled"
+            ? normalizePriceListsConfig(priceListsRes.value.data)
+            : { lists: DEFAULT_PRICE_LISTS, defaultKey: defaultPriceListKey };
+        setPriceLists(normalizedPriceLists.lists);
+        setPriceListsConfig(normalizedPriceLists);
+
+        if (customersRes.status !== "fulfilled" || usersRes.status !== "fulfilled") {
+          setToast?.({
+            message: "Se cargaron ventas con datos parciales. Revisa clientes o usuarios.",
+            type: "error",
+          });
+        }
       } catch {
         setToast?.({ message: "No se pudieron cargar datos de ventas", type: "error" });
       }
@@ -78,7 +177,72 @@ export default function Ventas({ user, setToast }) {
     load();
     setTicketConfig(loadTicketConfig());
     setDeliveryConditions(loadDeliveryConditions());
+    setDeliveryShiftConfig(loadDeliveryShiftConfig());
   }, [setToast]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPriceOverridePermission = async () => {
+      try {
+        const { data } = await api.get("/settings/price-overrides");
+        if (cancelled) return;
+        const allowedIds = Array.isArray(data?.userIds) ? data.userIds.map(String) : [];
+        setCanOverrideLinePrice(allowedIds.includes(String(user?.id || "")));
+      } catch {
+        if (cancelled) return;
+        setCanOverrideLinePrice(["ADMIN", "CAJERO"].includes(role));
+      }
+    };
+
+    loadPriceOverridePermission();
+    return () => {
+      cancelled = true;
+    };
+  }, [role, user?.id]);
+
+  useEffect(() => {
+    const query = quickClientAddressSearch.trim();
+    if (!showQuickClientModal || !quickClientAddressDropdownOpen || query.length < 5) {
+      setQuickClientAddressOptions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setQuickClientAddressLoading(true);
+        const { data } = await api.get("/customers/address-search", { params: { q: query } });
+        setQuickClientAddressOptions(Array.isArray(data) ? data : []);
+      } catch {
+        setQuickClientAddressOptions([]);
+      } finally {
+        setQuickClientAddressLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [quickClientAddressDropdownOpen, quickClientAddressSearch, showQuickClientModal]);
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (target?.closest?.("[data-address-search-root='quick']")) return;
+      setQuickClientAddressOptions([]);
+      setQuickClientAddressDropdownOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    const next = getSuggestedDeliverySchedule(deliveryShiftConfig);
+    setDraft((prev) => {
+      if (activeOrderId) return prev;
+      if (prev.shift === next.shift && prev.scheduledDate === next.scheduledDate) return prev;
+      return { ...prev, shift: next.shift, scheduledDate: next.scheduledDate };
+    });
+  }, [activeOrderId, deliveryShiftConfig]);
 
   useEffect(() => {
     if (!deliveryConditions.length) return;
@@ -89,21 +253,129 @@ export default function Ventas({ user, setToast }) {
   }, [deliveryConditions, draft.paymentCondition]);
 
   useEffect(() => {
+    const fallback = getDefaultPriceListKey(priceListsConfig);
+    setListaActiva((prev) => normalizarLista(prev || fallback));
+    setListaClienteOriginal((prev) => normalizarLista(prev || fallback));
+  }, [priceLists, priceListsConfig]);
+
+  const resetSaleState = () => {
+    const nextDefaultList = getDefaultPriceListKey(priceListsConfig);
+    setDraft(
+      buildEmptySaleDraft(getSuggestedDeliverySchedule(deliveryShiftConfig), draft.sellerId || user?.id || "")
+    );
+    setListaActiva(nextDefaultList);
+    setListaClienteOriginal(nextDefaultList);
+    setCambioManualLista(false);
+    setIsDelivery(false);
+    setSearch("");
+    setQty(1);
+    setSelectedIdx(0);
+    setActiveOrderId("");
+    onPendingOrderHandled?.();
+  };
+
+  const loadPendingOrder = async (orderId) => {
+    if (!orderId || !canChargeOrders) return;
+    try {
+      setLoadingPendingOrder(true);
+      const { data } = await api.get(`/sales/${orderId}`);
+      const items = Array.isArray(data?.items)
+        ? data.items.map((item) => ({
+            productId: item.product_id,
+            codigo: item.product_sku || item.product_id,
+            name: item.product_name,
+            qty: Number(item.qty || 0),
+            unitPrice: Number(item.unit_price || 0),
+            discount: 0,
+          }))
+        : [];
+      const customerName =
+        String(data?.customer_name || data?.customer_name_snapshot || "").trim() ||
+        "CONSUMIDOR FINAL";
+      const customerId = data?.customer_id || "";
+      const customer = customers.find((row) => row.id === customerId);
+      const customerList = normalizarLista(
+        customer?.preferred_price_list || customer?.preferredPriceList || getDefaultPriceListKey(priceListsConfig)
+      );
+
+      setDraft({
+        customerId,
+        customerName,
+        sellerId: data?.created_by || draft.sellerId || user?.id || "",
+        paymentMethod: "EFECTIVO",
+        invoiceType: "Factura B",
+        items,
+        shift: data?.shift || getSuggestedDeliverySchedule(deliveryShiftConfig).shift,
+        scheduledDate:
+          data?.scheduled_date || getSuggestedDeliverySchedule(deliveryShiftConfig).scheduledDate,
+        paymentCondition: data?.payment_condition || "PAGADO_LOCAL",
+        deliveryAddress: data?.delivery_address || "",
+      });
+      setListaActiva(customerList);
+      setListaClienteOriginal(customerList);
+      setCambioManualLista(false);
+      setIsDelivery(String(data?.sale_type || "").toUpperCase() === "ENVIO");
+      setActiveOrderId(orderId);
+      setSelectedIdx(0);
+      setShowPaymentModal(false);
+      setToast?.({ message: "Orden cargada para cobro", type: "success" });
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo abrir la orden pendiente",
+        type: "error",
+      });
+    } finally {
+      setLoadingPendingOrder(false);
+      onPendingOrderHandled?.();
+    }
+  };
+
+  useEffect(() => {
     const onKeyDown = (e) => {
       // Si el modal de pago esta abierto o el modal de productos esta abierto, 
       // dejamos que sus propios listeners manejen las teclas
       if (document.querySelector(".fixed.inset-0")) return;
+      const typing = isTypingTarget(e.target);
+      const qtyShortcut = isQtyShortcut(e);
+      const priceShortcut = isPriceShortcut(e);
+      const customerShortcut = e.key === "F3";
+      const productShortcut = e.key === "F5";
+      const removeShortcut =
+        (e.ctrlKey || e.metaKey) && String(e.key || "").toLowerCase() === "r";
 
-      if (e.key === "F3") {
+      if (
+        typing &&
+        !qtyShortcut &&
+        !priceShortcut &&
+        !customerShortcut &&
+        !productShortcut &&
+        !removeShortcut
+      ) {
+        return;
+      }
+
+      if (customerShortcut) {
         e.preventDefault();
         customerSelectRef.current?.focus();
       }
-      if (e.key === "F5") {
+      if (productShortcut) {
         e.preventDefault();
+        if (readOnlyPendingOrder) return;
         setShowProductModal(true);
       }
-      if (e.key === "*") {
+      if (removeShortcut) {
         e.preventDefault();
+        if (readOnlyPendingOrder) return;
+        if (!draft.items.length) return;
+        setDraft((prev) => ({
+          ...prev,
+          items: prev.items.filter((_, index) => index !== selectedIdx),
+        }));
+        setSelectedIdx((index) => Math.max(0, index - 1));
+      }
+      if (qtyShortcut) {
+        e.preventDefault();
+        if (readOnlyPendingOrder) return;
         if (!draft.items.length) return;
         const currentIdx = selectedIdx;
         if (currentIdx >= 0 && currentIdx < draft.items.length) {
@@ -112,10 +384,26 @@ export default function Ventas({ user, setToast }) {
           setShowQtyEditModal(true);
         }
       }
+      if (priceShortcut && canOverrideLinePrice) {
+        e.preventDefault();
+        if (readOnlyPendingOrder) return;
+        if (!draft.items.length) return;
+        const currentIdx = selectedIdx;
+        if (currentIdx >= 0 && currentIdx < draft.items.length) {
+          const currentItem = draft.items[currentIdx];
+          setPriceEditValue(String(currentItem.unitPrice || 0));
+          setShowPriceEditModal(true);
+        }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIdx, draft.items]); // need selectedIdx dependency to access current value
+  }, [canOverrideLinePrice, readOnlyPendingOrder, selectedIdx, draft.items]); // need selectedIdx dependency to access current value
+
+  useEffect(() => {
+    if (!pendingOrderId || !canChargeOrders) return;
+    loadPendingOrder(pendingOrderId);
+  }, [canChargeOrders, pendingOrderId, customers, priceListsConfig]);
 
   const applyQtyEdit = () => {
     const parsed = Number(qtyEditValue);
@@ -131,6 +419,22 @@ export default function Ventas({ user, setToast }) {
       return { ...prev, items: next };
     });
     setShowQtyEditModal(false);
+  };
+
+  const applyPriceEdit = () => {
+    const parsed = Number(priceEditValue);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setToast?.({ message: "Precio invalido", type: "error" });
+      return;
+    }
+    setDraft((prev) => {
+      const currentIdx = selectedIdx;
+      if (currentIdx < 0 || currentIdx >= prev.items.length) return prev;
+      const next = [...prev.items];
+      next[currentIdx] = { ...next[currentIdx], unitPrice: Number(parsed) };
+      return { ...prev, items: next };
+    });
+    setShowPriceEditModal(false);
   };
 
   const askPrintConfirmation = (lines, title = "Imprimir comprobante") =>
@@ -168,6 +472,7 @@ export default function Ventas({ user, setToast }) {
   useEffect(() => {
     if (!showPrintPrompt) return undefined;
     const onKeyDown = (e) => {
+      if (isTypingTarget(e.target)) return;
       const key = String(e.key || "").toLowerCase();
       if (key === "y") {
         e.preventDefault();
@@ -191,18 +496,23 @@ export default function Ventas({ user, setToast }) {
   }, []);
 
   const normalizarLista = (lista) => {
-    const normalized = String(lista || "MINORISTA").toUpperCase();
-    return LISTAS_PRECIO.includes(normalized) ? normalized : "MINORISTA";
+    const normalized = normalizePriceListKey(lista);
+    const available = priceLists.map((row) => row.key);
+    return available.includes(normalized) ? normalized : getDefaultPriceListKey(priceListsConfig);
   };
 
   const obtenerPrecioPorLista = (product, lista) => {
     if (!product) return 0;
-    const minorista = Number(product.price_minorista || 0);
-    const mayorista = Number(product.price_mayorista || 0);
-    if (normalizarLista(lista) === "MAYORISTA") {
+    const priceMap = product.price_lists || product.priceLists || {};
+    const normalized = normalizarLista(lista);
+    const explicit = Number(priceMap?.[normalized]);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    if (normalized === "MAYORISTA") {
+      const mayorista = Number(product.price_mayorista || product.priceMayorista || 0);
+      const minorista = Number(product.price_minorista || product.priceMinorista || 0);
       return mayorista > 0 ? mayorista : minorista;
     }
-    return minorista;
+    return Number(product.price_minorista || product.priceMinorista || 0);
   };
 
   const actualizarPerfilCliente = async (clienteId, nuevaLista) => {
@@ -235,16 +545,18 @@ export default function Ventas({ user, setToast }) {
   const handleCambioLista = (nuevaLista) => {
     const listaNormalizada = normalizarLista(nuevaLista);
     setListaActiva(listaNormalizada);
-    setDraft((prev) => ({
+    setDraft((prev) => {
+      const hayClienteRegistrado = Boolean(prev.customerId);
+      setCambioManualLista(hayClienteRegistrado && listaNormalizada !== listaClienteOriginal);
+      return {
       ...prev,
       items: prev.items.map((item) => {
         const product = products.find((p) => p.id === item.productId);
         if (!product) return item;
         return { ...item, unitPrice: obtenerPrecioPorLista(product, listaNormalizada) };
       }),
-    }));
-    const hayClienteRegistrado = Boolean(draft.customerId);
-    setCambioManualLista(hayClienteRegistrado && listaNormalizada !== listaClienteOriginal);
+      };
+    });
   };
 
   const vendedoresActivos = useMemo(() => {
@@ -281,16 +593,35 @@ export default function Ventas({ user, setToast }) {
     const q = search.trim().toLowerCase();
     if (!q) return [];
     return products
-      .filter((p) => p.name?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q))
+      .filter(
+        (p) =>
+          p.name?.toLowerCase().includes(q) ||
+          p.sku?.toLowerCase().includes(q) ||
+          String(p.codigo || "").toLowerCase().includes(q)
+      )
       .slice(0, 20);
   }, [products, search]);
 
   const addItem = (product) => {
+    if (readOnlyPendingOrder) return;
+    const qtyToAdd = Number(qty || 1);
+    const availableStock = getProductLocalStock(product);
+    const existingQty = Number(
+      draft.items.find((item) => item.productId === product.id)?.qty || 0
+    );
+    if (existingQty + qtyToAdd > availableStock) {
+      setToast?.({
+        message: `Stock insuficiente. Disponible: ${availableStock}`,
+        type: "error",
+      });
+      return;
+    }
+
     setDraft((prev) => {
       const idx = prev.items.findIndex((i) => i.productId === product.id);
       if (idx >= 0) {
         const next = [...prev.items];
-        next[idx] = { ...next[idx], qty: Number(next[idx].qty) + Number(qty || 1) };
+        next[idx] = { ...next[idx], qty: Number(next[idx].qty) + qtyToAdd };
         return { ...prev, items: next };
       }
       return {
@@ -301,7 +632,7 @@ export default function Ventas({ user, setToast }) {
             productId: product.id,
             codigo: product.codigo || product.sku,
             name: product.name,
-            qty: Number(qty || 1),
+            qty: qtyToAdd,
             unitPrice: obtenerPrecioPorLista(product, listaActiva),
             discount: 0,
           },
@@ -360,6 +691,14 @@ export default function Ventas({ user, setToast }) {
 
     const applyTemplate = (line) =>
       String(line || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => templateVars[key] ?? "");
+    const formatCustomLine = (line) => {
+      const rendered = applyTemplate(line);
+      if (!rendered) return "";
+      if (/^\[C\]\s*/i.test(rendered)) {
+        return center(rendered.replace(/^\[C\]\s*/i, ""));
+      }
+      return rendered.slice(0, MAX);
+    };
 
     const lines = [];
     if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
@@ -403,7 +742,7 @@ export default function Ventas({ user, setToast }) {
     if (customLines.length) {
       lines.push(repeat("-", MAX));
       customLines.forEach((line) => {
-        const rendered = applyTemplate(line);
+        const rendered = formatCustomLine(line);
         if (rendered) lines.push(rendered.slice(0, MAX));
       });
     }
@@ -421,7 +760,10 @@ export default function Ventas({ user, setToast }) {
   };
 
   const printReceipt = async ({ lines, deviceName }) => {
-    const ticket = { lines: Array.isArray(lines) ? lines : [] };
+    const ticket = {
+      lines: Array.isArray(lines) ? lines : [],
+      logoDataUrl: ticketConfig.logoDataUrl || "",
+    };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
       window.desktopEnv &&
@@ -444,8 +786,11 @@ export default function Ventas({ user, setToast }) {
     printable.document.write(`
       <html><head><title>Ticket</title><style>
       body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: 11px; }
+      .logo-wrap { text-align: center; margin-bottom: 2mm; }
+      .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
       .line { white-space: pre; }
       </style></head><body>
+      ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
       ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
       </body></html>
     `);
@@ -455,47 +800,90 @@ export default function Ventas({ user, setToast }) {
     printable.close();
   };
 
-  const submit = async (paymentData) => {
+  const buildSalePayload = () => {
     if (!draft.items.length) {
-      setToast?.({ message: "Venta vacia", type: "error" });
-      return;
+      throw new Error("Venta vacia");
     }
     if (isDelivery && !draft.customerId) {
-      setToast?.({ message: "Para envio debes seleccionar un cliente registrado", type: "error" });
-      return;
+      throw new Error("Para envio debes seleccionar un cliente registrado");
     }
     if (isDelivery && !String(draft.deliveryAddress || "").trim()) {
-      setToast?.({ message: "Para envio la direccion es obligatoria", type: "error" });
-      return;
+      throw new Error("Para envio la direccion es obligatoria");
     }
     if (!isDelivery && !draft.customerId && !String(draft.customerName || "").trim()) {
-      setToast?.({ message: "Ingresa un nombre para el cliente de mostrador", type: "error" });
-      return;
+      throw new Error("Ingresa un nombre para el cliente de mostrador");
     }
 
+    const vendedorId = draft.sellerId || localStorage.getItem(VENDEDOR_LOCAL_KEY) || user.id;
+    const selectedCondition = String(draft.paymentCondition || "PAGADO_LOCAL").toUpperCase();
+
+    return {
+      ...draft,
+      sellerId: vendedorId,
+      vendedorId,
+      customerId: draft.customerId || null,
+      customerName: String(draft.customerName || "").trim() || "CONSUMIDOR FINAL",
+      items: draft.items.map((i) => ({
+        productId: i.productId,
+        qty: Number(i.qty),
+        unitPrice: Number(i.unitPrice),
+      })),
+      saleType: isDelivery ? "ENVIO" : "MOSTRADOR",
+      shift: isDelivery ? draft.shift : null,
+      scheduledDate: isDelivery ? draft.scheduledDate : undefined,
+      paymentCondition: isDelivery ? selectedCondition : null,
+      deliveryAddress: isDelivery ? draft.deliveryAddress : null,
+    };
+  };
+
+  const persistCustomerPriceListChange = async () => {
+    if (!draft.customerId || !cambioManualLista || listaActiva === listaClienteOriginal) return;
+    const confirmarGuardar = window.confirm(
+      `Cambio la lista a ${getPriceListLabel(priceLists, listaActiva)}. Desea guardar esta lista como predeterminada para futuras compras de ${draft.customerName}?`
+    );
+    if (confirmarGuardar) {
+      await actualizarPerfilCliente(draft.customerId, listaActiva);
+    }
+  };
+
+  const submitOrderOnly = async () => {
     try {
-      const vendedorId = draft.sellerId || localStorage.getItem(VENDEDOR_LOCAL_KEY) || user.id;
-      const selectedCondition = String(draft.paymentCondition || "PAGADO_LOCAL").toUpperCase();
-      const payload = {
-        ...draft,
-        sellerId: vendedorId,
-        vendedorId,
-        customerId: draft.customerId || null,
-        ...paymentData,
-        items: draft.items.map((i) => ({
-          productId: i.productId,
-          qty: Number(i.qty),
-          unitPrice: Number(i.unitPrice),
-        })),
-        saleType: isDelivery ? "ENVIO" : "MOSTRADOR",
-        shift: isDelivery ? draft.shift : null,
-        paymentCondition: isDelivery ? selectedCondition : null,
-        deliveryAddress: isDelivery ? draft.deliveryAddress : null,
-      };
+      const payload = buildSalePayload();
+      const { data } = await api.post("/sales", payload);
+      await persistCustomerPriceListChange();
+      setToast?.({
+        message: `Orden enviada a caja para ${data?.customer_name_snapshot || payload.customerName}`,
+        type: "success",
+      });
+      resetSaleState();
+      onOrdersChanged?.();
+    } catch (err) {
+      setToast?.({ message: err.response?.data?.message || err.message || "Error al guardar", type: "error" });
+    }
+  };
 
-      const saleResponse = await api.post("/sales", payload);
+  const submit = async (paymentData) => {
+    try {
+      const payload = buildSalePayload();
+      const orderResponse = activeOrderId
+        ? { data: { id: activeOrderId } }
+        : await api.post("/sales", payload);
+      const checkoutResponse = await api.post(`/sales/${orderResponse.data.id}/checkout`, {
+        paymentMethod: paymentData.paymentMethod,
+        customerId: payload.customerId,
+        customerName: payload.customerName,
+        notes: payload.notes || null,
+        cashAmount: Number(paymentData.cashAmount || 0),
+        transferAmount: Number(paymentData.transferAmount || 0),
+        proofImageBase64: paymentData.proofImageBase64 || "",
+        proofImageMimeType: paymentData.proofImageMimeType || "",
+        proofImageName: paymentData.proofImageName || "",
+      });
 
-      const lines = buildTicketLines({ saleData: saleResponse?.data, paymentData }, { docLabel: "Factura B" });
+      const lines = buildTicketLines(
+        { saleData: checkoutResponse?.data, paymentData },
+        { docLabel: "Factura B" }
+      );
       const printDecision = await askPrintConfirmation(lines, "Imprimir comprobante");
       if (printDecision?.shouldPrint) {
         try {
@@ -509,32 +897,13 @@ export default function Ventas({ user, setToast }) {
         }
       }
 
-      if (draft.customerId && cambioManualLista && listaActiva !== listaClienteOriginal) {
-        const confirmarGuardar = window.confirm(
-          `Cambio la lista a ${listaActiva}. Desea guardar esta lista como predeterminada para futuras compras de ${draft.customerName}?`
-        );
-        if (confirmarGuardar) {
-          await actualizarPerfilCliente(draft.customerId, listaActiva);
-        }
-      }
-
+      await persistCustomerPriceListChange();
       setToast?.({ message: "Venta confirmada", type: "success" });
       setShowPaymentModal(false);
-      setDraft((prev) => ({
-        ...prev,
-        customerId: "",
-        customerName: "CONSUMIDOR FINAL",
-        items: [],
-        paymentCondition: "PAGADO_LOCAL",
-        deliveryAddress: "",
-      }));
-      setListaActiva("MINORISTA");
-      setListaClienteOriginal("MINORISTA");
-      setCambioManualLista(false);
-      setIsDelivery(false);
-      setDeliveryConditions(loadDeliveryConditions());
+      resetSaleState();
+      onOrdersChanged?.();
     } catch (err) {
-      setToast?.({ message: err.response?.data?.message || "Error al guardar", type: "error" });
+      setToast?.({ message: err.response?.data?.message || err.message || "Error al guardar", type: "error" });
     }
   };
 
@@ -603,6 +972,8 @@ export default function Ventas({ user, setToast }) {
         address: String(quickClientDraft.address || "").trim() || null,
         zone: String(quickClientDraft.zone || "").trim() || null,
         notes: String(quickClientDraft.notes || "").trim() || null,
+        latitude: quickClientDraft.latitude === "" ? null : Number(quickClientDraft.latitude),
+        longitude: quickClientDraft.longitude === "" ? null : Number(quickClientDraft.longitude),
         preferredPriceList: listaActiva,
       };
       const { data } = await api.post("/customers", payload);
@@ -620,7 +991,18 @@ export default function Ventas({ user, setToast }) {
       setCambioManualLista(false);
       handleCambioLista(listaCliente);
 
-      setQuickClientDraft({ name: "", phone: "", address: "", zone: "", notes: "" });
+      setQuickClientDraft({
+        name: "",
+        phone: "",
+        address: "",
+        zone: "",
+        notes: "",
+        latitude: "",
+        longitude: "",
+      });
+      setQuickClientAddressSearch("");
+      setQuickClientAddressOptions([]);
+      setQuickClientAddressDropdownOpen(false);
       setShowQuickClientModal(false);
       setToast?.({ message: "Cliente registrado y seleccionado", type: "success" });
     } catch (err) {
@@ -630,399 +1012,282 @@ export default function Ventas({ user, setToast }) {
     }
   };
 
-  return (
-    <div className="h-full flex flex-col space-y-3 text-white">
-      {/* Header */}
-      <div className="px-1">
-        <h1 className="text-[28px] font-bold leading-none text-white tracking-tight">Ventas</h1>
-        <p className="text-xs text-zinc-400 mt-1">Fase 1 - sistema interno</p>
-      </div>
+  const handleCustomerChange = (id) => {
+    if (readOnlyPendingOrder) return;
+    if (!id) {
+      setDraft((prev) => ({
+        ...prev,
+        customerId: "",
+        deliveryAddress: "",
+      }));
+      setListaClienteOriginal(getDefaultPriceListKey(priceListsConfig));
+      setCambioManualLista(false);
+      return;
+    }
+    const customer = customers.find((item) => item.id === id);
+    const listaCliente = normalizarLista(customer?.preferred_price_list || customer?.preferredPriceList);
+    setDraft((prev) => ({
+      ...prev,
+      customerId: id,
+      customerName: customer?.name || prev.customerName || "CONSUMIDOR FINAL",
+      deliveryAddress: customer?.address || "",
+    }));
+    setListaClienteOriginal(listaCliente);
+    setCambioManualLista(false);
+    handleCambioLista(listaCliente);
+  };
 
-      {/* Row 1: Top parameters */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 shrink-0">
-        <div>
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Comprobante</label>
-          <div className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-black text-[#e85d04]">
-            {draft.invoiceType}
-          </div>
-        </div>
-        <div>
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Vendedor</label>
-          <select
-            className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
-            value={draft.sellerId}
-            onChange={(e) => setVendedorActual(e.target.value)}
-          >
-            {vendedoresActivos.map((u) => (
-              <option key={u.id} value={u.id}>
-                {String(u.full_name || u.fullName || u.username || "SIN NOMBRE").toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Cond. Pago / Lista</label>
-          <select
-            className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-xs font-bold text-white outline-none focus:border-[#e85d04]"
-            value={listaActiva}
-            onChange={(e) => handleCambioLista(e.target.value)}
-          >
-            <option value="MINORISTA">EFECTIVO (MINORISTA)</option>
-            <option value="MAYORISTA">EFECTIVO (MAYORISTA)</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Fecha</label>
-          <div className="w-full p-2.5 text-xs text-zinc-300 font-mono flex items-center h-[38px]">
-            {new Date().toLocaleDateString('en-US')}
-          </div>
-        </div>
+  const handleToggleDelivery = () => {
+    if (readOnlyPendingOrder) return;
+    setIsDelivery((prev) => {
+      const next = !prev;
+      if (next) {
+        const schedule = getSuggestedDeliverySchedule(deliveryShiftConfig);
+        setDraft((current) => ({ ...current, shift: schedule.shift, scheduledDate: schedule.scheduledDate }));
+      }
+      return next;
+    });
+  };
+
+  const handleSearchEnter = () => {
+    if (readOnlyPendingOrder) return;
+    if (!search.trim()) {
+      if (!isSellerOnly) setShowPaymentModal(true);
+      return;
+    }
+
+    const exact = products.find(
+      (product) =>
+        String(product.sku).toLowerCase() === search.trim().toLowerCase() ||
+        String(product.codigo || "").toLowerCase() === search.trim().toLowerCase() ||
+        String(product.id).toLowerCase() === search.trim().toLowerCase()
+    );
+
+    if (exact) {
+      if (getProductLocalStock(exact) <= 0) {
+        setToast?.({ message: "Sin stock disponible en local", type: "error" });
+        return;
+      }
+      addItem(exact);
+      setSearch("");
+    } else {
+      setToast?.({ message: "Articulo no encontrado", type: "error" });
+    }
+  };
+
+  const removeSelectedItem = () => {
+    if (readOnlyPendingOrder) return;
+    setDraft((prev) => ({ ...prev, items: prev.items.filter((_, index) => index !== selectedIdx) }));
+    setSelectedIdx((index) => Math.max(0, index - 1));
+  };
+
+  const applyQuickClientAddressOption = (option) => {
+    setQuickClientDraft((prev) => ({
+      ...prev,
+      address: option.address || option.label || prev.address,
+      latitude: String(option.latitude ?? ""),
+      longitude: String(option.longitude ?? ""),
+    }));
+    setQuickClientAddressSearch(option.address || option.label || "");
+    setQuickClientAddressOptions([]);
+    setQuickClientAddressDropdownOpen(false);
+  };
+
+  const useQuickClientAddressReference = (reference) => {
+    setQuickClientDraft((prev) => ({
+      ...prev,
+      address: reference,
+      latitude: "",
+      longitude: "",
+    }));
+    setQuickClientAddressSearch(reference);
+    setQuickClientAddressOptions([]);
+    setQuickClientAddressDropdownOpen(false);
+  };
+
+  const openQuickClientMapPicker = () => {
+    const lat = parseOptionalCoordinate(quickClientDraft.latitude);
+    const lng = parseOptionalCoordinate(quickClientDraft.longitude);
+    setQuickClientMapPosition(
+      Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : DEFAULT_MAP_CENTER
+    );
+    setShowQuickClientMapPicker(true);
+  };
+
+  const applyQuickClientMapCoords = () => {
+    setQuickClientDraft((prev) => ({
+      ...prev,
+      latitude: String(quickClientMapPosition.lat),
+      longitude: String(quickClientMapPosition.lng),
+    }));
+    setShowQuickClientMapPicker(false);
+  };
+
+  const applyQuickClientMapWithAddress = async () => {
+    try {
+      setQuickClientMapResolvingAddress(true);
+      const { data } = await api.get("/customers/reverse-geocode", {
+        params: { lat: quickClientMapPosition.lat, lng: quickClientMapPosition.lng },
+      });
+      const detected = String(data?.address || "").trim();
+      setQuickClientDraft((prev) => ({
+        ...prev,
+        latitude: String(quickClientMapPosition.lat),
+        longitude: String(quickClientMapPosition.lng),
+        address: detected || prev.address,
+      }));
+      if (detected) setQuickClientAddressSearch(detected);
+      setQuickClientAddressOptions([]);
+      setQuickClientAddressDropdownOpen(false);
+      setShowQuickClientMapPicker(false);
+    } catch {
+      setQuickClientDraft((prev) => ({
+        ...prev,
+        latitude: String(quickClientMapPosition.lat),
+        longitude: String(quickClientMapPosition.lng),
+      }));
+      setShowQuickClientMapPicker(false);
+      setToast?.({ message: "No se pudo completar direccion desde el mapa", type: "warning" });
+    } finally {
+      setQuickClientMapResolvingAddress(false);
+    }
+  };
+
+  const itemCount = useMemo(
+    () => draft.items.reduce((acc, item) => acc + Number(item.qty), 0),
+    [draft.items]
+  );
+  const selectedCustomer = useMemo(
+    () => customers.find((customer) => customer.id === draft.customerId) || null,
+    [customers, draft.customerId]
+  );
+  const customerHasCurrentAccount = Boolean(
+    selectedCustomer?.enable_current_account ?? selectedCustomer?.enableCurrentAccount
+  );
+
+  const deliveryShiftOptions = useMemo(
+    () => getDeliveryShiftOptions(deliveryShiftConfig),
+    [deliveryShiftConfig]
+  );
+
+  return (
+    <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-2xl bg-[#ededee] p-2 text-zinc-900">
+      {/* Header */}
+      <div className="px-1 shrink-0">
+        <h1 className="text-[18px] md:text-[20px] font-bold leading-none text-zinc-900 tracking-tight">Ventas</h1>
+        <p className="text-[10px] text-zinc-500 mt-1">Fase 1 - sistema interno</p>
       </div>
+      {readOnlyPendingOrder ? (
+        <div className="mx-1 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
+          Orden pendiente cargada para cobro. Los items y el cliente quedan bloqueados hasta completar el pago.
+        </div>
+      ) : null}
+      {loadingPendingOrder ? (
+        <div className="mx-1 shrink-0 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-bold text-sky-800">
+          Cargando orden pendiente...
+        </div>
+      ) : null}
+      {/* Row 1: Top parameters */}
+      <SalesMetaBar
+        draft={draft}
+        vendedoresActivos={vendedoresActivos}
+        listaActiva={listaActiva}
+        priceLists={priceLists}
+        onSellerChange={setVendedorActual}
+        onPriceListChange={handleCambioLista}
+        readOnly={readOnlyPendingOrder}
+      />
 
       {/* Row 2: Customer */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 flex flex-col gap-3 shrink-0">
-        <div className="flex flex-col md:flex-row items-end gap-3 w-full">
-          <div className="flex-1 w-full">
-            <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Cliente</label>
-            <SearchableSelect
-              inputRef={customerSelectRef}
-              options={[
-                { id: "", label: "CONSUMIDOR FINAL", subtext: "-" },
-                ...customers.map(c => ({
-                  id: c.id,
-                  label: String(c.name || "").toUpperCase(),
-                  subtext: c.taxId || "Sin CUIT"
-                }))
-              ]}
-              value={draft.customerId}
-              onChange={(id) => {
-                const c = customers.find((x) => x.id === id);
-                const listaCliente = normalizarLista(c?.preferred_price_list || c?.preferredPriceList);
-                setDraft((prev) => ({
-                  ...prev,
-                  customerId: id,
-                  customerName: c?.name || prev.customerName || "CONSUMIDOR FINAL",
-                  deliveryAddress: c?.address || "",
-                }));
-                setListaClienteOriginal(listaCliente);
-                setCambioManualLista(false);
-                handleCambioLista(listaCliente);
-              }}
-              placeholder="Buscar cliente..."
-            />
-          </div>
-
-          <div
-            className="flex items-center h-[38px] px-4 gap-2 bg-[#1a1a1a] border border-zinc-800/80 rounded cursor-pointer select-none"
-            onClick={() => setIsDelivery(!isDelivery)}
-          >
-            <span className="text-[9px] text-zinc-500 uppercase font-black tracking-widest">Es Envío</span>
-            <div className={`w-8 h-4 rounded-full p-0.5 transition-colors ${isDelivery ? "bg-[#e85d04]" : "bg-zinc-700"}`}>
-              <div className={`w-3 h-3 bg-white rounded-full transition-transform ${isDelivery ? "translate-x-4" : "translate-x-0"}`} />
-            </div>
-          </div>
-
-          <div className="flex gap-2 w-full md:w-auto">
-            <button
-              className="flex-1 md:flex-none bg-[#2a2a2a] hover:bg-[#333] text-white border border-zinc-700/50 rounded-lg px-6 h-[38px] flex flex-col items-center justify-center transition-colors"
-              onClick={() => customerSelectRef.current?.focus()}
-            >
-              <span className="text-xs font-bold leading-none mb-1">BUSCAR</span>
-              <span className="text-[9px] text-zinc-400 leading-none">(F3)</span>
-            </button>
-
-            <button
-              className="flex-1 md:flex-none bg-[#e85d04] hover:bg-[#d14f00] text-white border border-[#e85d04]/60 rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[10px] font-black uppercase tracking-widest"
-              onClick={() => setShowQuickClientModal(true)}
-              type="button"
-            >
-              Registrar
-            </button>
-          </div>
-        </div>
-
-        {!isDelivery && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-            <div>
-              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">
-                Nombre cliente mostrador (no registrado)
-              </label>
-              <input
-                className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]"
-                value={draft.customerName}
-                onChange={(e) => setDraft((prev) => ({ ...prev, customerId: "", customerName: e.target.value }))}
-                placeholder="Ej: Juan Perez"
-              />
-              <div className="text-[10px] text-zinc-500 mt-1">
-                Si no seleccionas cliente registrado, este nombre se usa para la venta de mostrador.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isDelivery && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-3 border-t border-zinc-800/50 mt-1">
-            <div>
-              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Salida Est.</label>
-              <select className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]" value={draft.shift} onChange={(e) => setDraft((p) => ({ ...p, shift: e.target.value }))}>
-                <option value="MANIANA">MAÑANA (11:00)</option>
-                <option value="TARDE">TARDE (19:00)</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Condición</label>
-              <select
-                className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]"
-                value={draft.paymentCondition}
-                onChange={(e) => setDraft((p) => ({ ...p, paymentCondition: e.target.value }))}
-              >
-                {deliveryConditions.map((condition) => (
-                  <option key={condition.value} value={condition.value}>
-                    {condition.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-span-1 sm:col-span-2">
-              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1.5 block">Dirección de Entrega</label>
-              <input className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded p-2 text-sm md:text-xs font-bold text-white outline-none focus:border-[#e85d04]" placeholder="Dirección..." value={draft.deliveryAddress} onChange={(e) => setDraft((p) => ({ ...p, deliveryAddress: e.target.value }))} />
-            </div>
-          </div>
-        )}
-      </div>
-
+      <CustomerPanel
+        customerSelectRef={customerSelectRef}
+        customers={customers}
+        draft={draft}
+        isDelivery={isDelivery}
+        deliveryConditions={deliveryConditions}
+        onCustomerChange={handleCustomerChange}
+        onToggleDelivery={handleToggleDelivery}
+        onOpenQuickClient={() => setShowQuickClientModal(true)}
+        onCustomerNameChange={(value) => {
+          if (readOnlyPendingOrder) return;
+          setDraft((prev) => ({ ...prev, customerId: "", customerName: value }));
+        }}
+        shiftOptions={deliveryShiftOptions}
+        onShiftChange={(value) =>
+          !readOnlyPendingOrder &&
+          setDraft((prev) => ({
+            ...prev,
+            shift: value,
+            scheduledDate: getScheduledDateForShift(value, deliveryShiftConfig),
+          }))
+        }
+        onPaymentConditionChange={(value) =>
+          !readOnlyPendingOrder && setDraft((prev) => ({ ...prev, paymentCondition: value }))
+        }
+        onDeliveryAddressChange={(value) =>
+          !readOnlyPendingOrder && setDraft((prev) => ({ ...prev, deliveryAddress: value }))
+        }
+        readOnly={readOnlyPendingOrder}
+      />
       {/* Row 3: Items Grid */}
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg flex-1 flex flex-col min-h-[380px] relative shrink-0">
-        <div className="p-4 border-b border-zinc-800/50 flex flex-col gap-2 shrink-0">
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest block mb-1">Carga Rápida</label>
-          <div className="flex gap-2 w-full items-end">
-
-            <div className="flex-1 flex gap-2 w-full items-center">
-              <label className="text-sm font-black text-zinc-400 uppercase hidden md:inline-block mr-2">Código:</label>
-              <input
-                ref={codeInputRef}
-                className="w-full md:w-1/3 md:min-w-[200px] bg-[#1a1a1a] border border-zinc-800/80 rounded p-2.5 text-lg font-bold text-white outline-none focus:border-[#e85d04] placeholder-zinc-700 font-mono"
-                placeholder="Escanee o tipee el código..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    if (!search.trim()) {
-                      setShowPaymentModal(true);
-                      return;
-                    }
-                    const exact = products.find(p => String(p.sku).toLowerCase() === search.trim().toLowerCase() || String(p.id).toLowerCase() === search.trim().toLowerCase());
-                    if (exact) {
-                      addItem(exact);
-                      setSearch("");
-                    } else {
-                      setToast?.({ message: "Artículo no encontrado", type: "error" });
-                    }
-                  } else if (e.key === "F5") {
-                    e.preventDefault();
-                    setShowProductModal(true);
-                  }
-                }}
-                autoComplete="off"
-              />
-              <button
-                className="bg-[#2a2a2a] hover:bg-[#333] border border-zinc-700/50 text-white rounded w-[50px] h-[46px] flex flex-col items-center justify-center transition-colors shadow-md shrink-0"
-                onClick={() => setShowProductModal(true)}
-                title="Búsqueda de Artículos (F5)"
-              >
-                <span className="text-lg">🔍</span>
-                <span className="text-[9px] font-bold text-zinc-400 leading-none -mt-1 hidden">F5</span>
-              </button>
-            </div>
-
-            <div className="w-full sm:w-24 relative flex items-center gap-3 bg-[#1a1a1a] border border-zinc-800/80 rounded p-2">
-              <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest">CANT</label>
-              <input
-                type="number"
-                min={1}
-                className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded text-center text-lg font-bold py-1 text-white outline-none focus:border-[#e85d04]"
-                value={qty}
-                onChange={e => setQty(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {search && filteredProducts.length > 0 && (
-            <div className="absolute top-[85px] left-4 right-4 z-50 bg-[#1a1a1a] border border-zinc-700 rounded-lg shadow-2xl max-h-60 overflow-auto">
-              {filteredProducts.map((p) => (
-                <button
-                  key={p.id}
-                  className="w-full text-left px-5 py-3 hover:bg-zinc-800 border-b border-zinc-800/50 last:border-b-0 flex justify-between items-center"
-                  onClick={() => addItem(p)}
-                >
-                  <div>
-                    <div className="text-sm font-bold text-white uppercase">{p.name}</div>
-                    <div className="text-xs text-zinc-400 mt-1">{p.codigo || p.sku || "-"}</div>
-                  </div>
-                  <div className="font-bold text-[#e85d04] text-lg">
-                    ${Number(obtenerPrecioPorLista(p, listaActiva) || 0).toFixed(2)}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="flex-1 overflow-x-auto">
-          <table className="w-full text-xs md:text-[11px] text-left min-w-[600px]">
-            <thead className="text-[10px] md:text-[9px] uppercase text-zinc-500 tracking-widest bg-[#121212] border-b border-zinc-800/50 sticky top-0 z-10">
-              <tr>
-                <th className="px-5 py-3 font-black w-20">CANT</th>
-                <th className="px-5 py-3 font-black w-40">CÓDIGO</th>
-                <th className="px-5 py-3 font-black">DESCRIPCIÓN</th>
-                <th className="px-5 py-3 font-black w-32 text-right">PRECIO</th>
-                <th className="px-5 py-3 font-black w-24 text-center">DTO%</th>
-                <th className="px-5 py-3 font-black w-32 text-right">TOTAL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {draft.items.map((it, idx) => (
-                <tr
-                  key={`${it.productId}-${idx}`}
-                  onClick={() => setSelectedIdx(idx)}
-                  className={`border-b border-zinc-800/30 cursor-pointer ${selectedIdx === idx ? "bg-[#e85d04]/10" : "hover:bg-zinc-800/20"}`}
-                >
-                  <td className="px-5 py-3 text-zinc-300 font-medium">{it.qty}</td>
-                  <td className="px-5 py-3 text-zinc-400">{it.codigo || "-"}</td>
-                  <td className="px-5 py-3 font-bold text-zinc-200 uppercase">{it.name}</td>
-                  <td className="px-5 py-3 text-right text-zinc-300">${Number(it.unitPrice).toFixed(2)}</td>
-                  <td className="px-5 py-3 text-center text-zinc-500">{Number(it.discount || 0).toFixed(0)}</td>
-                  <td className="px-5 py-3 text-right font-bold text-white">${(Number(it.qty) * Number(it.unitPrice)).toFixed(2)}</td>
-                </tr>
-              ))}
-              {!draft.items.length && (
-                <tr className="hover:bg-transparent">
-                  <td colSpan={6} className="text-center py-16 text-zinc-600 focus:outline-none">
-                    {/* Empty Table */}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
+      <ItemsPanel
+        codeInputRef={codeInputRef}
+        search={search}
+        qty={qty}
+        filteredProducts={filteredProducts}
+        draftItems={draft.items}
+        selectedIdx={selectedIdx}
+        listaActiva={listaActiva}
+        onSearchChange={setSearch}
+        onSearchEnter={handleSearchEnter}
+        onOpenProductModal={() => setShowProductModal(true)}
+        onQtyChange={setQty}
+        onSelectSuggestion={addItem}
+        onSelectItem={setSelectedIdx}
+        getProductPrice={obtenerPrecioPorLista}
+        onAddCurrent={handleSearchEnter}
+        disabled={readOnlyPendingOrder}
+      />
       {/* Footer / Resumen */}
-      <div className="flex flex-col md:flex-row gap-3 shrink-0">
-        {/* Left summary blocks */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 items-center shrink-0">
-          <div>
-            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1">Subtotal Neto</div>
-            <div className="text-lg md:text-xl font-bold text-white">${subtotal.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1">Descuento Global</div>
-            <div className="text-lg md:text-xl font-bold text-white">$0.00</div>
-          </div>
-          <div>
-            <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1">Ítems</div>
-            <div className="text-lg md:text-xl font-bold text-[#e85d04]">{draft.items.reduce((acc, i) => acc + Number(i.qty), 0)}</div>
-          </div>
-
-          <div className="flex justify-end pr-2 md:col-span-1 col-span-2">
-            {selectedIdx >= 0 && draft.items.length > 0 && (
-              <button
-                className="text-rose-500 text-[10px] font-black uppercase tracking-wider hover:bg-rose-500/10 px-4 py-2 rounded-lg border border-rose-500/20 transition-colors w-full md:w-auto"
-                onClick={() => {
-                  setDraft((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== selectedIdx) }));
-                  setSelectedIdx((x) => Math.max(0, x - 1));
-                }}
-              >
-                Quitar Selección
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Right total & action */}
-        <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3.5 w-full md:w-64 flex flex-col items-center justify-center text-center shrink-0">
-          <div className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-widest mb-1 w-full flex justify-between px-2">
-            <span>Total General</span>
-          </div>
-          <div className="text-3xl md:text-3xl leading-none font-black text-white w-full mb-3 px-2 text-right truncate">
-            ${subtotal.toFixed(2)}
-          </div>
-
-          <div className="w-full grid grid-cols-2 md:grid-cols-1 gap-2 content-center">
-            <button
-              className="w-full bg-zinc-700 hover:bg-zinc-600 text-white font-black py-2.5 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={submitBudget}
-              disabled={draft.items.length === 0}
-            >
-              <span className="text-[11px] md:text-sm">PRESUPUESTO</span>
-            </button>
-            <button
-              className="w-full bg-[#e85d04] hover:bg-[#d14f00] text-white font-black py-2.5 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 leading-none disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => setShowPaymentModal(true)}
-              disabled={draft.items.length === 0}
-            >
-              <span className="text-[11px] md:text-sm">COBRAR</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <SalesSummary
+        subtotal={subtotal}
+        itemCount={itemCount}
+        selectedIdx={selectedIdx}
+        hasItems={draft.items.length > 0}
+        onRemoveSelected={removeSelectedItem}
+        onSubmitBudget={submitBudget}
+        onPrimaryAction={() => {
+          if (isSellerOnly) {
+            submitOrderOnly();
+            return;
+          }
+          setShowPaymentModal(true);
+        }}
+        primaryLabel={isSellerOnly ? "Enviar orden" : activeOrderId ? "Cobrar orden" : "Registrar venta"}
+        disableRemove={readOnlyPendingOrder}
+        disableBudget={readOnlyPendingOrder}
+      />
 
       {showPaymentModal && (
         <PaymentModal
           total={subtotal}
           onClose={() => setShowPaymentModal(false)}
           onConfirm={submit}
-          requireCashGiven={String(user?.role || "").toUpperCase() !== "VENDEDOR"}
+          requireCashGiven={role !== "VENDEDOR"}
+          allowCurrentAccount={customerHasCurrentAccount}
         />
       )}
-
-      {showPrintPrompt && (
-        <div className="fixed inset-0 bg-black/70 z-[80] flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-[#121212] p-5 space-y-4">
-            <div className="text-lg font-black uppercase tracking-wider text-[#e85d04]">{printPromptTitle}</div>
-            <div className="text-sm text-zinc-300">
-              Vista previa y confirmacion de impresion
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-500">Impresora</label>
-              <select
-                className="input mt-1"
-                value={selectedPrinter}
-                onChange={(e) => setSelectedPrinter(e.target.value)}
-              >
-                {!availablePrinters.length && <option value="">Predeterminada del sistema</option>}
-                {availablePrinters.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.displayName || p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="border border-zinc-800 rounded-lg bg-white text-black p-3 max-h-80 overflow-auto">
-              <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight">
-                {printPreviewLines.map((line, idx) => (
-                  <div key={`${line}-${idx}`} className="whitespace-pre">
-                    {line}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="text-xs text-zinc-500">
-              Atajos: <span className="font-black text-zinc-300">Y</span> = SI,{" "}
-              <span className="font-black text-zinc-300">N</span> = NO
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className="btn btn-muted" onClick={() => resolvePrintConfirmation(false)}>
-                No (N)
-              </button>
-              <button type="button" className="btn btn-primary" onClick={() => resolvePrintConfirmation(true)}>
-                Si (Y)
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showPrintPrompt ? (
+        <PrintPromptModal
+          title={printPromptTitle}
+          lines={printPreviewLines}
+          availablePrinters={availablePrinters}
+          selectedPrinter={selectedPrinter}
+          onPrinterChange={setSelectedPrinter}
+          onCancel={() => resolvePrintConfirmation(false)}
+          onConfirm={() => resolvePrintConfirmation(true)}
+        />
+      ) : null}
 
       {showProductModal && (
         <ProductSearchModal
@@ -1038,119 +1303,72 @@ export default function Ventas({ user, setToast }) {
           }}
         />
       )}
+      {showQuickClientModal ? (
+        <QuickClientModal
+          draft={quickClientDraft}
+          saving={savingQuickClient}
+          addressSearch={quickClientAddressSearch}
+          addressOptions={quickClientAddressOptions}
+          addressLoading={quickClientAddressLoading}
+          addressDropdownOpen={quickClientAddressDropdownOpen}
+          onClose={() => {
+            setShowQuickClientModal(false);
+            setQuickClientAddressOptions([]);
+            setQuickClientAddressDropdownOpen(false);
+          }}
+          onChange={(field, value) => setQuickClientDraft((prev) => ({ ...prev, [field]: value }))}
+          onAddressFocus={(value) => {
+            setQuickClientAddressSearch(value || "");
+            setQuickClientAddressDropdownOpen(true);
+          }}
+          onAddressSearchChange={(value) => {
+            setQuickClientDraft((prev) => ({
+              ...prev,
+              address: value,
+              latitude: "",
+              longitude: "",
+            }));
+            setQuickClientAddressSearch(value);
+            setQuickClientAddressDropdownOpen(true);
+          }}
+          onAddressSelect={applyQuickClientAddressOption}
+          onUseAddressReference={useQuickClientAddressReference}
+          onOpenMapPicker={openQuickClientMapPicker}
+          onSubmit={createQuickClient}
+        />
+      ) : null}
 
-      {showQuickClientModal && (
-        <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-xl border border-zinc-800 bg-[#121212] p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-black uppercase tracking-wider text-[#e85d04]">
-                Registrar Cliente Rapido
-              </div>
-              <button
-                className="btn btn-muted"
-                onClick={() => setShowQuickClientModal(false)}
-                type="button"
-              >
-                Cerrar
-              </button>
-            </div>
+      {showQuickClientMapPicker ? (
+        <ClientMapPickerModal
+          mapPosition={quickClientMapPosition}
+          setMapPosition={setQuickClientMapPosition}
+          mapResolvingAddress={quickClientMapResolvingAddress}
+          onClose={() => setShowQuickClientMapPicker(false)}
+          onApplyCoords={applyQuickClientMapCoords}
+          onApplyWithAddress={applyQuickClientMapWithAddress}
+        />
+      ) : null}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="md:col-span-2">
-                <label className="text-[10px] uppercase font-bold text-zinc-500">Nombre *</label>
-                <input
-                  className="input mt-1"
-                  value={quickClientDraft.name}
-                  onChange={(e) => setQuickClientDraft((p) => ({ ...p, name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-500">Telefono</label>
-                <input
-                  className="input mt-1"
-                  value={quickClientDraft.phone}
-                  onChange={(e) => setQuickClientDraft((p) => ({ ...p, phone: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-500">Zona</label>
-                <input
-                  className="input mt-1"
-                  value={quickClientDraft.zone}
-                  onChange={(e) => setQuickClientDraft((p) => ({ ...p, zone: e.target.value }))}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-[10px] uppercase font-bold text-zinc-500">Direccion</label>
-                <input
-                  className="input mt-1"
-                  value={quickClientDraft.address}
-                  onChange={(e) => setQuickClientDraft((p) => ({ ...p, address: e.target.value }))}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-[10px] uppercase font-bold text-zinc-500">Notas</label>
-                <input
-                  className="input mt-1"
-                  value={quickClientDraft.notes}
-                  onChange={(e) => setQuickClientDraft((p) => ({ ...p, notes: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={createQuickClient}
-                disabled={savingQuickClient}
-              >
-                {savingQuickClient ? "Guardando..." : "Guardar y seleccionar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showQtyEditModal && (
-        <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#121212] p-4 space-y-3">
-            <div className="text-sm font-black uppercase tracking-wider text-[#e85d04]">
-              Editar cantidad
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-500">Nueva cantidad</label>
-              <input
-                className="input mt-1"
-                type="number"
-                min="1"
-                step="1"
-                value={qtyEditValue}
-                onChange={(e) => setQtyEditValue(e.target.value)}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    applyQtyEdit();
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setShowQtyEditModal(false);
-                  }
-                }}
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <button type="button" className="btn btn-muted" onClick={() => setShowQtyEditModal(false)}>
-                Cancelar
-              </button>
-              <button type="button" className="btn btn-primary" onClick={applyQtyEdit}>
-                Aplicar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showQtyEditModal ? (
+        <QtyEditModal
+          value={qtyEditValue}
+          onChange={setQtyEditValue}
+          onCancel={() => setShowQtyEditModal(false)}
+          onApply={applyQtyEdit}
+        />
+      ) : null}
+      {showPriceEditModal ? (
+        <QtyEditModal
+          value={priceEditValue}
+          onChange={setPriceEditValue}
+          onCancel={() => setShowPriceEditModal(false)}
+          onApply={applyPriceEdit}
+          title="Editar precio"
+          label="Nuevo precio transaccional"
+          min="0"
+          step="0.01"
+        />
+      ) : null}
     </div>
   );
 }

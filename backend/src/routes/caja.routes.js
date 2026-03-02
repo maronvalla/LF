@@ -29,18 +29,91 @@ const closeSessionSchema = z.object({
   notes: z.string().optional(),
 });
 
+const loanSchema = z.object({
+  counterpartyName: z.string().trim().min(2).max(160),
+  direction: z.enum(["OTORGADO", "RECIBIDO"]),
+  amount: z.number().positive(),
+  notes: z.string().trim().max(500).optional().nullable(),
+});
+
+const loanPaymentSchema = z.object({
+  amount: z.number().positive(),
+  notes: z.string().trim().max(500).optional().nullable(),
+});
+
+async function getOpenSessionForToday(client) {
+  const today = new Date().toISOString().slice(0, 10);
+  const sessionRes = await client.query(
+    `SELECT * FROM cash_register_sessions
+     WHERE date = $1 AND status = 'ABIERTA'
+     ORDER BY opened_at DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [today]
+  );
+  return sessionRes.rows[0] || null;
+}
+
+async function loadLoansSummary(client) {
+  const [loanRes, paymentRes] = await Promise.all([
+    client.query(
+      `SELECT *
+       FROM cash_register_loans
+       ORDER BY
+         CASE WHEN status = 'ACTIVO' THEN 0 ELSE 1 END,
+         created_at DESC`
+    ),
+    client.query(
+      `SELECT p.*, l.counterparty_name, l.direction
+       FROM cash_register_loan_payments p
+       INNER JOIN cash_register_loans l ON l.id = p.loan_id
+       ORDER BY p.created_at DESC
+       LIMIT 50`
+    ),
+  ]);
+
+  const summary = loanRes.rows.reduce(
+    (acc, row) => {
+      const outstanding = Number(row.outstanding_amount || 0);
+      if (row.status === "ACTIVO") {
+        if (row.direction === "OTORGADO") acc.meDeben += outstanding;
+        if (row.direction === "RECIBIDO") acc.debo += outstanding;
+      }
+      return acc;
+    },
+    { meDeben: 0, debo: 0 }
+  );
+
+  return {
+    loans: loanRes.rows,
+    recentPayments: paymentRes.rows,
+    summary,
+  };
+}
+
 // Obtener sesión del día (o crear si no existe y se pide)
 router.get(
   "/today",
   requirePermission("sales.manage"),
   asyncHandler(async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
-    const { rows } = await pool.query(
-      "SELECT * FROM cash_register_sessions WHERE date = $1",
+    const { rows: openRows } = await pool.query(
+      `SELECT * FROM cash_register_sessions
+       WHERE date = $1 AND status = 'ABIERTA'
+       ORDER BY opened_at DESC
+       LIMIT 1`,
       [today]
     );
+    const { rows: latestRows } = await pool.query(
+      `SELECT * FROM cash_register_sessions
+       WHERE date = $1
+       ORDER BY opened_at DESC
+       LIMIT 1`,
+      [today]
+    );
+    const currentSession = openRows[0] || latestRows[0];
 
-    if (rows[0]) {
+    if (currentSession) {
       // Obtener movimientos de la sesión
       const movRes = await pool.query(
         `SELECT m.*, s.name as supplier_name
@@ -48,12 +121,16 @@ router.get(
          LEFT JOIN suppliers s ON s.id = m.supplier_id
          WHERE m.session_id = $1
          ORDER BY m.created_at DESC`,
-        [rows[0].id]
+        [currentSession.id]
       );
-      return res.json({ session: rows[0], movements: movRes.rows });
+      return res.json({
+        session: currentSession,
+        movements: movRes.rows,
+        canOpen: !openRows[0],
+      });
     }
 
-    res.json({ session: null, movements: [] });
+    res.json({ session: null, movements: [], canOpen: true });
   })
 );
 
@@ -64,7 +141,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const { date } = req.params;
     const { rows } = await pool.query(
-      "SELECT * FROM cash_register_sessions WHERE date = $1",
+      `SELECT * FROM cash_register_sessions
+       WHERE date = $1
+       ORDER BY opened_at DESC
+       LIMIT 1`,
       [date]
     );
 
@@ -98,7 +178,7 @@ router.post(
 
     // Verificar si ya existe sesión para ese día
     const existing = await pool.query(
-      "SELECT id FROM cash_register_sessions WHERE date = $1",
+      "SELECT id FROM cash_register_sessions WHERE date = $1 AND status = 'ABIERTA' LIMIT 1",
       [date]
     );
 
@@ -106,12 +186,23 @@ router.post(
       return res.status(400).json({ message: "Ya existe una caja abierta para este dia" });
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO cash_register_sessions (date, opening_amount, opened_by, status)
-       VALUES ($1, $2, $3, 'ABIERTA')
-       RETURNING *`,
-      [date, openingAmount, req.user.id]
-    );
+    let rows;
+    try {
+      const result = await pool.query(
+        `INSERT INTO cash_register_sessions (date, opening_amount, opened_by, status)
+         VALUES ($1, $2, $3, 'ABIERTA')
+         RETURNING *`,
+        [date, openingAmount, req.user.id]
+      );
+      rows = result.rows;
+    } catch (err) {
+      if (err?.code === "23505") {
+        return res.status(400).json({
+          message: "La base todavia no permite multiples cajas por dia. Aplica la migracion 018_cash_register_multiple_sessions_per_day.sql",
+        });
+      }
+      throw err;
+    }
 
     await logAudit({
       actorUserId: req.user.id,
@@ -140,7 +231,10 @@ router.post(
 
     // Obtener sesión del día
     const sessionRes = await pool.query(
-      "SELECT * FROM cash_register_sessions WHERE date = $1 AND status = 'ABIERTA'",
+      `SELECT * FROM cash_register_sessions
+       WHERE date = $1 AND status = 'ABIERTA'
+       ORDER BY opened_at DESC
+       LIMIT 1`,
       [today]
     );
 
@@ -189,6 +283,14 @@ router.delete(
       return res.status(400).json({ message: "No se puede eliminar movimiento de una caja cerrada" });
     }
 
+    const linkedLoanPayment = await pool.query(
+      "SELECT id FROM cash_register_loan_payments WHERE movement_id = $1 LIMIT 1",
+      [id]
+    );
+    if (linkedLoanPayment.rows[0]) {
+      return res.status(400).json({ message: "El movimiento pertenece a un prestamo o devolucion y no se puede borrar desde caja" });
+    }
+
     await pool.query("DELETE FROM cash_register_movements WHERE id = $1", [id]);
 
     await logAudit({
@@ -203,6 +305,177 @@ router.delete(
   })
 );
 
+router.get(
+  "/loans",
+  requirePermission("sales.manage"),
+  asyncHandler(async (_req, res) => {
+    const data = await loadLoansSummary(pool);
+    res.json(data);
+  })
+);
+
+router.post(
+  "/loans",
+  requirePermission("sales.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = loanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Datos invalidos", errors: parsed.error.errors });
+    }
+
+    const { counterpartyName, direction, amount, notes } = parsed.data;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const session = await getOpenSessionForToday(client);
+      if (!session) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "No hay caja abierta para hoy" });
+      }
+
+      const loanRes = await client.query(
+        `INSERT INTO cash_register_loans (
+          counterparty_name, direction, original_amount, outstanding_amount, notes, created_by
+        )
+         VALUES ($1, $2, $3, $3, $4, $5)
+         RETURNING *`,
+        [counterpartyName, direction, amount, notes || null, req.user.id]
+      );
+      const loan = loanRes.rows[0];
+
+      const movementType = direction === "OTORGADO" ? "RETIRO" : "INGRESO";
+      const movementConcept = `${direction === "OTORGADO" ? "PRESTAMO OTORGADO" : "PRESTAMO RECIBIDO"} - ${counterpartyName}`;
+      const movementRes = await client.query(
+        `INSERT INTO cash_register_movements (session_id, movement_type, amount, concept, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [session.id, movementType, amount, movementConcept, req.user.id]
+      );
+
+      await client.query(
+        `INSERT INTO cash_register_loan_payments (loan_id, session_id, movement_id, amount, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          loan.id,
+          session.id,
+          movementRes.rows[0].id,
+          amount,
+          direction === "OTORGADO" ? "Prestamo entregado" : "Prestamo recibido",
+          req.user.id,
+        ]
+      );
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "CASH_LOAN_CREATE",
+        entity: "cash_register_loans",
+        entityId: loan.id,
+        metadata: { counterpartyName, direction, amount },
+        client,
+      });
+
+      await client.query("COMMIT");
+      res.status(201).json({ loan });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
+
+router.post(
+  "/loans/:id/payment",
+  requirePermission("sales.manage"),
+  asyncHandler(async (req, res) => {
+    const parsed = loanPaymentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Datos invalidos", errors: parsed.error.errors });
+    }
+
+    const { amount, notes } = parsed.data;
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const session = await getOpenSessionForToday(client);
+      if (!session) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "No hay caja abierta para hoy" });
+      }
+
+      const loanRes = await client.query(
+        `SELECT *
+         FROM cash_register_loans
+         WHERE id = $1
+         FOR UPDATE`,
+        [id]
+      );
+      const loan = loanRes.rows[0];
+      if (!loan) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Prestamo no encontrado" });
+      }
+      if (loan.status !== "ACTIVO") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "El prestamo ya esta saldado" });
+      }
+
+      const outstanding = Number(loan.outstanding_amount || 0);
+      if (amount > outstanding) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "El importe supera el saldo pendiente" });
+      }
+
+      const movementType = loan.direction === "OTORGADO" ? "INGRESO" : "RETIRO";
+      const movementConcept = `${loan.direction === "OTORGADO" ? "COBRO DE PRESTAMO" : "PAGO DE PRESTAMO"} - ${loan.counterparty_name}`;
+      const movementRes = await client.query(
+        `INSERT INTO cash_register_movements (session_id, movement_type, amount, concept, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [session.id, movementType, amount, movementConcept, req.user.id]
+      );
+
+      const paymentRes = await client.query(
+        `INSERT INTO cash_register_loan_payments (loan_id, session_id, movement_id, amount, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [loan.id, session.id, movementRes.rows[0].id, amount, notes || null, req.user.id]
+      );
+
+      const nextOutstanding = Math.max(0, outstanding - Number(amount));
+      const updatedLoanRes = await client.query(
+        `UPDATE cash_register_loans
+         SET outstanding_amount = $2,
+             status = $3,
+             settled_at = CASE WHEN $3 = 'SALDADO' THEN now() ELSE settled_at END,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [loan.id, nextOutstanding, nextOutstanding === 0 ? "SALDADO" : "ACTIVO"]
+      );
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "CASH_LOAN_PAYMENT",
+        entity: "cash_register_loans",
+        entityId: loan.id,
+        metadata: { amount, notes: notes || null, direction: loan.direction },
+        client,
+      });
+
+      await client.query("COMMIT");
+      res.json({ loan: updatedLoanRes.rows[0], payment: paymentRes.rows[0] });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  })
+);
+
 // Obtener ventas en efectivo del día
 router.get(
   "/cash-sales/:date",
@@ -210,17 +483,26 @@ router.get(
   asyncHandler(async (req, res) => {
     const { date } = req.params;
 
-    // Sumar ventas de mostrador pagadas en efectivo del día
+    // Sumar cobranzas en efectivo y estimar capital/utilidad (aprox. para mixto).
     const { rows } = await pool.query(
-      `SELECT COALESCE(SUM(
-        CASE
-          WHEN s.payment_method = 'EFECTIVO' THEN si.line_total
-          WHEN s.payment_method = 'MIXTO' THEN si.line_total * 0.5 -- Aproximación para mixto
-          ELSE 0
-        END
-      ), 0) as cash_total
+      `SELECT
+        COALESCE(SUM(
+          CASE
+            WHEN s.payment_method = 'EFECTIVO' THEN si.line_total
+            WHEN s.payment_method = 'MIXTO' THEN si.line_total * 0.5
+            ELSE 0
+          END
+        ), 0)::numeric as cash_total,
+        COALESCE(SUM(
+          CASE
+            WHEN s.payment_method = 'EFECTIVO' THEN (COALESCE(p.cost, 0) * si.qty)
+            WHEN s.payment_method = 'MIXTO' THEN (COALESCE(p.cost, 0) * si.qty) * 0.5
+            ELSE 0
+          END
+        ), 0)::numeric as recovered_capital
        FROM sales s
        JOIN sale_items si ON si.sale_id = s.id
+       JOIN products p ON p.id = si.product_id
        WHERE DATE(s.created_at) = $1
        AND s.status != 'ANULADO'
        AND s.sale_type = 'MOSTRADOR'
@@ -228,7 +510,11 @@ router.get(
       [date]
     );
 
-    res.json({ cashSales: Number(rows[0]?.cash_total || 0) });
+    const gross = Number(rows[0]?.cash_total || 0);
+    const recoveredCapital = Number(rows[0]?.recovered_capital || 0);
+    const estimatedProfit = gross - recoveredCapital;
+
+    res.json({ cashSales: gross, recoveredCapital, estimatedProfit });
   })
 );
 
@@ -251,7 +537,11 @@ router.post(
 
       // Obtener sesión abierta
       const sessionRes = await client.query(
-        "SELECT * FROM cash_register_sessions WHERE date = $1 AND status = 'ABIERTA' FOR UPDATE",
+        `SELECT * FROM cash_register_sessions
+         WHERE date = $1 AND status = 'ABIERTA'
+         ORDER BY opened_at DESC
+         LIMIT 1
+         FOR UPDATE`,
         [today]
       );
 
@@ -283,15 +573,24 @@ router.post(
 
       // Obtener ventas en efectivo del día
       const cashSalesRes = await client.query(
-        `SELECT COALESCE(SUM(
-          CASE
-            WHEN s.payment_method = 'EFECTIVO' THEN si.line_total
-            WHEN s.payment_method = 'MIXTO' THEN si.line_total * 0.5
-            ELSE 0
-          END
-        ), 0) as cash_total
+        `SELECT
+          COALESCE(SUM(
+            CASE
+              WHEN s.payment_method = 'EFECTIVO' THEN si.line_total
+              WHEN s.payment_method = 'MIXTO' THEN si.line_total * 0.5
+              ELSE 0
+            END
+          ), 0)::numeric as cash_total,
+          COALESCE(SUM(
+            CASE
+              WHEN s.payment_method = 'EFECTIVO' THEN (COALESCE(p.cost, 0) * si.qty)
+              WHEN s.payment_method = 'MIXTO' THEN (COALESCE(p.cost, 0) * si.qty) * 0.5
+              ELSE 0
+            END
+          ), 0)::numeric as recovered_capital
          FROM sales s
          JOIN sale_items si ON si.sale_id = s.id
+         JOIN products p ON p.id = si.product_id
          WHERE DATE(s.created_at) = $1
          AND s.status != 'ANULADO'
          AND s.sale_type = 'MOSTRADOR'
@@ -300,6 +599,8 @@ router.post(
       );
 
       const cashSales = Number(cashSalesRes.rows[0]?.cash_total || 0);
+      const recoveredCapital = Number(cashSalesRes.rows[0]?.recovered_capital || 0);
+      const estimatedProfit = cashSales - recoveredCapital;
       const consolidado = consolidatedIncluded ? Number(consolidatedAmount || 0) : 0;
 
       // Cálculo: Saldo inicial - Retiros + Consolidado + Cobranzas en efectivo + Ingresos
@@ -362,6 +663,8 @@ router.post(
           ingresos,
           consolidado,
           cashSales,
+          recoveredCapital,
+          estimatedProfit,
           expectedAmount,
           closingTotal,
           difference,
@@ -388,7 +691,7 @@ router.get(
        FROM cash_register_sessions cs
        LEFT JOIN users ou ON ou.id = cs.opened_by
        LEFT JOIN users cu ON cu.id = cs.closed_by
-       ORDER BY cs.date DESC
+       ORDER BY cs.date DESC, cs.opened_at DESC
        LIMIT 30`
     );
     res.json(rows);
@@ -396,3 +699,4 @@ router.get(
 );
 
 module.exports = router;
+

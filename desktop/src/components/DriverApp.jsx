@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { io } from 'socket.io-client';
 
@@ -18,6 +18,34 @@ const requiresProof = (method) => method === 'TRANSFERENCIA' || method === 'MIXT
 const toPositiveNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const OFFLINE_QUEUE_KEY = 'lf_driver_offline_queue_v1';
+
+const readOfflineQueue = () => {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeOfflineQueue = (items) => {
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(Array.isArray(items) ? items : []));
+  } catch {
+    // Ignore local storage errors.
+  }
+};
+
+const isOfflineError = (err) => {
+  if (!err) return !navigator.onLine;
+  if (!navigator.onLine) return true;
+  if (!err.response) return true;
+  const msg = String(err.message || '').toLowerCase();
+  return msg.includes('network') || msg.includes('timeout');
 };
 
 const fileToDataUrl = (file) =>
@@ -62,11 +90,13 @@ export default function DriverApp({ onLogout }) {
   const [finalPaymentByDelivery, setFinalPaymentByDelivery] = useState({});
   const [proofPreviewByDelivery, setProofPreviewByDelivery] = useState({});
   const [submitStateByDelivery, setSubmitStateByDelivery] = useState({});
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
   const fileInputRef = useRef(null);
   const pendingProofDeliveryIdRef = useRef(null);
   const socketRef = useRef(null);
   const watchIdRef = useRef(null);
+  const syncingQueueRef = useRef(false);
 
   const activeShiftLabel = activeShift === '19' ? 'SALIDA 19:00' : 'SALIDA 11:00';
 
@@ -181,7 +211,7 @@ export default function DriverApp({ onLogout }) {
     }, 0);
   };
 
-  const loadDriverBoard = async () => {
+  const loadDriverBoard = useCallback(async () => {
     setRouteLoading(true);
     setRouteError('');
     try {
@@ -224,17 +254,19 @@ export default function DriverApp({ onLogout }) {
       });
       setRejectedReturnsByProduct(Array.isArray(data?.summary?.rejectedReturnsByProduct) ? data.summary.rejectedReturnsByProduct : []);
     } catch (err) {
-      setDeliveries([]);
-      setRejectedReturnsByProduct([]);
-      setRouteError(err.response?.data?.message || 'No se pudo cargar el recorrido.');
+      setRouteError(
+        isOfflineError(err)
+          ? 'Sin internet: mostrando datos locales hasta reconectar.'
+          : err.response?.data?.message || 'No se pudo cargar el recorrido.'
+      );
     } finally {
       setRouteLoading(false);
     }
-  };
+  }, [activeShift, routeDate]);
 
   useEffect(() => {
     loadDriverBoard();
-  }, [activeShift, routeDate]);
+  }, [loadDriverBoard]);
 
   const getFinalPayment = (deliveryId) => {
     return finalPaymentByDelivery[deliveryId] || DEFAULT_FINAL_PAYMENT;
@@ -264,6 +296,54 @@ export default function DriverApp({ onLogout }) {
     setDeliveries((prev) => prev.map((d) => (d.id === id ? { ...d, status: newStatus } : d)));
   };
 
+  const enqueueOfflineAction = (action) => {
+    const queue = readOfflineQueue();
+    queue.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      ...action,
+    });
+    writeOfflineQueue(queue);
+    setPendingSyncCount(queue.length);
+  };
+
+  const syncOfflineQueue = useCallback(async () => {
+    if (syncingQueueRef.current) return;
+    if (!navigator.onLine) return;
+    const queue = readOfflineQueue();
+    if (queue.length === 0) {
+      setPendingSyncCount(0);
+      return;
+    }
+
+    syncingQueueRef.current = true;
+    const remaining = [];
+    let syncedAny = false;
+
+    try {
+      for (const item of queue) {
+        try {
+          await api.post(item.endpoint, item.payload || {});
+          syncedAny = true;
+        } catch (err) {
+          if (isOfflineError(err)) {
+            remaining.push(item);
+            continue;
+          }
+          // Skip non-retriable failures to avoid blocking the queue.
+        }
+      }
+    } finally {
+      writeOfflineQueue(remaining);
+      setPendingSyncCount(remaining.length);
+      syncingQueueRef.current = false;
+    }
+
+    if (syncedAny) {
+      await loadDriverBoard();
+    }
+  }, [loadDriverBoard]);
+
   const getCurrentCoords = () =>
     new Promise((resolve) => {
       if (!navigator.geolocation) return resolve({ lat: null, lng: null });
@@ -277,6 +357,24 @@ export default function DriverApp({ onLogout }) {
         { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
       );
     });
+
+  useEffect(() => {
+    setPendingSyncCount(readOfflineQueue().length);
+    syncOfflineQueue();
+
+    const onOnline = () => {
+      syncOfflineQueue();
+    };
+    window.addEventListener('online', onOnline);
+    const intervalId = window.setInterval(() => {
+      syncOfflineQueue();
+    }, 15000);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.clearInterval(intervalId);
+    };
+  }, [syncOfflineQueue]);
 
   const handlePaymentMethodChange = (deliveryId, method) => {
     setFinalPayment(deliveryId, (current) => {
@@ -356,7 +454,9 @@ export default function DriverApp({ onLogout }) {
     setDeliverySubmitState(deliveryId, { error: '' });
     try {
       const photo = await Camera.getPhoto({
-        quality: 70,
+        quality: 60,
+        width: 1280,
+        height: 1280,
         resultType: CameraResultType.Base64,
         source: CameraSource.Prompt,
       });
@@ -465,17 +565,35 @@ export default function DriverApp({ onLogout }) {
 
     setDeliverySubmitState(deliveryId, { loading: true, error: '' });
 
-    try {
-      const finalPayment = buildFinalPaymentPayload(deliveryId);
-      await api.post(`/deliveries/${deliveryId}/mark-delivered`, {
-        finalPayment,
+    const endpoint = `/deliveries/${deliveryId}/mark-delivered`;
+    const payload = { finalPayment: buildFinalPaymentPayload(deliveryId) };
+
+    if (!navigator.onLine) {
+      enqueueOfflineAction({ endpoint, payload });
+      handleStatusChange(deliveryId, 'ENTREGADO');
+      setDeliverySubmitState(deliveryId, {
+        loading: false,
+        error: 'Sin internet: accion guardada, se sincroniza al reconectar.',
       });
+      return;
+    }
+
+    try {
+      await api.post(endpoint, payload);
       handleStatusChange(deliveryId, 'ENTREGADO');
       await loadDriverBoard();
     } catch (err) {
-      setDeliverySubmitState(deliveryId, {
-        error: err.response?.data?.message || 'No se pudo marcar como entregado.',
-      });
+      if (isOfflineError(err)) {
+        enqueueOfflineAction({ endpoint, payload });
+        handleStatusChange(deliveryId, 'ENTREGADO');
+        setDeliverySubmitState(deliveryId, {
+          error: 'Sin internet: accion guardada, se sincroniza al reconectar.',
+        });
+      } else {
+        setDeliverySubmitState(deliveryId, {
+          error: err.response?.data?.message || 'No se pudo marcar como entregado.',
+        });
+      }
     } finally {
       setDeliverySubmitState(deliveryId, { loading: false });
     }
@@ -485,17 +603,41 @@ export default function DriverApp({ onLogout }) {
     setDeliverySubmitState(deliveryId, { loading: true, error: '' });
     try {
       const coords = await getCurrentCoords();
-      await api.post(`/deliveries/${deliveryId}/mark-status`, {
+      const endpoint = `/deliveries/${deliveryId}/mark-status`;
+      const payload = {
         status,
         lat: coords.lat,
         lng: coords.lng,
-      });
+      };
+
+      if (!navigator.onLine) {
+        enqueueOfflineAction({ endpoint, payload });
+        handleStatusChange(deliveryId, status);
+        setDeliverySubmitState(deliveryId, {
+          error: 'Sin internet: accion guardada, se sincroniza al reconectar.',
+        });
+        return;
+      }
+
+      await api.post(endpoint, payload);
       handleStatusChange(deliveryId, status);
       await loadDriverBoard();
     } catch (err) {
-      setDeliverySubmitState(deliveryId, {
-        error: err.response?.data?.message || 'No se pudo marcar como rechazado.',
-      });
+      if (isOfflineError(err)) {
+        const coords = await getCurrentCoords();
+        enqueueOfflineAction({
+          endpoint: `/deliveries/${deliveryId}/mark-status`,
+          payload: { status, lat: coords.lat, lng: coords.lng },
+        });
+        handleStatusChange(deliveryId, status);
+        setDeliverySubmitState(deliveryId, {
+          error: 'Sin internet: accion guardada, se sincroniza al reconectar.',
+        });
+      } else {
+        setDeliverySubmitState(deliveryId, {
+          error: err.response?.data?.message || 'No se pudo marcar como rechazado.',
+        });
+      }
     } finally {
       setDeliverySubmitState(deliveryId, { loading: false });
     }
@@ -505,17 +647,41 @@ export default function DriverApp({ onLogout }) {
     setDeliverySubmitState(deliveryId, { loading: true, error: '' });
     try {
       const coords = await getCurrentCoords();
-      await api.post(`/deliveries/${deliveryId}/mark-status`, {
+      const endpoint = `/deliveries/${deliveryId}/mark-status`;
+      const payload = {
         status: 'CARGADO',
         lat: coords.lat,
         lng: coords.lng,
-      });
+      };
+
+      if (!navigator.onLine) {
+        enqueueOfflineAction({ endpoint, payload });
+        handleStatusChange(deliveryId, 'CARGADO');
+        setDeliverySubmitState(deliveryId, {
+          error: 'Sin internet: accion guardada, se sincroniza al reconectar.',
+        });
+        return;
+      }
+
+      await api.post(endpoint, payload);
       handleStatusChange(deliveryId, 'CARGADO');
       await loadDriverBoard();
     } catch (err) {
-      setDeliverySubmitState(deliveryId, {
-        error: err.response?.data?.message || 'No se pudo volver a cargado.',
-      });
+      if (isOfflineError(err)) {
+        const coords = await getCurrentCoords();
+        enqueueOfflineAction({
+          endpoint: `/deliveries/${deliveryId}/mark-status`,
+          payload: { status: 'CARGADO', lat: coords.lat, lng: coords.lng },
+        });
+        handleStatusChange(deliveryId, 'CARGADO');
+        setDeliverySubmitState(deliveryId, {
+          error: 'Sin internet: accion guardada, se sincroniza al reconectar.',
+        });
+      } else {
+        setDeliverySubmitState(deliveryId, {
+          error: err.response?.data?.message || 'No se pudo volver a cargado.',
+        });
+      }
     } finally {
       setDeliverySubmitState(deliveryId, { loading: false });
     }
@@ -542,11 +708,11 @@ export default function DriverApp({ onLogout }) {
       />
 
       {/* Header */}
-      <div className="bg-zinc-900 border-b border-zinc-800 p-4 sticky top-0 z-50 flex justify-between items-center shadow-lg">
+      <div className="bg-zinc-900 border-b border-zinc-800 p-4 sticky top-0 z-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-lg">
         <div>
           <div className="text-[10px] text-zinc-500 uppercase font-black tracking-widest">Turno Activo</div>
-          <div className="flex items-center gap-2 mt-1">
-            <h1 className="text-2xl font-black text-burnt-500 uppercase tracking-tighter">{activeShiftLabel}</h1>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <h1 className="text-xl sm:text-2xl font-black text-burnt-500 uppercase tracking-tighter">{activeShiftLabel}</h1>
             <select
               value={activeShift}
               onChange={(e) => setActiveShift(e.target.value)}
@@ -567,20 +733,27 @@ export default function DriverApp({ onLogout }) {
           <div className="text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-1">
             Fecha: {routeDate}
           </div>
+          {pendingSyncCount > 0 ? (
+            <div className="text-[10px] text-amber-400 uppercase font-black tracking-widest mt-1">
+              Pendiente de sincronizar: {pendingSyncCount}
+            </div>
+          ) : null}
         </div>
-        <div className="text-right space-y-1">
+        <div className="w-full sm:w-auto sm:text-right space-y-1">
           <div className="text-[10px] text-zinc-500 uppercase font-black">Saldo a rendir</div>
-          <div className="text-2xl font-black text-emerald-400">${Number(financialSummary.cashToRender || 0).toFixed(2)}</div>
+          <div className="text-xl sm:text-2xl font-black text-emerald-400">${Number(financialSummary.cashToRender || 0).toFixed(2)}</div>
           <div className="text-[10px] text-zinc-500 uppercase font-black">
             Envases a rendir: {Number(financialSummary.returnablesToRender || 0)}
           </div>
           <div className="text-[10px] text-zinc-500 uppercase font-black">
             Mercaderia a devolver: {Number(financialSummary.rejectedMerchandiseQty || 0)}
           </div>
-          <div className="text-[10px] text-zinc-500 uppercase font-black">
-            Entregados: {financialSummary.deliveredCount} | Pendientes: {financialSummary.pendingCount}
+          <div className="text-[10px] text-zinc-500 uppercase font-black flex sm:justify-end gap-2">
+            <span>Entregados: {financialSummary.deliveredCount}</span>
+            <span className="text-zinc-700">|</span>
+            <span>Pendientes: {financialSummary.pendingCount}</span>
           </div>
-          <button className="bg-zinc-800 p-2 rounded-lg w-full mt-1" onClick={onLogout}>
+          <button className="bg-zinc-800 p-2 rounded-lg w-full mt-2" onClick={onLogout}>
             <span className="text-xs font-bold uppercase text-zinc-400">Salir</span>
           </button>
         </div>

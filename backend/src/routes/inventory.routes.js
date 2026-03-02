@@ -2,16 +2,25 @@ const express = require("express");
 const { z } = require("zod");
 const { pool } = require("../db");
 const { requirePermission } = require("../middleware/rbac");
+const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
+const {
+  buildDefaultState,
+  buildStockControlWorkbook,
+  loadStockControlState,
+  saveStockControlState,
+  userCanManageStockControl,
+} = require("../services/stock-control");
+const { loadTransferPairs } = require("../services/inventory-transfer-settings");
 
 const router = express.Router();
 
 const transferSchema = z.object({
   productId: z.string().uuid(),
   qty: z.number().int().positive(),
-  fromCode: z.enum(["GALPON", "LOCAL"]),
-  toCode: z.enum(["GALPON", "LOCAL"]),
+  fromCode: z.string().trim().min(2).max(60),
+  toCode: z.string().trim().min(2).max(60),
 });
 
 const adjustSchema = z.object({
@@ -19,6 +28,23 @@ const adjustSchema = z.object({
   qtyDelta: z.number().int().refine((v) => v !== 0, "qtyDelta no puede ser 0"),
   locationCode: z.enum(["GALPON", "LOCAL"]),
   reason: z.enum(["AJUSTE_INICIAL", "AJUSTE"]),
+});
+
+const startStockControlSchema = z.object({
+  startLocationCode: z.enum(["LOCAL", "GALPON"]),
+});
+
+const saveLocationCountsSchema = z.object({
+  locationCode: z.enum(["LOCAL", "GALPON"]),
+  stopAfterThis: z.boolean().optional().default(false),
+  counts: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        actualQty: z.number().int().nonnegative(),
+      })
+    )
+    .min(1),
 });
 
 async function getLocationIds(client, codes) {
@@ -56,24 +82,259 @@ router.get(
         p.id AS product_id,
         p.name,
         p.sku,
+        p.unit_label,
+        l.code AS location_code,
+        l.name AS location_name,
+        COALESCE(b.quantity, 0) AS quantity
+      FROM products p
+      LEFT JOIN inventory_balances b ON b.product_id = p.id
+      LEFT JOIN locations l ON l.id = b.location_id
+      ORDER BY p.name ASC
+    `);
+    const grouped = new Map();
+    for (const row of rows) {
+      if (!grouped.has(row.product_id)) {
+        grouped.set(row.product_id, {
+          product_id: row.product_id,
+          name: row.name,
+          sku: row.sku,
+          unit_label: row.unit_label,
+          stock_galpon: 0,
+          stock_local: 0,
+          stocks: {},
+        });
+      }
+      const current = grouped.get(row.product_id);
+      const locationCode = String(row.location_code || "").toUpperCase();
+      const quantity = Number(row.quantity || 0);
+      if (locationCode) {
+        current.stocks[locationCode] = {
+          code: locationCode,
+          name: row.location_name || locationCode,
+          quantity,
+        };
+      }
+      if (locationCode === "GALPON") current.stock_galpon = quantity;
+      if (locationCode === "LOCAL") current.stock_local = quantity;
+    }
+    res.json({ ok: true, data: Array.from(grouped.values()) });
+  })
+);
+
+router.get(
+  "/stock-control",
+  requirePermission("inventory.view"),
+  asyncHandler(async (req, res) => {
+    const [state, canManage] = await Promise.all([
+      loadStockControlState(),
+      userCanManageStockControl(req.user),
+    ]);
+    res.json({ ok: true, state, canManage });
+  })
+);
+
+router.post(
+  "/stock-control/start",
+  requirePermission("inventory.view"),
+  asyncHandler(async (req, res) => {
+    const parsed = startStockControlSchema.safeParse(req.body || {});
+    if (!parsed.success) return validationError(res);
+
+    const canManage = await userCanManageStockControl(req.user);
+    if (!canManage) {
+      return res.status(403).json({ ok: false, message: "Sin permisos para iniciar control de stock" });
+    }
+
+    const currentState = await loadStockControlState();
+    if (currentState.active) {
+      return res.status(400).json({ ok: false, message: "Ya hay un control de stock en curso" });
+    }
+
+    const first = parsed.data.startLocationCode;
+    const second = first === "LOCAL" ? "GALPON" : "LOCAL";
+    const nextState = {
+      ...buildDefaultState(),
+      active: true,
+      startedAt: new Date().toISOString(),
+      startedByUserId: String(req.user.id || ""),
+      startedByName: req.user.full_name || req.user.fullName || req.user.username || "ADMIN",
+      startedByRole: req.user.role || "",
+      locationOrder: [first, second],
+      currentLocationCode: first,
+      completedLocations: [],
+      counts: { LOCAL: {}, GALPON: {} },
+      lastReport: currentState.lastReport || null,
+    };
+
+    await saveStockControlState(nextState);
+    res.status(201).json({ ok: true, state: nextState });
+  })
+);
+
+router.put(
+  "/stock-control/location",
+  requirePermission("inventory.view"),
+  asyncHandler(async (req, res) => {
+    const parsed = saveLocationCountsSchema.safeParse(req.body || {});
+    if (!parsed.success) return validationError(res);
+
+    const canManage = await userCanManageStockControl(req.user);
+    if (!canManage) {
+      return res.status(403).json({ ok: false, message: "Sin permisos para editar el control de stock" });
+    }
+
+    const state = await loadStockControlState();
+    if (!state.active) {
+      return res.status(400).json({ ok: false, message: "No hay un control de stock en curso" });
+    }
+
+    const { locationCode, counts, stopAfterThis } = parsed.data;
+    const normalizedCounts = Object.fromEntries(
+      counts.map((row) => [row.productId, Number(row.actualQty || 0)])
+    );
+    const completedLocations = Array.from(new Set([...(state.completedLocations || []), locationCode]));
+    const nextLocation =
+      (state.locationOrder || []).find((code) => !completedLocations.includes(code)) || null;
+    const nextState = {
+      ...state,
+      locationOrder: stopAfterThis ? completedLocations : state.locationOrder,
+      counts: {
+        ...(state.counts || { LOCAL: {}, GALPON: {} }),
+        [locationCode]: normalizedCounts,
+      },
+      completedLocations,
+      currentLocationCode: stopAfterThis ? null : nextLocation,
+    };
+
+    await saveStockControlState(nextState);
+    res.json({
+      ok: true,
+      state: nextState,
+      nextLocationCode: stopAfterThis ? null : nextLocation,
+      stoppedAfterThis: stopAfterThis,
+    });
+  })
+);
+
+router.post(
+  "/stock-control/finalize",
+  requirePermission("inventory.view"),
+  asyncHandler(async (req, res) => {
+    const canManage = await userCanManageStockControl(req.user);
+    if (!canManage) {
+      return res.status(403).json({ ok: false, message: "Sin permisos para finalizar el control de stock" });
+    }
+
+    const state = await loadStockControlState();
+    if (!state.active) {
+      return res.status(400).json({ ok: false, message: "No hay un control de stock en curso" });
+    }
+
+    const requiredLocations = state.locationOrder || [];
+    const pending = requiredLocations.filter(
+      (locationCode) => !(state.completedLocations || []).includes(locationCode)
+    );
+    if (pending.length) {
+      return res.status(400).json({
+        ok: false,
+        message: `Aun falta completar ${pending.join(" y ")}`,
+      });
+    }
+
+    const { rows } = await pool.query(`
+      SELECT
+        p.id AS product_id,
+        p.name,
+        p.sku,
+        p.unit_label,
         COALESCE(SUM(CASE WHEN l.code = 'GALPON' THEN b.quantity END),0) AS stock_galpon,
         COALESCE(SUM(CASE WHEN l.code = 'LOCAL' THEN b.quantity END),0) AS stock_local
       FROM products p
       LEFT JOIN inventory_balances b ON b.product_id = p.id
       LEFT JOIN locations l ON l.id = b.location_id
-      GROUP BY p.id, p.name, p.sku
+      GROUP BY p.id, p.name, p.sku, p.unit_label
       ORDER BY p.name ASC
     `);
-    res.json({ ok: true, data: rows });
+
+    const reportRows = [];
+    for (const product of rows) {
+      for (const locationCode of requiredLocations) {
+        const expectedQty = Number(
+          locationCode === "LOCAL" ? product.stock_local || 0 : product.stock_galpon || 0
+        );
+        const actualQty = Number(state.counts?.[locationCode]?.[product.product_id] ?? expectedQty);
+        const difference = actualQty - expectedQty;
+        if (difference === 0) continue;
+        const absDifference = Math.abs(difference);
+        const unitLabel = String(product.unit_label || "unidades");
+        const detail =
+          difference > 0
+            ? `${product.name} ${absDifference} ${unitLabel.toLowerCase()} de mas`
+            : `${product.name} ${absDifference} ${unitLabel.toLowerCase()} menos`;
+        reportRows.push({
+          locationCode,
+          productId: product.product_id,
+          productName: product.name,
+          code: product.sku || "",
+          unitLabel,
+          expectedQty,
+          actualQty,
+          difference,
+          description: detail,
+        });
+      }
+    }
+
+    const nextState = {
+      ...buildDefaultState(),
+      lastReport: {
+        generatedAt: new Date().toISOString(),
+        generatedByUserId: String(req.user.id || ""),
+        generatedByName: req.user.full_name || req.user.fullName || req.user.username || "ADMIN",
+        rows: reportRows,
+      },
+    };
+
+    await saveStockControlState(nextState);
+    res.json({ ok: true, report: nextState.lastReport });
+  })
+);
+
+router.get(
+  "/stock-control/report.xlsx",
+  requirePermission("inventory.view"),
+  asyncHandler(async (_req, res) => {
+    const state = await loadStockControlState();
+    const reportRows = Array.isArray(state.lastReport?.rows) ? state.lastReport.rows : [];
+    const buffer = buildStockControlWorkbook(reportRows);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="control-stock.xlsx"'
+    );
+    res.send(buffer);
   })
 );
 
 async function transferHandler(req, res, payload) {
   const parsed = transferSchema.safeParse(payload || req.body);
   if (!parsed.success) return validationError(res);
-  const { productId, qty, fromCode, toCode } = parsed.data;
+  const fromCode = String(parsed.data.fromCode || "").trim().toUpperCase();
+  const toCode = String(parsed.data.toCode || "").trim().toUpperCase();
+  const { productId, qty } = parsed.data;
   if (fromCode === toCode) {
     return res.status(400).json({ ok: false, message: "fromCode y toCode deben ser diferentes" });
+  }
+
+  const transferSettings = await loadTransferPairs();
+  const pairAllowed = (transferSettings.pairs || []).some(
+    (row) => row.fromCode === fromCode && row.toCode === toCode
+  );
+  if (!pairAllowed) {
+    return res.status(400).json({ ok: false, message: "Esa transferencia no esta permitida" });
   }
 
   const client = await pool.connect();
@@ -154,12 +415,14 @@ async function transferHandler(req, res, payload) {
 router.post(
   "/transfer",
   requirePermission("inventory.transfer"),
+  blockDuringStockControl,
   asyncHandler(async (req, res) => transferHandler(req, res))
 );
 
 router.post(
   "/transfer-galpon-local",
   requirePermission("inventory.transfer"),
+  blockDuringStockControl,
   asyncHandler(async (req, res) =>
     transferHandler(req, res, {
       productId: req.body?.productId,
@@ -173,6 +436,7 @@ router.post(
 router.post(
   "/adjust",
   requirePermission("inventory.transfer"),
+  blockDuringStockControl,
   asyncHandler(async (req, res) => {
     const parsed = adjustSchema.safeParse(req.body);
     if (!parsed.success) return validationError(res);

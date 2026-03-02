@@ -2,10 +2,10 @@ function proposeShift(date = new Date()) {
   const hour = date.getHours();
   const minute = date.getMinutes();
   const current = hour * 60 + minute;
-  const morningCutoff = 10 * 60 + 30;
-  const afternoonCutoff = 18 * 60 + 30;
-  if (current <= morningCutoff) return "MANIANA";
-  if (current <= afternoonCutoff) return "TARDE";
+  const morningCutoff = 11 * 60;
+  const afternoonCutoff = 19 * 60 + 30;
+  if (current < morningCutoff) return "MANIANA";
+  if (current < afternoonCutoff) return "TARDE";
   return "MANIANA";
 }
 
@@ -19,4 +19,3 @@ function buildSaleNumber() {
 }
 
 module.exports = { proposeShift, buildSaleNumber };
-

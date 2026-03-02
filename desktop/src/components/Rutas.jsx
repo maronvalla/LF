@@ -327,9 +327,9 @@ export default function Rutas({ setToast }) {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-0 overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-0">
         {/* Sidebar - Orders list */}
-        <div className="lg:col-span-1 bg-[#121212] border border-zinc-800/80 rounded-xl flex flex-col min-h-0 overflow-hidden">
+        <div className="lg:col-span-1 bg-[#121212] border border-zinc-800/80 rounded-xl flex flex-col min-h-[300px] lg:min-h-0 overflow-hidden">
           <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#1a1a1a]">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">
@@ -406,13 +406,12 @@ export default function Rutas({ setToast }) {
                         {order.customer_name || "Sin cliente"}
                       </span>
                       <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          order.delivery_status === "CARGADO"
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${order.delivery_status === "CARGADO"
                             ? "bg-emerald-500/20 text-emerald-400"
                             : order.delivery_status === "ENTREGADO"
-                            ? "bg-blue-500/20 text-blue-400"
-                            : "bg-amber-500/20 text-amber-400"
-                        }`}
+                              ? "bg-blue-500/20 text-blue-400"
+                              : "bg-amber-500/20 text-amber-400"
+                          }`}
                       >
                         {order.delivery_status}
                       </span>

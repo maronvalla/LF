@@ -4,6 +4,7 @@ const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
 const importExportService = require("../services/import-export.service");
 const { isAdmin } = require("../middleware/rbac");
+const { blockDuringStockControl } = require("../middleware/stock-control");
 
 const router = express.Router();
 
@@ -42,7 +43,7 @@ router.get(
     }
 
     if (format === "xlsx") {
-      const buffer = importExportService.generateTemplateExcel(entity);
+      const buffer = await importExportService.generateTemplateExcel(entity);
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename="${entity}_plantilla.xlsx"`);
       res.send(buffer);
@@ -116,6 +117,7 @@ router.post(
 router.post(
   "/import/:entity",
   requireAdminOnly,
+  blockDuringStockControl,
   upload.single("file"),
   asyncHandler(async (req, res) => {
     const { entity } = req.params;

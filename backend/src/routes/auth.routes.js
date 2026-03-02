@@ -6,6 +6,7 @@ const { pool } = require("../db");
 const { authRequired } = require("../middleware/auth");
 const { logAudit } = require("../services/audit");
 const { asyncHandler } = require("../utils/async-handler");
+const { getAllowedTabsForPermissions, getPermissionsForRole } = require("../services/roles");
 
 const router = express.Router();
 
@@ -32,6 +33,8 @@ router.post(
 
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ message: "Credenciales invalidas" });
+    const permissions = await getPermissionsForRole(user.role);
+    const allowedTabs = getAllowedTabsForPermissions(permissions);
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role, fullName: user.full_name },
@@ -55,7 +58,14 @@ router.post(
 
     return res.json({
       token,
-      user: { id: user.id, username: user.username, role: user.role, fullName: user.full_name },
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        fullName: user.full_name,
+        permissions,
+        allowedTabs,
+      },
     });
   })
 );
@@ -75,9 +85,14 @@ router.post(
   })
 );
 
-router.get("/me", authRequired, (req, res) => {
-  res.json({ user: req.user });
-});
+router.get(
+  "/me",
+  authRequired,
+  asyncHandler(async (req, res) => {
+    const permissions = await getPermissionsForRole(req.user.role);
+    const allowedTabs = getAllowedTabsForPermissions(permissions);
+    res.json({ user: { ...req.user, permissions, allowedTabs } });
+  })
+);
 
 module.exports = router;
-

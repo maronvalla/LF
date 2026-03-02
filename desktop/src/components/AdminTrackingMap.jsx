@@ -3,9 +3,10 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import io from 'socket.io-client';
+import { socketOrigin } from '../api';
 
 // --- Configuration ---
-const SOCKET_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const SOCKET_URL = socketOrigin;
 const AGUILARES_COORDS = [-27.4333, -65.6167];
 
 // Custom Truck Icon

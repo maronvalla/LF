@@ -11,7 +11,20 @@ export const DEFAULT_CAJA_CONFIG = {
   frequency: "DIARIO",
   customDays: 1,
   weekDay: 1, // Lunes por defecto (0 = Domingo, 1 = Lunes, etc.)
+  denominations: [10, 20, 50, 100, 200, 500, 1000, 2000, 10000, 20000],
 };
+
+function normalizeDenominations(values) {
+  const list = Array.isArray(values) ? values : DEFAULT_CAJA_CONFIG.denominations;
+  return Array.from(
+    new Set(
+      list
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((value) => Math.round(value))
+    )
+  ).sort((a, b) => a - b);
+}
 
 export function loadCajaConfig() {
   try {
@@ -22,6 +35,7 @@ export function loadCajaConfig() {
       frequency: parsed.frequency || DEFAULT_CAJA_CONFIG.frequency,
       customDays: Number(parsed.customDays) || DEFAULT_CAJA_CONFIG.customDays,
       weekDay: Number(parsed.weekDay) ?? DEFAULT_CAJA_CONFIG.weekDay,
+      denominations: normalizeDenominations(parsed.denominations),
     };
   } catch {
     return DEFAULT_CAJA_CONFIG;
@@ -33,6 +47,7 @@ export function saveCajaConfig(config) {
     frequency: config.frequency || DEFAULT_CAJA_CONFIG.frequency,
     customDays: Math.max(1, Number(config.customDays) || 1),
     weekDay: Number(config.weekDay) ?? DEFAULT_CAJA_CONFIG.weekDay,
+    denominations: normalizeDenominations(config.denominations),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   return normalized;

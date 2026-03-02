@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .scrollbar-hide {
+    /* IE and Edge */
+    -ms-overflow-style: none;
+    /* Firefox */
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 body {
   @apply bg-graphite-950 text-zinc-100;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -24,7 +37,7 @@ body {
 }
 
 .input {
-  @apply w-full bg-graphite-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm outline-none focus:border-burnt-500;
+  @apply w-full bg-graphite-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-burnt-500;
 }
 
 .chip {
@@ -33,25 +46,30 @@ body {
 
 
 @media print {
-    @page {
-        margin: 0;
-        size: 58mm auto;
-    }
-    body * {
-        visibility: hidden;
-    }
-    .ticket-print, .ticket-print * {
-        visibility: visible;
-    }
-    .ticket-print {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 58mm;
-        margin: 0;
-        padding: 0;
-    }
-    .no-print {
-        display: none !important;
-    }
+  @page {
+    margin: 0;
+    size: 58mm auto;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .ticket-print,
+  .ticket-print * {
+    visibility: visible;
+  }
+
+  .ticket-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 58mm;
+    margin: 0;
+    padding: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
 }

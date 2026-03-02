@@ -13,6 +13,7 @@ const schema = z.object({
     address: z.string().optional().nullable(),
     cuit: z.string().optional().nullable(),
     iva_condition: z.string().optional().nullable(),
+    enableCurrentAccount: z.boolean().optional(),
 });
 
 router.get(
@@ -33,11 +34,18 @@ router.post(
         const d = parsed.data;
         const { rows } = await pool.query(
             `
-      INSERT INTO suppliers(name, phone, address, cuit, iva_condition)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO suppliers(name, phone, address, cuit, iva_condition, enable_current_account)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `,
-            [d.name, d.phone || null, d.address || null, d.cuit || null, d.iva_condition || 'RESPONSABLE INSCRIPTO']
+            [
+              d.name,
+              d.phone || null,
+              d.address || null,
+              d.cuit || null,
+              d.iva_condition || 'RESPONSABLE INSCRIPTO',
+              Boolean(d.enableCurrentAccount),
+            ]
         );
         await logAudit({
             actorUserId: req.user.id,
@@ -62,11 +70,21 @@ router.put(
         const { rows } = await pool.query(
             `
       UPDATE suppliers
-      SET name = $2, phone = $3, address = $4, cuit = $5, iva_condition = $6
+      SET name = $2, phone = $3, address = $4, cuit = $5, iva_condition = $6, enable_current_account = $7
       WHERE id = $1
       RETURNING *
     `,
-            [req.params.id, d.name, d.phone || null, d.address || null, d.cuit || null, d.iva_condition || 'RESPONSABLE INSCRIPTO']
+            [
+              req.params.id,
+              d.name,
+              d.phone || null,
+              d.address || null,
+              d.cuit || null,
+              d.iva_condition || 'RESPONSABLE INSCRIPTO',
+              d.enableCurrentAccount !== undefined
+                ? Boolean(d.enableCurrentAccount)
+                : Boolean(before.rows[0].enable_current_account),
+            ]
         );
         await logAudit({
             actorUserId: req.user.id,

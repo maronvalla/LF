@@ -10,19 +10,74 @@ const router = express.Router();
 
 const schema = z.object({
   name: z.string().min(2),
+  code: z.string().optional().nullable(),
+  taxId: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   zone: z.string().optional().nullable(),
+  ivaCondition: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
-  preferredPriceList: z.enum(["MINORISTA", "MAYORISTA"]).optional().nullable(),
+  preferredPriceList: z.string().trim().min(1).max(40).optional().nullable(),
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
+  enableCurrentAccount: z.boolean().optional(),
 });
 
 const AXIOS_BASE_CONFIG = {
   timeout: 7000,
   proxy: false,
 };
+const AGUILARES_BIAS = {
+  lat: -27.432028,
+  lng: -65.616528,
+  bbox: [-65.78, -27.58, -65.45, -27.28],
+};
+const TUCUMAN_BOUNDS = {
+  south: -28.25,
+  west: -66.25,
+  north: -25.9,
+  east: -64.75,
+};
+
+function isWithinTucuman(lat, lng) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= TUCUMAN_BOUNDS.south &&
+    lat <= TUCUMAN_BOUNDS.north &&
+    lng >= TUCUMAN_BOUNDS.west &&
+    lng <= TUCUMAN_BOUNDS.east
+  );
+}
+
+function labelLooksLikeTucuman(label) {
+  const normalized = String(label || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  return normalized.includes("TUCUMAN");
+}
+
+function filterTucumanResults(results) {
+  return (Array.isArray(results) ? results : []).filter(
+    (item) =>
+      isWithinTucuman(Number(item?.latitude), Number(item?.longitude)) &&
+      labelLooksLikeTucuman(item?.label || item?.address)
+  );
+}
+
+async function loadDefaultPriceListKey() {
+  const { rows } = await pool.query(
+    "SELECT value FROM app_settings WHERE key = 'price_lists' LIMIT 1"
+  );
+  const saved = rows[0]?.value;
+  const defaultKey = String(saved?.defaultKey || "MAYORISTA")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return defaultKey || "MAYORISTA";
+}
 
 async function searchWithMapbox(query) {
   const token = process.env.MAPBOX_ACCESS_TOKEN;
@@ -36,12 +91,15 @@ async function searchWithMapbox(query) {
       limit: 6,
       country: "AR",
       language: "es",
+      proximity: `${AGUILARES_BIAS.lng},${AGUILARES_BIAS.lat}`,
+      bbox: AGUILARES_BIAS.bbox.join(","),
     },
     ...AXIOS_BASE_CONFIG,
   });
 
   const features = Array.isArray(data?.features) ? data.features : [];
-  return features
+  return filterTucumanResults(
+    features
     .map((f) => {
       const center = Array.isArray(f.center) ? f.center : [];
       const lng = Number(center[0]);
@@ -56,7 +114,8 @@ async function searchWithMapbox(query) {
         longitude: lng,
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+  );
 }
 
 async function searchWithGoogle(query) {
@@ -71,6 +130,18 @@ async function searchWithGoogle(query) {
       input: query,
       languageCode: "es",
       includedRegionCodes: ["AR"],
+      locationRestriction: {
+        rectangle: {
+          low: {
+            latitude: TUCUMAN_BOUNDS.south,
+            longitude: TUCUMAN_BOUNDS.west,
+          },
+          high: {
+            latitude: TUCUMAN_BOUNDS.north,
+            longitude: TUCUMAN_BOUNDS.east,
+          },
+        },
+      },
     },
     {
       headers: {
@@ -126,7 +197,7 @@ async function searchWithGoogle(query) {
     })
   );
 
-  return details.filter(Boolean);
+  return filterTucumanResults(details.filter(Boolean));
 }
 
 async function reverseWithMapbox(lat, lng) {
@@ -175,7 +246,7 @@ router.get(
   requirePermission("customers.manage"),
   asyncHandler(async (req, res) => {
     const q = String(req.query.q || "").trim();
-    if (q.length < 3) return res.json([]);
+    if (q.length < 5) return res.json([]);
     const preferred = String(req.query.provider || "").toUpperCase();
 
     let results = [];
@@ -276,22 +347,27 @@ router.post(
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Datos invalidos" });
     const d = parsed.data;
-    const preferredPriceList = d.preferredPriceList || "MINORISTA";
+    const preferredPriceList = d.preferredPriceList || (await loadDefaultPriceListKey());
     const { rows } = await pool.query(
       `
-      INSERT INTO customers(name, phone, address, zone, notes, preferred_price_list, latitude, longitude)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO customers(name, code, tax_id, phone, email, address, zone, iva_condition, notes, preferred_price_list, latitude, longitude, enable_current_account)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `,
       [
         d.name,
+        d.code || null,
+        d.taxId || null,
         d.phone || null,
+        d.email || null,
         d.address || null,
         d.zone || null,
+        d.ivaCondition || "Consumidor Final",
         d.notes || null,
         preferredPriceList,
         d.latitude || null,
         d.longitude || null,
+        Boolean(d.enableCurrentAccount),
       ]
     );
     await logAudit({
@@ -314,24 +390,32 @@ router.put(
     const before = await pool.query("SELECT * FROM customers WHERE id = $1", [req.params.id]);
     if (!before.rows[0]) return res.status(404).json({ message: "Cliente no encontrado" });
     const d = parsed.data;
-    const preferredPriceList = d.preferredPriceList || before.rows[0].preferred_price_list || "MINORISTA";
+    const preferredPriceList =
+      d.preferredPriceList || before.rows[0].preferred_price_list || (await loadDefaultPriceListKey());
     const { rows } = await pool.query(
       `
       UPDATE customers
-      SET name = $2, phone = $3, address = $4, zone = $5, notes = $6, preferred_price_list = $7, latitude = $8, longitude = $9
+      SET name = $2, code = $3, tax_id = $4, phone = $5, email = $6, address = $7, zone = $8, iva_condition = $9, notes = $10, preferred_price_list = $11, latitude = $12, longitude = $13, enable_current_account = $14
       WHERE id = $1
       RETURNING *
     `,
       [
         req.params.id,
         d.name,
+        d.code !== undefined ? d.code || null : before.rows[0].code,
+        d.taxId || null,
         d.phone || null,
+        d.email || null,
         d.address || null,
         d.zone || null,
+        d.ivaCondition || before.rows[0].iva_condition || "Consumidor Final",
         d.notes || null,
         preferredPriceList,
         d.latitude !== undefined ? d.latitude : before.rows[0].latitude,
         d.longitude !== undefined ? d.longitude : before.rows[0].longitude,
+        d.enableCurrentAccount !== undefined
+          ? Boolean(d.enableCurrentAccount)
+          : Boolean(before.rows[0].enable_current_account),
       ]
     );
     await logAudit({
@@ -342,6 +426,24 @@ router.put(
       metadata: { before: before.rows[0], after: rows[0] },
     });
     res.json(rows[0]);
+  })
+);
+
+router.delete(
+  "/:id",
+  requirePermission("customers.manage"),
+  asyncHandler(async (req, res) => {
+    const before = await pool.query("SELECT * FROM customers WHERE id = $1", [req.params.id]);
+    if (!before.rows[0]) return res.status(404).json({ message: "Cliente no encontrado" });
+    await pool.query("DELETE FROM customers WHERE id = $1", [req.params.id]);
+    await logAudit({
+      actorUserId: req.user.id,
+      action: "CUSTOMER_DELETE",
+      entity: "customers",
+      entityId: req.params.id,
+      metadata: { before: before.rows[0] },
+    });
+    res.json({ ok: true });
   })
 );
 

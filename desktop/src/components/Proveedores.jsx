@@ -76,18 +76,19 @@ export default function Proveedores({ user, setToast }) {
                                 <th className="px-5 py-4 font-black">Contacto</th>
                                 <th className="px-5 py-4 font-black">Teléfono / Celular</th>
                                 <th className="px-5 py-4 font-black">CUIT</th>
+                                <th className="px-5 py-4 font-black">Cuenta Corriente</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-10 text-zinc-600">
+                                    <td colSpan={6} className="text-center py-10 text-zinc-600">
                                         Cargando proveedores...
                                     </td>
                                 </tr>
                             ) : suppliers.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-10 text-zinc-600">
+                                    <td colSpan={6} className="text-center py-10 text-zinc-600">
                                         No hay proveedores registrados.
                                     </td>
                                 </tr>
@@ -103,6 +104,9 @@ export default function Proveedores({ user, setToast }) {
                                         <td className="px-5 py-4 text-zinc-400">{s.contactName || "-"}</td>
                                         <td className="px-5 py-4 text-zinc-400">{s.phone || s.mobile || "-"}</td>
                                         <td className="px-5 py-4 text-zinc-400">{s.taxId || "-"}</td>
+                                        <td className="px-5 py-4 text-zinc-400">
+                                            {s.enable_current_account || s.enableCurrentAccount ? "Habilitada" : "-"}
+                                        </td>
                                     </tr>
                                 ))
                             )}
@@ -153,6 +157,9 @@ function SupplierModal({ supplier, onClose, onSaved, setToast }) {
         fax: supplier?.fax || "",
         taxId: supplier?.taxId || "",
         taxCondition: supplier?.taxCondition || "Resp. Inscripto",
+        enableCurrentAccount: Boolean(
+            supplier?.enable_current_account ?? supplier?.enableCurrentAccount ?? false
+        ),
         email: supplier?.email || "",
         website: supplier?.website || "",
         observations: supplier?.observations || ""
@@ -166,7 +173,8 @@ function SupplierModal({ supplier, onClose, onSaved, setToast }) {
         try {
             const payload = {
                 ...form,
-                name: form.businessName // mapping for legacy endpoints
+                name: form.businessName, // mapping for legacy endpoints
+                enableCurrentAccount: Boolean(form.enableCurrentAccount),
             };
 
             if (supplier?.id) {
@@ -299,6 +307,23 @@ function SupplierModal({ supplier, onClose, onSaved, setToast }) {
                             <div className="grid grid-cols-[100px_1fr] items-center gap-4">
                                 <label className="text-[10px] text-zinc-400 uppercase font-bold tracking-wider text-right">Web</label>
                                 <input name="website" type="url" value={form.website} onChange={handleChange} className="bg-[#1a1a1a] border border-zinc-800 rounded px-3 py-2 text-sm text-[#4dabe3] focus:border-[#e85d04] outline-none" placeholder="https://" />
+                            </div>
+
+                            <div className="md:col-span-2">
+                                <label className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-[#1a1a1a] px-4 py-3 text-sm text-white">
+                                    <input
+                                        type="checkbox"
+                                        className="h-4 w-4 accent-[#e85d04]"
+                                        checked={Boolean(form.enableCurrentAccount)}
+                                        onChange={(event) =>
+                                            setForm((prev) => ({
+                                                ...prev,
+                                                enableCurrentAccount: event.target.checked,
+                                            }))
+                                        }
+                                    />
+                                    <span className="font-bold uppercase tracking-wide">Habilitar cuenta corriente</span>
+                                </label>
                             </div>
 
                         </div>

@@ -5,6 +5,7 @@ export const DEFAULT_TICKET_CONFIG = {
   addressLine: "Avenida Mitre 831 - Aguilares",
   cityLine: "Tucuman - Argentina",
   footerText: "Gracias por su compra",
+  logoDataUrl: "",
   includeComprobante: true,
   includeTicketNumber: true,
   includeDate: true,
@@ -31,6 +32,7 @@ export function normalizeTicketConfig(raw) {
     addressLine: asString(source.addressLine, DEFAULT_TICKET_CONFIG.addressLine),
     cityLine: asString(source.cityLine, DEFAULT_TICKET_CONFIG.cityLine),
     footerText: asString(source.footerText, DEFAULT_TICKET_CONFIG.footerText),
+    logoDataUrl: asString(source.logoDataUrl, DEFAULT_TICKET_CONFIG.logoDataUrl),
     includeComprobante: Boolean(source.includeComprobante ?? DEFAULT_TICKET_CONFIG.includeComprobante),
     includeTicketNumber: Boolean(source.includeTicketNumber ?? DEFAULT_TICKET_CONFIG.includeTicketNumber),
     includeDate: Boolean(source.includeDate ?? DEFAULT_TICKET_CONFIG.includeDate),
@@ -57,4 +59,3 @@ export function saveTicketConfig(config) {
   localStorage.setItem(TICKET_CONFIG_KEY, JSON.stringify(normalized));
   return normalized;
 }
-

@@ -5,13 +5,14 @@ const { pool } = require("../db");
 const { requirePermission } = require("../middleware/rbac");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
+const { loadRoleDefinitions, normalizeRoleKey } = require("../services/roles");
 
 const router = express.Router();
 
 const createUserSchema = z.object({
   username: z.string().min(3),
   password: z.string().min(6),
-  role: z.enum(["ADMIN", "CAJERO", "VENDEDOR", "REPARTIDOR"]),
+  role: z.string().trim().min(2).max(60),
   fullName: z.string().min(2),
   isActive: z.boolean().optional().default(true),
 });
@@ -34,6 +35,11 @@ router.post(
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Datos invalidos" });
     const data = parsed.data;
+    const roleKey = normalizeRoleKey(data.role);
+    const roles = await loadRoleDefinitions();
+    if (!roles.some((role) => role.key === roleKey)) {
+      return res.status(400).json({ message: "Rol invalido" });
+    }
     const hash = await bcrypt.hash(data.password, 10);
     const { rows } = await pool.query(
       `
@@ -41,7 +47,7 @@ router.post(
       VALUES($1, $2, $3, $4, $5)
       RETURNING id, username, role, full_name, is_active, created_at
     `,
-      [data.username, hash, data.role, data.fullName, data.isActive]
+      [data.username, hash, roleKey, data.fullName, data.isActive]
     );
     await logAudit({
       actorUserId: req.user.id,
@@ -55,4 +61,3 @@ router.post(
 );
 
 module.exports = router;
-

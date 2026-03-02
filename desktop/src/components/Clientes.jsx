@@ -1,57 +1,77 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import ImportExportModal from "./ImportExportModal";
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import ClientBulkEditModal from "./clientes/ClientBulkEditModal";
+import ClientFormModal from "./clientes/ClientFormModal";
+import ClientMapPickerModal from "./clientes/ClientMapPickerModal";
+import ClientsTable from "./clientes/ClientsTable";
+import {
+  DEFAULT_PRICE_LIST_KEY,
+  DEFAULT_PRICE_LISTS,
+  getDefaultPriceListKey,
+  normalizePriceListsConfig,
+} from "../utils/priceLists";
 
 const DEFAULT_MAP_CENTER = { lat: -27.432028, lng: -65.616528 };
+const BULK_EDIT_PAGE_SIZE = 25;
+const HABITUAL_ROUTE_RADIUS_KM = 10;
+const parseOptionalCoordinate = (value) => {
+  if (value === null || value === undefined) return NaN;
+  const text = String(value).trim();
+  if (!text) return NaN;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : NaN;
+};
 
-const leafletDefaultIcon = L.icon({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-L.Marker.prototype.options.icon = leafletDefaultIcon;
-
-function MapClickSelect({ position, setPosition }) {
-  useMapEvents({
-    click(e) {
-      setPosition({ lat: e.latlng.lat, lng: e.latlng.lng });
-    },
-  });
-  return (
-    <Marker
-      position={[position.lat, position.lng]}
-      draggable
-      eventHandlers={{
-        dragend: (e) => {
-          const p = e.target.getLatLng();
-          setPosition({ lat: p.lat, lng: p.lng });
-        },
-      }}
-    />
-  );
+function haversineKm(from, to) {
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(to.lat - from.lat);
+  const dLng = toRadians(to.lng - from.lng);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(from.lat)) *
+      Math.cos(toRadians(to.lat)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
 }
 
-function MapRecenter({ position }) {
-  const map = useMap();
-  useEffect(() => {
-    map.setView([position.lat, position.lng], map.getZoom());
-  }, [map, position.lat, position.lng]);
-  return null;
+function isTypingTarget(target) {
+  const tag = String(target?.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+}
+
+function isTextEditingTarget(target) {
+  const tag = String(target?.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
+}
+
+function buildEmptyDraft(defaultPriceListKey) {
+  return {
+    name: "",
+    code: "",
+    taxId: "",
+    address: "",
+    phone: "",
+    email: "",
+    ivaCondition: "Consumidor Final",
+    preferred_price_list: defaultPriceListKey,
+    enableCurrentAccount: false,
+    notes: "",
+    latitude: "",
+    longitude: "",
+  };
 }
 
 export default function Clientes({ setToast }) {
   const [rows, setRows] = useState([]);
+  const [priceLists, setPriceLists] = useState(DEFAULT_PRICE_LISTS);
+  const [priceListsConfig, setPriceListsConfig] = useState({
+    lists: DEFAULT_PRICE_LISTS,
+    defaultKey: DEFAULT_PRICE_LIST_KEY,
+  });
   const [showImportExport, setShowImportExport] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
@@ -59,28 +79,83 @@ export default function Clientes({ setToast }) {
   const [addressSearch, setAddressSearch] = useState("");
   const [addressOptions, setAddressOptions] = useState([]);
   const [addressLoading, setAddressLoading] = useState(false);
+  const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [mapPosition, setMapPosition] = useState(DEFAULT_MAP_CENTER);
   const [mapResolvingAddress, setMapResolvingAddress] = useState(false);
+  const [search, setSearch] = useState("");
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkDrafts, setBulkDrafts] = useState({});
+  const [bulkOriginals, setBulkOriginals] = useState({});
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkEditPage, setBulkEditPage] = useState(1);
+  const [bulkAddressSearch, setBulkAddressSearch] = useState("");
+  const [bulkAddressOptions, setBulkAddressOptions] = useState([]);
+  const [bulkAddressLoading, setBulkAddressLoading] = useState(false);
+  const [bulkAddressRowId, setBulkAddressRowId] = useState(null);
+  const [pendingAddressSelection, setPendingAddressSelection] = useState(null);
+  const [draft, setDraft] = useState(buildEmptyDraft(DEFAULT_PRICE_LIST_KEY));
 
-  const [draft, setDraft] = useState({
-    name: "",
-    taxId: "",
-    address: "",
-    zone: "",
-    phone: "",
-    email: "",
-    ivaCondition: "Consumidor Final",
-    preferred_price_list: "MINORISTA",
-    notes: "",
-    latitude: "",
-    longitude: ""
+  const updateDraft = (patch) => {
+    setDraft((prev) => ({ ...prev, ...patch }));
+  };
+
+  const buildClientPayload = (clientDraft) => {
+    const parsedLat = clientDraft.latitude === "" ? null : Number(clientDraft.latitude);
+    const parsedLng = clientDraft.longitude === "" ? null : Number(clientDraft.longitude);
+
+    return {
+      name: clientDraft.name?.trim(),
+      code: clientDraft.code?.trim() || null,
+      taxId: clientDraft.taxId?.trim() || null,
+      phone: clientDraft.phone?.trim() || null,
+      email: clientDraft.email?.trim() || null,
+      address: clientDraft.address?.trim() || null,
+      ivaCondition: clientDraft.ivaCondition || "Consumidor Final",
+      notes: clientDraft.notes?.trim() || null,
+      preferredPriceList:
+        clientDraft.preferred_price_list || getDefaultPriceListKey(priceListsConfig),
+      enableCurrentAccount: Boolean(
+        clientDraft.enableCurrentAccount ??
+          clientDraft.enable_current_account ??
+          false
+      ),
+      latitude: Number.isFinite(parsedLat) ? parsedLat : null,
+      longitude: Number.isFinite(parsedLng) ? parsedLng : null,
+    };
+  };
+
+  const buildBulkDraftFromRow = (client) => ({
+    id: client.id,
+    name: client.name || "",
+    code: client.code || "",
+    taxId: client.tax_id || client.taxId || client.cuit || "",
+    phone: client.phone || "",
+    email: client.email || "",
+    address: client.address || "",
+    ivaCondition: client.iva_condition || client.ivaCondition || "Consumidor Final",
+    preferred_price_list:
+      client.preferred_price_list || getDefaultPriceListKey(priceListsConfig),
+    enableCurrentAccount: Boolean(
+      client.enable_current_account ?? client.enableCurrentAccount ?? false
+    ),
+    notes: client.notes || "",
+    latitude:
+      client.latitude === null || client.latitude === undefined ? "" : String(client.latitude),
+    longitude:
+      client.longitude === null || client.longitude === undefined ? "" : String(client.longitude),
   });
 
   const fetchCustomers = async () => {
     try {
-      const res = await api.get("/customers");
-      setRows(res.data || []);
+      const [customersRes, priceListsRes] = await Promise.all([
+        api.get("/customers"),
+        api.get("/settings/price-lists").catch(() => ({ data: { lists: DEFAULT_PRICE_LISTS } })),
+      ]);
+      const normalizedPriceLists = normalizePriceListsConfig(priceListsRes.data);
+      setPriceLists(normalizedPriceLists.lists);
+      setPriceListsConfig(normalizedPriceLists);
+      setRows(customersRes.data || []);
     } catch {
       setRows([]);
       setToast?.({ message: "No se pudieron cargar clientes", type: "error" });
@@ -91,9 +166,38 @@ export default function Clientes({ setToast }) {
     fetchCustomers();
   }, [setToast]);
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+
+    return rows.filter((row) =>
+      [row.name, row.code, row.phone, row.address, row.tax_id, row.email]
+        .map((value) => String(value || "").toLowerCase())
+        .some((value) => value.includes(q))
+    );
+  }, [rows, search]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const key = String(event.key || "");
+      const isPlusShortcut = key === "+" || key === "Add" || (key === "=" && event.shiftKey);
+
+      if (!isPlusShortcut) return;
+      if (showModal || showMapPicker || showImportExport) return;
+      if (isTypingTarget(event.target) && !isTextEditingTarget(event.target)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      openNew();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showImportExport, showMapPicker, showModal, priceListsConfig]);
+
   useEffect(() => {
     const query = addressSearch.trim();
-    if (!showModal || activeTab !== "DATOS" || query.length < 3) {
+    if (!showModal || activeTab !== "DATOS" || !addressDropdownOpen || query.length < 5) {
       setAddressOptions([]);
       return;
     }
@@ -111,61 +215,201 @@ export default function Clientes({ setToast }) {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [addressSearch, showModal, activeTab]);
+  }, [activeTab, addressSearch, showModal]);
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (target?.closest?.("[data-address-search-root='single']")) return;
+      setAddressOptions([]);
+      setAddressDropdownOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    const query = bulkAddressSearch.trim();
+    if (!showBulkEdit || !bulkAddressRowId || query.length < 5) {
+      setBulkAddressOptions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setBulkAddressLoading(true);
+        const { data } = await api.get("/customers/address-search", { params: { q: query } });
+        setBulkAddressOptions(Array.isArray(data) ? data : []);
+      } catch {
+        setBulkAddressOptions([]);
+      } finally {
+        setBulkAddressLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [bulkAddressRowId, bulkAddressSearch, showBulkEdit]);
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (target?.closest?.("[data-address-search-root='bulk']")) return;
+      setBulkAddressOptions([]);
+      setBulkAddressRowId(null);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  const closeFormModal = () => {
+    setShowModal(false);
+    setAddressOptions([]);
+    setAddressDropdownOpen(false);
+  };
 
   const openNew = () => {
     setEditingClient(null);
-    setDraft({
-      name: "",
-      taxId: "",
-      address: "",
-      zone: "",
-      phone: "",
-      email: "",
-      ivaCondition: "Consumidor Final",
-      preferred_price_list: "MINORISTA",
-      notes: "",
-      latitude: "",
-      longitude: ""
-    });
+    setDraft(buildEmptyDraft(getDefaultPriceListKey(priceListsConfig)));
     setActiveTab("DATOS");
     setAddressSearch("");
     setAddressOptions([]);
+    setAddressDropdownOpen(false);
     setMapPosition(DEFAULT_MAP_CENTER);
     setShowModal(true);
   };
 
-  const openEdit = (c) => {
-    setEditingClient(c);
+  const openEdit = (client) => {
+    setEditingClient(client);
     setDraft({
-      name: c.name || "",
-      taxId: c.taxId || c.cuit || "",
-      address: c.address || "",
-      zone: c.zone || "",
-      phone: c.phone || "",
-      email: c.email || "",
-      ivaCondition: c.ivaCondition || "Consumidor Final",
-      preferred_price_list: c.preferred_price_list || "MINORISTA",
-      notes: c.notes || "",
-      latitude: c.latitude || "",
-      longitude: c.longitude || ""
+      name: client.name || "",
+      code: client.code || "",
+      taxId: client.tax_id || client.taxId || client.cuit || "",
+      address: client.address || "",
+      phone: client.phone || "",
+      email: client.email || "",
+      ivaCondition: client.iva_condition || client.ivaCondition || "Consumidor Final",
+      preferred_price_list:
+        client.preferred_price_list || getDefaultPriceListKey(priceListsConfig),
+      enableCurrentAccount: Boolean(
+        client.enable_current_account ?? client.enableCurrentAccount ?? false
+      ),
+      notes: client.notes || "",
+      latitude: client.latitude || "",
+      longitude: client.longitude || "",
     });
     setActiveTab("DATOS");
-    setAddressSearch(c.address || "");
+    setAddressSearch(client.address || "");
     setAddressOptions([]);
-    const lat = Number(c.latitude);
-    const lng = Number(c.longitude);
+    setAddressDropdownOpen(false);
+    const lat = parseOptionalCoordinate(client.latitude);
+    const lng = parseOptionalCoordinate(client.longitude);
     setMapPosition(
-      Number.isFinite(lat) && Number.isFinite(lng)
-        ? { lat, lng }
-        : DEFAULT_MAP_CENTER
+      Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : DEFAULT_MAP_CENTER
     );
     setShowModal(true);
   };
 
+  const startBulkEdit = () => {
+    const drafts = {};
+    const originals = {};
+    rows.forEach((row) => {
+      const draftRow = buildBulkDraftFromRow(row);
+      drafts[row.id] = draftRow;
+      originals[row.id] = JSON.stringify(buildClientPayload(draftRow));
+    });
+    setBulkDrafts(drafts);
+    setBulkOriginals(originals);
+    setBulkEditPage(1);
+    setShowBulkEdit(true);
+  };
+
+  const stopBulkEdit = () => {
+    setShowBulkEdit(false);
+    setBulkDrafts({});
+    setBulkOriginals({});
+    setBulkEditPage(1);
+    setBulkAddressSearch("");
+    setBulkAddressOptions([]);
+    setBulkAddressRowId(null);
+  };
+
+  const updateBulkDraft = (id, patch) => {
+    setBulkDrafts((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        ...patch,
+      },
+    }));
+  };
+
+  const updateBulkAddressDraft = (id, value) => {
+    updateBulkDraft(id, { address: value });
+    setBulkAddressRowId(id);
+    setBulkAddressSearch(value);
+  };
+
+  const applySingleAddressOption = (option) => {
+    updateDraft({
+      address: option.address || option.label || draft.address,
+      latitude: String(option.latitude ?? ""),
+      longitude: String(option.longitude ?? ""),
+    });
+    setAddressSearch(option.address || option.label || "");
+    setAddressOptions([]);
+    setAddressDropdownOpen(false);
+  };
+
+  const applyBulkAddressOption = (id, option) => {
+    updateBulkDraft(id, {
+      address: option.address || option.label || "",
+      latitude: String(option.latitude ?? ""),
+      longitude: String(option.longitude ?? ""),
+    });
+    setBulkAddressRowId(null);
+    setBulkAddressSearch(option.address || option.label || "");
+    setBulkAddressOptions([]);
+  };
+
+  const requestAddressSelection = ({ mode, option, rowId = null }) => {
+    const lat = Number(option?.latitude);
+    const lng = Number(option?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      if (mode === "bulk") applyBulkAddressOption(rowId, option);
+      else applySingleAddressOption(option);
+      return;
+    }
+
+    const distanceKm = haversineKm(DEFAULT_MAP_CENTER, { lat, lng });
+    if (distanceKm <= HABITUAL_ROUTE_RADIUS_KM) {
+      if (mode === "bulk") applyBulkAddressOption(rowId, option);
+      else applySingleAddressOption(option);
+      return;
+    }
+
+    setPendingAddressSelection({
+      mode,
+      rowId,
+      option,
+      distanceKm,
+    });
+  };
+
+  const confirmPendingAddressSelection = () => {
+    if (!pendingAddressSelection) return;
+    if (pendingAddressSelection.mode === "bulk") {
+      applyBulkAddressOption(pendingAddressSelection.rowId, pendingAddressSelection.option);
+    } else {
+      applySingleAddressOption(pendingAddressSelection.option);
+    }
+    setPendingAddressSelection(null);
+  };
+
   const currentPosition = useMemo(() => {
-    const lat = Number(draft.latitude);
-    const lng = Number(draft.longitude);
+    const lat = parseOptionalCoordinate(draft.latitude);
+    const lng = parseOptionalCoordinate(draft.longitude);
     if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
     return DEFAULT_MAP_CENTER;
   }, [draft.latitude, draft.longitude]);
@@ -219,18 +463,7 @@ export default function Clientes({ setToast }) {
         return;
       }
 
-      const parsedLat = draft.latitude === "" ? null : Number(draft.latitude);
-      const parsedLng = draft.longitude === "" ? null : Number(draft.longitude);
-      const payload = {
-        name: draft.name?.trim(),
-        phone: draft.phone?.trim() || null,
-        address: draft.address?.trim() || null,
-        zone: draft.zone?.trim() || null,
-        notes: draft.notes?.trim() || null,
-        preferredPriceList: draft.preferred_price_list || "MINORISTA",
-        latitude: Number.isFinite(parsedLat) ? parsedLat : null,
-        longitude: Number.isFinite(parsedLng) ? parsedLng : null,
-      };
+      const payload = buildClientPayload(draft);
       if (editingClient) {
         await api.put(`/customers/${editingClient.id}`, payload);
         setToast?.({ message: "Cliente actualizado", type: "success" });
@@ -238,15 +471,76 @@ export default function Clientes({ setToast }) {
         await api.post("/customers", payload);
         setToast?.({ message: "Cliente creado", type: "success" });
       }
-      setShowModal(false);
+
+      closeFormModal();
       fetchCustomers();
-    } catch (error) {
+    } catch {
       setToast?.({ message: "Error al guardar cliente", type: "error" });
     }
   };
 
+  const saveBulkEdit = async () => {
+    const changedEntries = filteredRows
+      .map((row) => {
+        const draftRow = bulkDrafts[row.id];
+        if (!draftRow) return null;
+        const payload = buildClientPayload(draftRow);
+        if (JSON.stringify(payload) === bulkOriginals[row.id]) return null;
+        return { id: row.id, payload };
+      })
+      .filter(Boolean);
+
+    if (!changedEntries.length) {
+      setToast?.({ message: "No hay clientes modificados", type: "error" });
+      return;
+    }
+    if (changedEntries.some((entry) => !entry.payload.name?.trim())) {
+      setToast?.({
+        message: "Todos los clientes editados deben tener nombre",
+        type: "error",
+      });
+      return;
+    }
+
+    setBulkSaving(true);
+    try {
+      const results = await Promise.allSettled(
+        changedEntries.map((entry) => api.put(`/customers/${entry.id}`, entry.payload))
+      );
+      const successCount = results.filter((result) => result.status === "fulfilled").length;
+      const errorCount = results.length - successCount;
+      await fetchCustomers();
+
+      if (errorCount) {
+        const firstError = results.find((result) => result.status === "rejected");
+        setToast?.({
+          message:
+            firstError?.reason?.response?.data?.message ||
+            `Se actualizaron ${successCount} clientes y fallaron ${errorCount}`,
+          type: successCount ? "warning" : "error",
+        });
+      } else {
+        setToast?.({ message: `Se actualizaron ${successCount} clientes`, type: "success" });
+      }
+
+      if (successCount) stopBulkEdit();
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const bulkEditTotalPages = Math.max(1, Math.ceil(filteredRows.length / BULK_EDIT_PAGE_SIZE));
+  const bulkEditCurrentPage = Math.min(bulkEditPage, bulkEditTotalPages);
+  const visibleBulkRows = showBulkEdit
+    ? filteredRows.slice(
+        (bulkEditCurrentPage - 1) * BULK_EDIT_PAGE_SIZE,
+        bulkEditCurrentPage * BULK_EDIT_PAGE_SIZE
+      )
+    : filteredRows;
+
   const deleteClient = async (id) => {
-    if (!window.confirm("¿Seguro de eliminar este cliente?")) return;
+    if (!window.confirm("Seguro de eliminar este cliente?")) return;
+
     try {
       await api.delete(`/customers/${id}`);
       setToast?.({ message: "Cliente eliminado", type: "success" });
@@ -258,13 +552,19 @@ export default function Clientes({ setToast }) {
 
   return (
     <div className="h-full flex flex-col space-y-4">
-      {/* Header */}
       <div className="flex justify-between items-end px-2">
         <div>
           <h1 className="text-3xl font-bold leading-none text-white tracking-tight">Clientes</h1>
-          <p className="text-xs text-zinc-400 mt-1">Directorio y gestión de cuentas</p>
+          <p className="text-xs text-zinc-400 mt-1">Directorio y gestion de cuentas</p>
         </div>
         <div className="flex gap-2">
+          <input
+            className="bg-[#1a1a1a] border border-zinc-800/80 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-[#e85d04]"
+            placeholder="Buscar cliente..."
+            title="Busca por nombre, codigo, CUIT, telefono, email o direccion"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
           <button
             onClick={() => setShowImportExport(true)}
             className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
@@ -275,6 +575,12 @@ export default function Clientes({ setToast }) {
             Importar / Exportar
           </button>
           <button
+            onClick={startBulkEdit}
+            className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors"
+          >
+            Editar varios
+          </button>
+          <button
             onClick={openNew}
             className="bg-[#e85d04] hover:bg-[#d14f00] text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-colors flex items-center gap-2"
           >
@@ -283,415 +589,131 @@ export default function Clientes({ setToast }) {
         </div>
       </div>
 
-      <div className="flex-1 bg-[#121212] border border-zinc-800/80 rounded-xl flex flex-col min-h-0 overflow-hidden relative">
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-[#1a1a1a] text-zinc-400 text-[10px] uppercase tracking-widest sticky top-0 z-10 shadow-sm border-b border-zinc-800/80">
-              <tr>
-                <th className="px-5 py-4 font-bold">Nombre / Razón Social</th>
-                <th className="px-5 py-4 font-bold">Teléfono</th>
-                <th className="px-5 py-4 font-bold">Dirección</th>
-                <th className="px-5 py-4 font-bold">Zona</th>
-                <th className="px-5 py-4 font-bold">Lista Precio</th>
-                <th className="px-5 py-4 font-bold text-center">GPS</th>
-                <th className="px-5 py-4 font-bold text-center w-24">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-800/50">
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-10 text-zinc-600">
-                    No hay clientes registrados.
-                  </td>
-                </tr>
-              ) : (
-                rows.map((c) => (
-                  <tr key={c.id} className="hover:bg-zinc-800/30 transition-colors group">
-                    <td className="px-5 py-3 font-bold text-white cursor-pointer" onClick={() => openEdit(c)}>{c.name}</td>
-                    <td className="px-5 py-3 text-zinc-400">{c.phone || "-"}</td>
-                    <td className="px-5 py-3 text-zinc-400">{c.address || "-"}</td>
-                    <td className="px-5 py-3 text-zinc-400">{c.zone || "-"}</td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.preferred_price_list === "MAYORISTA"
-                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
-                          : "bg-blue-500/20 text-blue-400 border border-blue-500/20"
-                        }`}>
-                        {c.preferred_price_list || "MINORISTA"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-center">
-                      {c.latitude && c.longitude ? (
-                        <span className="text-cyan-400" title={`${c.latitude}, ${c.longitude}`}>
-                          <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </span>
-                      ) : (
-                        <span className="text-zinc-600">-</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-center">
-                      <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openEdit(c); }}
-                          className="bg-zinc-800 hover:bg-[#e85d04] text-zinc-400 hover:text-white p-1.5 rounded transition-colors"
-                          title="Editar"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteClient(c.id); }}
-                          className="bg-zinc-800 hover:bg-rose-500 text-zinc-400 hover:text-white p-1.5 rounded transition-colors"
-                          title="Eliminar"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <ClientsTable
+        rows={rows}
+        filteredRows={filteredRows}
+        priceLists={priceLists}
+        priceListsConfig={priceListsConfig}
+        onEdit={openEdit}
+        onDelete={deleteClient}
+      />
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-[#121212] border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 border-b border-zinc-800 flex justify-between items-center bg-[#1a1a1a] rounded-t-2xl">
-              <div>
-                <h3 className="text-lg font-black text-white uppercase tracking-wider">
-                  {editingClient ? "Editar Cliente" : "Nuevo Cliente"}
-                </h3>
-              </div>
-              <button
-                onClick={() => {
-                  setShowModal(false);
-                  setAddressOptions([]);
-                }}
-                className="text-zinc-500 hover:text-white transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+      {showModal ? (
+        <ClientFormModal
+          editingClient={editingClient}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          draft={draft}
+          updateDraft={updateDraft}
+          addressSearch={addressSearch}
+          setAddressSearch={setAddressSearch}
+          setAddressDropdownOpen={setAddressDropdownOpen}
+          addressDropdownOpen={addressDropdownOpen}
+          addressLoading={addressLoading}
+          addressOptions={addressOptions}
+          setAddressOptions={setAddressOptions}
+          onRequestAddressSelection={(option) =>
+            requestAddressSelection({ mode: "single", option })
+          }
+          priceLists={priceLists}
+          onClose={closeFormModal}
+          onSave={saveClient}
+          onOpenMapPicker={openMapPicker}
+        />
+      ) : null}
 
-            {/* Modal Tabs */}
-            <div className="flex border-b border-zinc-800 px-6 pt-2 bg-[#1a1a1a]">
-              {["DATOS", "UBICACION", "OBSERVACIONES"].map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 text-xs font-bold uppercase tracking-widest border-b-2 transition-colors ${activeTab === tab
-                      ? "border-[#e85d04] text-[#e85d04]"
-                      : "border-transparent text-zinc-500 hover:text-zinc-300"
-                    }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+      {showBulkEdit ? (
+        <ClientBulkEditModal
+          filteredRows={visibleBulkRows}
+          bulkDrafts={bulkDrafts}
+          bulkSaving={bulkSaving}
+          priceLists={priceLists}
+          currentPage={bulkEditCurrentPage}
+          totalPages={bulkEditTotalPages}
+          totalRows={filteredRows.length}
+          bulkAddressRowId={bulkAddressRowId}
+          bulkAddressLoading={bulkAddressLoading}
+          bulkAddressOptions={bulkAddressOptions}
+          onClose={stopBulkEdit}
+          onSave={saveBulkEdit}
+          onUpdateBulkDraft={updateBulkDraft}
+          onPreviousPage={() => setBulkEditPage((prev) => Math.max(1, prev - 1))}
+          onNextPage={() => setBulkEditPage((prev) => Math.min(bulkEditTotalPages, prev + 1))}
+          onUpdateBulkAddressDraft={updateBulkAddressDraft}
+          onFocusBulkAddressRow={(id, value) => {
+            setBulkAddressRowId(id);
+            setBulkAddressSearch(value || "");
+          }}
+          onApplyBulkAddressOption={(id, option) =>
+            requestAddressSelection({ mode: "bulk", rowId: id, option })
+          }
+          onUseBulkAddressReference={(id, reference) => {
+            updateBulkDraft(id, {
+              address: reference,
+              latitude: "",
+              longitude: "",
+            });
+            setBulkAddressRowId(null);
+            setBulkAddressSearch(reference);
+            setBulkAddressOptions([]);
+          }}
+        />
+      ) : null}
 
-            <div className="flex-1 overflow-auto p-6">
-              {activeTab === "DATOS" && (
-                <div className="grid grid-cols-2 gap-5">
-                  <div className="col-span-2">
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Nombre / Razón Social *</label>
-                    <input
-                      autoFocus
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-3 text-sm text-white focus:border-[#e85d04] outline-none"
-                      value={draft.name}
-                      onChange={e => setDraft({ ...draft, name: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">CUIT / DNI</label>
-                    <input
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
-                      value={draft.taxId}
-                      onChange={e => setDraft({ ...draft, taxId: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Condición IVA</label>
-                    <select
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
-                      value={draft.ivaCondition}
-                      onChange={e => setDraft({ ...draft, ivaCondition: e.target.value })}
-                    >
-                      <option>Consumidor Final</option>
-                      <option>Responsable Inscripto</option>
-                      <option>Monotributo</option>
-                      <option>Exento</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Teléfono</label>
-                    <input
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
-                      value={draft.phone}
-                      onChange={e => setDraft({ ...draft, phone: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Email</label>
-                    <input
-                      type="email"
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
-                      value={draft.email}
-                      onChange={e => setDraft({ ...draft, email: e.target.value })}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Dirección</label>
-                    <div className="relative">
-                      <input
-                        className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
-                        value={draft.address}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setDraft({ ...draft, address: value });
-                          setAddressSearch(value);
-                        }}
-                        onFocus={() => setAddressSearch(draft.address || "")}
-                        placeholder="Ej: San Martin 123, Aguilares"
-                      />
-                      {addressLoading ? (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400 uppercase">
-                          Buscando...
-                        </div>
-                      ) : null}
-                      {addressOptions.length > 0 && (
-                        <div className="absolute z-20 mt-1 w-full bg-[#181818] border border-zinc-700 rounded-lg shadow-xl max-h-48 overflow-auto">
-                          {addressOptions.map((opt, idx) => (
-                            <button
-                              key={`${opt.latitude}-${opt.longitude}-${idx}`}
-                              type="button"
-                              className="w-full text-left px-3 py-2 hover:bg-zinc-800 border-b border-zinc-800 last:border-b-0"
-                              onClick={() => {
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  address: opt.address || opt.label || prev.address,
-                                  latitude: String(opt.latitude),
-                                  longitude: String(opt.longitude),
-                                }));
-                                setAddressSearch(opt.address || opt.label || "");
-                                setAddressOptions([]);
-                              }}
-                            >
-                              <div className="text-xs text-zinc-100">{opt.label}</div>
-                              <div className="text-[10px] text-zinc-500 font-mono">
-                                {Number(opt.latitude).toFixed(6)}, {Number(opt.longitude).toFixed(6)}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Zona / Ruta</label>
-                    <input
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
-                      value={draft.zone}
-                      onChange={e => setDraft({ ...draft, zone: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Lista de Precios</label>
-                    <select
-                      className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none font-bold text-[#e85d04]"
-                      value={draft.preferred_price_list}
-                      onChange={e => setDraft({ ...draft, preferred_price_list: e.target.value })}
-                    >
-                      <option value="MINORISTA">MINORISTA</option>
-                      <option value="MAYORISTA">MAYORISTA</option>
-                    </select>
-                  </div>
-                </div>
-              )}
+      {showMapPicker ? (
+        <ClientMapPickerModal
+          mapPosition={mapPosition}
+          setMapPosition={setMapPosition}
+          mapResolvingAddress={mapResolvingAddress}
+          onClose={() => setShowMapPicker(false)}
+          onApplyCoords={applyMapLocation}
+          onApplyWithAddress={applyMapLocationWithAddress}
+        />
+      ) : null}
 
-              {activeTab === "UBICACION" && (
-                <div className="space-y-5">
-                  <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <svg className="w-5 h-5 text-cyan-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <div>
-                        <div className="text-sm font-bold text-cyan-400">Coordenadas para Rutas</div>
-                        <div className="text-xs text-zinc-400 mt-1">
-                          Seleccione una direccion sugerida en la pestana DATOS para completar
-                          estas coordenadas automaticamente y ubicar al cliente en el mapa.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-5">
-                    <div>
-                      <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">
-                        Latitud
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="-27.43321"
-                        className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none font-mono"
-                        value={draft.latitude}
-                        onChange={e => setDraft({ ...draft, latitude: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">
-                        Longitud
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="-65.61492"
-                        className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none font-mono"
-                        value={draft.longitude}
-                        onChange={e => setDraft({ ...draft, longitude: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between bg-zinc-900/60 border border-zinc-800 rounded-lg p-3">
-                    <div className="text-xs text-zinc-400">
-                      También puede marcar la ubicación exacta manualmente.
-                    </div>
-                    <button
-                      type="button"
-                      className="px-3 py-2 bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg text-xs font-bold uppercase tracking-wider"
-                      onClick={openMapPicker}
-                    >
-                      Ubicar en mapa
-                    </button>
-                  </div>
-                  {draft.latitude && draft.longitude && (
-                    <div className="text-center">
-                      <a
-                        href={`https://www.google.com/maps?q=${draft.latitude},${draft.longitude}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                        Ver en Google Maps
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "OBSERVACIONES" && (
-                <div className="h-full flex flex-col">
-                  <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-2 block">Notas Internas</label>
-                  <textarea
-                    className="flex-1 w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-4 text-sm text-white focus:border-[#e85d04] outline-none resize-none"
-                    placeholder="Escriba comentarios u observaciones sobre este cliente..."
-                    value={draft.notes}
-                    onChange={e => setDraft({ ...draft, notes: e.target.value })}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="p-6 border-t border-zinc-800 flex justify-end gap-3 bg-[#1a1a1a] rounded-b-2xl">
-              <button
-                className="px-6 py-2.5 rounded-lg text-sm font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-                onClick={() => {
-                  setShowModal(false);
-                  setAddressOptions([]);
-                }}
-              >
-                CANCELAR
-              </button>
-              <button
-                className="px-8 py-2.5 bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg text-sm font-bold shadow-lg transition-colors"
-                onClick={saveClient}
-              >
-                GUARDAR
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showMapPicker && (
-        <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm p-4 flex items-center justify-center">
-          <div className="w-full max-w-4xl h-[80vh] bg-[#121212] border border-zinc-800 rounded-2xl overflow-hidden flex flex-col">
-            <div className="px-4 py-3 bg-[#1a1a1a] border-b border-zinc-800 flex items-center justify-between">
-              <div>
-                <div className="text-sm font-black text-white uppercase tracking-wider">Ubicar Cliente En Mapa</div>
-                <div className="text-[11px] text-zinc-400">Click en el mapa para marcar la ubicación exacta</div>
-              </div>
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold uppercase"
-                onClick={() => setShowMapPicker(false)}
-              >
-                Cerrar
-              </button>
-            </div>
-            <div className="flex-1 relative">
-              <MapContainer
-                center={[mapPosition.lat, mapPosition.lng]}
-                zoom={16}
-                className="h-full w-full"
-              >
-                <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                />
-                <MapClickSelect position={mapPosition} setPosition={setMapPosition} />
-                <MapRecenter position={mapPosition} />
-              </MapContainer>
-            </div>
-            <div className="px-4 py-3 bg-[#1a1a1a] border-t border-zinc-800 flex items-center justify-between">
-              <div className="text-xs text-zinc-300 font-mono">
-                {mapPosition.lat.toFixed(6)}, {mapPosition.lng.toFixed(6)}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider"
-                  onClick={applyMapLocation}
-                  disabled={mapResolvingAddress}
-                >
-                  Solo coordenadas
-                </button>
-                <button
-                  type="button"
-                  className="px-4 py-2 bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg text-xs font-bold uppercase tracking-wider disabled:opacity-60"
-                  onClick={applyMapLocationWithAddress}
-                  disabled={mapResolvingAddress}
-                >
-                  {mapResolvingAddress ? "Buscando direccion..." : "Usar y completar direccion"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showImportExport && (
+      {showImportExport ? (
         <ImportExportModal
           entity="customers"
           entityLabel="Clientes"
           onClose={() => setShowImportExport(false)}
           onSuccess={fetchCustomers}
         />
-      )}
+      ) : null}
+
+      {pendingAddressSelection ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-amber-500/30 bg-[#121212] p-6 shadow-2xl">
+            <div className="text-lg font-black uppercase tracking-wide text-amber-300">
+              Lugar fuera del recorrido habitual
+            </div>
+            <p className="mt-3 text-sm text-zinc-200">
+              Estas eligiendo un lugar fuera del recorrido habitual.
+            </p>
+            <p className="mt-2 text-xs text-zinc-400">
+              Distancia estimada desde Aguilares: {pendingAddressSelection.distanceKm.toFixed(1)} km
+            </p>
+            <p className="mt-2 text-xs text-zinc-500">
+              {pendingAddressSelection.option?.label || pendingAddressSelection.option?.address}
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-lg bg-zinc-800 px-5 py-2.5 text-sm font-bold text-zinc-200 transition-colors hover:bg-zinc-700"
+                onClick={() => setPendingAddressSelection(null)}
+              >
+                Revisar
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-[#e85d04] px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-[#d14f00]"
+                onClick={confirmPendingAddressSelection}
+              >
+                Elegir de todos modos
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

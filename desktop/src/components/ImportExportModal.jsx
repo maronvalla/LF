@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import api from "../api";
 
 export default function ImportExportModal({ entity, entityLabel, onClose, onSuccess }) {
@@ -9,6 +9,11 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+
+  const previewErrorRows = preview?.errors?.length
+    ? new Set(preview.errors.map((item) => Number(item.row))).size
+    : 0;
+  const previewValidRows = Math.max(0, Number(preview?.total || 0) - previewErrorRows);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -126,6 +131,39 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key !== "Escape") return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (mode === "result") {
+        setResult(null);
+        setMode("menu");
+        return;
+      }
+
+      if (mode === "preview") {
+        setPreview(null);
+        setMode("import");
+        return;
+      }
+
+      if (mode === "import") {
+        setFile(null);
+        setError(null);
+        setMode("menu");
+        return;
+      }
+
+      onClose?.();
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [mode, onClose]);
 
   return (
     <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[300] grid place-items-center p-6">
@@ -303,7 +341,7 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
         {/* Preview Mode */}
         {mode === "preview" && preview && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="card bg-zinc-900 p-4">
                 <div className="text-zinc-500 text-xs uppercase mb-1">Total filas</div>
                 <div className="text-2xl font-black text-white">{preview.total}</div>
@@ -317,6 +355,10 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
                 >
                   {preview.errors.length}
                 </div>
+              </div>
+              <div className="card bg-zinc-900 p-4">
+                <div className="text-zinc-500 text-xs uppercase mb-1">Filas validas</div>
+                <div className="text-2xl font-black text-emerald-500">{previewValidRows}</div>
               </div>
             </div>
 
@@ -380,6 +422,12 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
               </div>
             )}
 
+            {preview.errors.length > 0 ? (
+              <div className="rounded-lg border border-amber-700 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
+                Puedes continuar e importar solo las filas validas. Las filas con error se omitiran.
+              </div>
+            ) : null}
+
             <div className="flex gap-3 justify-end">
               <button
                 className="btn btn-muted px-6"
@@ -393,9 +441,13 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
               <button
                 className="btn btn-burnt px-6"
                 onClick={importFile}
-                disabled={loading || preview.errors.length > 0}
+                disabled={loading || previewValidRows === 0}
               >
-                {loading ? "Importando..." : "Confirmar Importacion"}
+                {loading
+                  ? "Importando..."
+                  : preview.errors.length > 0
+                  ? "Omitir errores e importar validas"
+                  : "Confirmar Importacion"}
               </button>
             </div>
           </div>
@@ -415,7 +467,7 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="card bg-zinc-900 p-4 text-center">
                 <div className="text-zinc-500 text-xs uppercase mb-1">Total</div>
                 <div className="text-2xl font-black text-white">
@@ -432,6 +484,12 @@ export default function ImportExportModal({ entity, entityLabel, onClose, onSucc
                 <div className="text-zinc-500 text-xs uppercase mb-1">Errores</div>
                 <div className="text-2xl font-black text-rose-500">
                   {result.summary?.errors || 0}
+                </div>
+              </div>
+              <div className="card bg-zinc-900 p-4 text-center">
+                <div className="text-zinc-500 text-xs uppercase mb-1">Omitidos</div>
+                <div className="text-2xl font-black text-amber-400">
+                  {result.summary?.skipped || 0}
                 </div>
               </div>
             </div>

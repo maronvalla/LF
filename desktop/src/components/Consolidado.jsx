@@ -89,8 +89,10 @@ function SignaturePad({ label, onChange, initialDataUrl }) {
 
   return (
     <div className="space-y-2">
-      <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">{label}</div>
-      <div className="border border-zinc-800 rounded-lg overflow-hidden bg-[#0f0f10]">
+      <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">
+        {label}
+      </div>
+      <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden bg-white dark:bg-[#0f0f10] shadow-sm">
         <canvas
           ref={canvasRef}
           className="w-full block touch-none"
@@ -103,7 +105,11 @@ function SignaturePad({ label, onChange, initialDataUrl }) {
           onTouchEnd={end}
         />
       </div>
-      <button type="button" className="btn btn-muted text-xs" onClick={clear}>
+      <button
+        type="button"
+        className="btn btn-muted bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs"
+        onClick={clear}
+      >
         Limpiar Firma
       </button>
     </div>
@@ -111,6 +117,9 @@ function SignaturePad({ label, onChange, initialDataUrl }) {
 }
 
 export default function Consolidado({ user, setToast }) {
+  const [theme] = useState(() => localStorage.getItem("appTheme") || "light");
+  const isDark = theme === "dark";
+
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [slot, setSlot] = useState("11");
   const [loading, setLoading] = useState(false);
@@ -162,7 +171,9 @@ export default function Consolidado({ user, setToast }) {
       const nextConsolidated = Array.isArray(consolidatedRes.data?.consolidated)
         ? consolidatedRes.data.consolidated
         : [];
-      const nextRejectedReturns = Array.isArray(consolidatedRes.data?.rejectedReturns)
+      const nextRejectedReturns = Array.isArray(
+        consolidatedRes.data?.rejectedReturns,
+      )
         ? consolidatedRes.data.rejectedReturns
         : [];
 
@@ -174,10 +185,13 @@ export default function Consolidado({ user, setToast }) {
       const defaultChecklist = {};
       for (const row of nextConsolidated) {
         const total = Number(row.total_qty || 0);
-        const pick = String(row.default_pick_location || "GALPON").toUpperCase();
-        defaultPlan[row.product_id] = pick === "LOCAL"
-          ? { localQty: total, galponQty: 0 }
-          : { localQty: 0, galponQty: total };
+        const pick = String(
+          row.default_pick_location || "GALPON",
+        ).toUpperCase();
+        defaultPlan[row.product_id] =
+          pick === "LOCAL"
+            ? { localQty: total, galponQty: 0 }
+            : { localQty: 0, galponQty: total };
         defaultChecklist[row.product_id] = false;
       }
 
@@ -196,10 +210,13 @@ export default function Consolidado({ user, setToast }) {
           setCashierSignature(control.cashier_signature_base64 || "");
           setDriverSignature(control.driver_signature_base64 || "");
 
-          const savedChecklist = control.checklist_json && typeof control.checklist_json === "object"
-            ? control.checklist_json
-            : {};
-          const savedPlan = Array.isArray(control.pick_plan_json) ? control.pick_plan_json : [];
+          const savedChecklist =
+            control.checklist_json && typeof control.checklist_json === "object"
+              ? control.checklist_json
+              : {};
+          const savedPlan = Array.isArray(control.pick_plan_json)
+            ? control.pick_plan_json
+            : [];
 
           setChecklistByProduct((prev) => ({ ...prev, ...savedChecklist }));
           setPickPlanByProduct((prev) => {
@@ -225,7 +242,10 @@ export default function Consolidado({ user, setToast }) {
       setOrders([]);
       setConsolidated([]);
       setRejectedReturns([]);
-      setToast?.({ message: err.response?.data?.message || "No se pudo cargar consolidado", type: "error" });
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo cargar consolidado",
+        type: "error",
+      });
     } finally {
       setLoading(false);
     }
@@ -236,31 +256,47 @@ export default function Consolidado({ user, setToast }) {
   }, [date, slot]);
 
   const totalBultos = useMemo(
-    () => consolidated.reduce((acc, row) => acc + Number(row.total_qty || 0), 0),
-    [consolidated]
+    () =>
+      consolidated.reduce((acc, row) => acc + Number(row.total_qty || 0), 0),
+    [consolidated],
   );
 
   const totalEnvasesRetornables = useMemo(
-    () => consolidated.reduce((acc, row) => acc + Number(row.total_returnable_units || 0), 0),
-    [consolidated]
+    () =>
+      consolidated.reduce(
+        (acc, row) => acc + Number(row.total_returnable_units || 0),
+        0,
+      ),
+    [consolidated],
   );
 
   const totalMercaderiaDevuelta = useMemo(
-    () => rejectedReturns.reduce((acc, row) => acc + Number(row.qty_to_return || 0), 0),
-    [rejectedReturns]
+    () =>
+      rejectedReturns.reduce(
+        (acc, row) => acc + Number(row.qty_to_return || 0),
+        0,
+      ),
+    [rejectedReturns],
   );
 
   const pedidosEnvio = useMemo(
-    () => orders.filter((o) => String(o.delivery_status || "").toUpperCase() !== "ANULADO"),
-    [orders]
+    () =>
+      orders.filter(
+        (o) => String(o.delivery_status || "").toUpperCase() !== "ANULADO",
+      ),
+    [orders],
   );
 
   const pickPlanRows = useMemo(
     () =>
       consolidated.map((row) => {
-        const plan = pickPlanByProduct[row.product_id] || { localQty: 0, galponQty: Number(row.total_qty || 0) };
+        const plan = pickPlanByProduct[row.product_id] || {
+          localQty: 0,
+          galponQty: Number(row.total_qty || 0),
+        };
         const total = Number(row.total_qty || 0);
-        const assigned = Number(plan.localQty || 0) + Number(plan.galponQty || 0);
+        const assigned =
+          Number(plan.localQty || 0) + Number(plan.galponQty || 0);
         return {
           ...row,
           localQty: Number(plan.localQty || 0),
@@ -269,25 +305,35 @@ export default function Consolidado({ user, setToast }) {
           mismatch: assigned !== total,
         };
       }),
-    [consolidated, pickPlanByProduct]
+    [consolidated, pickPlanByProduct],
   );
 
   const checklistDoneCount = useMemo(
-    () => consolidated.filter((r) => Boolean(checklistByProduct[r.product_id])).length,
-    [consolidated, checklistByProduct]
+    () =>
+      consolidated.filter((r) => Boolean(checklistByProduct[r.product_id]))
+        .length,
+    [consolidated, checklistByProduct],
   );
 
-  const allChecklistDone = consolidated.length > 0 && checklistDoneCount === consolidated.length;
+  const allChecklistDone =
+    consolidated.length > 0 && checklistDoneCount === consolidated.length;
   const allPickPlanValid = pickPlanRows.every((row) => !row.mismatch);
 
   const saveControl = async () => {
     if (!canControl) return;
     if (!allPickPlanValid) {
-      setToast?.({ message: "Hay productos con cantidades mal asignadas entre LOCAL y GALPON", type: "error" });
+      setToast?.({
+        message:
+          "Hay productos con cantidades mal asignadas entre LOCAL y GALPON",
+        type: "error",
+      });
       return;
     }
     if (!allChecklistDone) {
-      setToast?.({ message: "Debes tildar todo el checklist de mercaderia", type: "error" });
+      setToast?.({
+        message: "Debes tildar todo el checklist de mercaderia",
+        type: "error",
+      });
       return;
     }
     if (!cashierName.trim()) {
@@ -334,7 +380,10 @@ export default function Consolidado({ user, setToast }) {
       setControlStep("checklist");
       await load();
     } catch (err) {
-      setToast?.({ message: err.response?.data?.message || "No se pudo guardar el control", type: "error" });
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo guardar el control",
+        type: "error",
+      });
     } finally {
       setSavingControl(false);
     }
@@ -343,7 +392,10 @@ export default function Consolidado({ user, setToast }) {
   const setPlan = (productId, field, value, totalQty) => {
     const parsed = Math.max(0, Math.floor(Number(value || 0)));
     setPickPlanByProduct((prev) => {
-      const base = prev[productId] || { localQty: 0, galponQty: Number(totalQty || 0) };
+      const base = prev[productId] || {
+        localQty: 0,
+        galponQty: Number(totalQty || 0),
+      };
       const next = { ...base, [field]: parsed };
       if (field === "localQty") {
         next.galponQty = Math.max(0, Number(totalQty || 0) - next.localQty);
@@ -365,7 +417,9 @@ export default function Consolidado({ user, setToast }) {
         if (typeof printerApi === "function") {
           const printers = (await printerApi()) || [];
           setAvailablePrinters(printers);
-          const xp58 = printers.find((p) => /xp-?58/i.test(String(p.name || p.displayName || "")));
+          const xp58 = printers.find((p) =>
+            /xp-?58/i.test(String(p.name || p.displayName || "")),
+          );
           setSelectedPrinter(xp58?.name || printers[0]?.name || "");
         } else {
           setAvailablePrinters([]);
@@ -383,7 +437,10 @@ export default function Consolidado({ user, setToast }) {
     printPromptResolverRef.current = null;
     setShowPrintPrompt(false);
     if (typeof resolver === "function") {
-      resolver({ shouldPrint: Boolean(value), deviceName: selectedPrinter || undefined });
+      resolver({
+        shouldPrint: Boolean(value),
+        deviceName: selectedPrinter || undefined,
+      });
     }
   };
 
@@ -413,7 +470,10 @@ export default function Consolidado({ user, setToast }) {
   }, []);
 
   const printReceipt = async ({ lines, deviceName }) => {
-    const ticket = { lines: Array.isArray(lines) ? lines : [] };
+    const ticket = {
+      lines: Array.isArray(lines) ? lines : [],
+      logoDataUrl: ticketConfig.logoDataUrl || "",
+    };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
       window.desktopEnv &&
@@ -435,8 +495,11 @@ export default function Consolidado({ user, setToast }) {
     printable.document.write(`
       <html><head><title>Boleta consolidado</title><style>
       body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: 11px; }
+      .logo-wrap { text-align: center; margin-bottom: 2mm; }
+      .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
       .line { white-space: pre; }
       </style></head><body>
+      ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
       ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
       </body></html>
     `);
@@ -465,12 +528,18 @@ export default function Consolidado({ user, setToast }) {
     const now = new Date();
     const shiftLabel = slot === "19" ? "TARDE 19:00" : "MANANA 11:00";
     const lines = [];
-    if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
+    if (ticketConfig.businessName)
+      lines.push(center(ticketConfig.businessName));
     if (ticketConfig.addressLine) lines.push(center(ticketConfig.addressLine));
     lines.push(center("BOLETA DE CONSOLIDADO"));
     lines.push(repeat("-", MAX));
     lines.push(leftRight("Fecha", now.toLocaleDateString("es-AR")));
-    lines.push(leftRight("Hora", now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })));
+    lines.push(
+      leftRight(
+        "Hora",
+        now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      ),
+    );
     lines.push(leftRight("Turno", shiftLabel));
     lines.push(leftRight("Pedidos", String(pedidosEnvio.length)));
     lines.push(leftRight("Bultos", String(totalBultos)));
@@ -479,12 +548,26 @@ export default function Consolidado({ user, setToast }) {
     lines.push("MERCADERIA A SACAR");
     lines.push(repeat("-", MAX));
     consolidated.forEach((row) => {
-      lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
+      lines.push(
+        String(row.name || "")
+          .toUpperCase()
+          .slice(0, MAX),
+      );
       lines.push(leftRight("Cant", `${Number(row.total_qty || 0)}`));
-      const plan = pickPlanByProduct[row.product_id] || { localQty: 0, galponQty: Number(row.total_qty || 0) };
-      lines.push(leftRight("Local/Galpon", `${Number(plan.localQty || 0)}/${Number(plan.galponQty || 0)}`));
+      const plan = pickPlanByProduct[row.product_id] || {
+        localQty: 0,
+        galponQty: Number(row.total_qty || 0),
+      };
+      lines.push(
+        leftRight(
+          "Local/Galpon",
+          `${Number(plan.localQty || 0)}/${Number(plan.galponQty || 0)}`,
+        ),
+      );
       if (Number(row.total_returnable_units || 0) > 0) {
-        lines.push(leftRight("Envases", `${Number(row.total_returnable_units || 0)}`));
+        lines.push(
+          leftRight("Envases", `${Number(row.total_returnable_units || 0)}`),
+        );
       }
       lines.push(repeat("-", MAX));
     });
@@ -492,7 +575,11 @@ export default function Consolidado({ user, setToast }) {
       lines.push("DEVOLUCIONES POR RECHAZO");
       lines.push(repeat("-", MAX));
       rejectedReturns.forEach((row) => {
-        lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
+        lines.push(
+          String(row.name || "")
+            .toUpperCase()
+            .slice(0, MAX),
+        );
         lines.push(leftRight("Dev.", `${Number(row.qty_to_return || 0)}`));
       });
       lines.push(repeat("-", MAX));
@@ -511,51 +598,55 @@ export default function Consolidado({ user, setToast }) {
       await printReceipt({ lines, deviceName: decision?.deviceName });
       setToast?.({ message: "Boleta de consolidado impresa", type: "success" });
     } catch (err) {
-      setToast?.({ message: err?.message || "No se pudo imprimir boleta", type: "error" });
+      setToast?.({
+        message: err?.message || "No se pudo imprimir boleta",
+        type: "error",
+      });
     }
   };
 
   return (
-    <div className="h-full flex flex-col gap-4">
-      <div className="px-1">
-        <h1 className="text-[28px] font-bold leading-none text-white tracking-tight">Consolidado</h1>
-        <p className="text-xs text-zinc-400 mt-1">Preparacion de carga con control secuencial y firmas</p>
-      </div>
-
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-3 grid grid-cols-1 md:grid-cols-6 gap-3 md:gap-4 items-end">
-        <div className="md:col-span-2">
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider block mb-1">Fecha</label>
-          <input type="date" className="input mt-1 w-full" value={date} onChange={(e) => setDate(e.target.value)} />
+    <div className={`h-full flex flex-col gap-4 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+      <div className="px-1 flex flex-col md:flex-row md:justify-between md:items-center gap-2">
+        <div>
+          <h1 className={`text-[28px] font-bold leading-none tracking-tight ${isDark ? 'text-zinc-100' : 'text-zinc-900'}`}>
+            Preparación de carga con control secuencial y firmas
+          </h1>
         </div>
-        <div className="md:col-span-2">
-          <label className="text-[10px] md:text-[9px] text-zinc-500 uppercase font-black tracking-wider block mb-1">Turno</label>
-          <select className="input mt-1 w-full" value={slot} onChange={(e) => setSlot(e.target.value)}>
-            <option value="11">11:00</option>
-            <option value="19">19:00</option>
-          </select>
-        </div>
-        <div className="md:col-span-2 flex flex-col sm:flex-row gap-2 mt-2 md:mt-0">
-          <button type="button" className="btn btn-primary w-full" onClick={load} disabled={loading}>
+        <div className="flex flex-col sm:flex-row gap-2 mt-2 md:mt-0">
+          <button
+            type="button"
+            className={`btn ${isDark ? 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700' : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50'}`}
+            onClick={load}
+            disabled={loading}
+          >
             {loading ? "Cargando..." : "Actualizar"}
           </button>
-          <button type="button" className="btn btn-muted w-full" onClick={printConsolidated}>
+          <button
+            type="button"
+            className={`btn ${isDark ? 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700' : 'btn-muted'}`}
+            onClick={printConsolidated}
+          >
             Imprimir
           </button>
           {canControl ? (
             <button
               type="button"
-              className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white w-full shadow-md"
+              className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white shadow-md"
               onClick={async () => {
                 if (hasSavedControlForShift) {
                   const shouldCancel = window.confirm(
-                    "Ya se registro el consolidado para este turno. Desea anularlo?"
+                    "Ya se registro el consolidado para este turno. Desea anularlo?",
                   );
                   if (!shouldCancel) return;
                   try {
-                    const { data } = await api.post("/deliveries/consolidated-control/cancel", {
-                      date,
-                      slot,
-                    });
+                    const { data } = await api.post(
+                      "/deliveries/consolidated-control/cancel",
+                      {
+                        date,
+                        slot,
+                      },
+                    );
                     const reverted = Number(data?.reverted || 0);
                     setToast?.({
                       message: `Consolidado anulado. Pedidos vueltos a PENDIENTE: ${reverted}`,
@@ -564,7 +655,9 @@ export default function Consolidado({ user, setToast }) {
                     await load();
                   } catch (err) {
                     setToast?.({
-                      message: err.response?.data?.message || "No se pudo anular el consolidado",
+                      message:
+                        err.response?.data?.message ||
+                        "No se pudo anular el consolidado",
                       type: "error",
                     });
                     return;
@@ -580,267 +673,581 @@ export default function Consolidado({ user, setToast }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Stat title="Pedidos de Envio" value={pedidosEnvio.length} />
-        <Stat title="Productos Distintos" value={consolidated.length} />
-        <Stat title="Cantidad Total a Sacar" value={totalBultos} />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Stat title="Envases Retornables (Salida)" value={totalEnvasesRetornables} />
-        <Stat title="Mercaderia a Devolver (Rechazos)" value={totalMercaderiaDevuelta} />
+      <div className={`${isDark ? 'bg-[#1a1a1c] border-zinc-800' : 'bg-white border-zinc-200'} border rounded-2xl p-4 md:p-5 flex flex-col md:flex-row gap-3 md:gap-4 items-end shadow-sm`}>
+        <div className="flex-1 w-full relative">
+          <label className={`text-[10px] md:text-[9px] uppercase font-black tracking-wider block mb-1 ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+            Fecha
+          </label>
+          <input
+            type="date"
+            className={`input mt-1 w-full focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-900'}`}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </div>
+        <div className="flex-1 w-full relative">
+          <label className={`text-[10px] md:text-[9px] uppercase font-black tracking-wider block mb-1 ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+            Turno
+          </label>
+          <select
+            className={`input mt-1 w-full focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-900'}`}
+            value={slot}
+            onChange={(e) => setSlot(e.target.value)}
+          >
+            <option value="11">11:00 AM</option>
+            <option value="19">19:00 PM</option>
+          </select>
+        </div>
+        <div className="w-full md:w-auto mt-2 md:mt-0">
+          <button type="button" className={`btn w-full md:w-auto h-[42px] px-6 flex items-center justify-center gap-2 ${isDark ? 'bg-zinc-900/50 border-zinc-700 text-zinc-300 hover:bg-zinc-800' : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-100'}`} onClick={load}>
+            <span className="text-lg">Y</span> Filtrar
+          </button>
+        </div>
       </div>
 
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800 text-sm font-black uppercase text-[#e85d04]">
-          1) Previsualizacion de mercaderia a sacar
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[500px]">
-            <thead className="text-zinc-400 uppercase text-[10px] bg-[#1a1a1a]">
-              <tr>
-                <th className="text-left px-4 py-3 whitespace-nowrap">SKU</th>
-                <th className="text-left px-4 py-3">Producto</th>
-                <th className="text-left px-4 py-3 whitespace-nowrap">Unidad</th>
-                <th className="text-right px-4 py-3 whitespace-nowrap">Cantidad</th>
-                <th className="text-right px-4 py-3 whitespace-nowrap">Envases</th>
-              </tr>
-            </thead>
-            <tbody>
-              {consolidated.map((row) => (
-                <tr key={row.product_id} className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
-                  <td className="px-4 py-3 text-zinc-400">{row.sku || "-"}</td>
-                  <td className="px-4 py-3 font-bold text-zinc-200">{row.name}</td>
-                  <td className="px-4 py-3 text-zinc-400 uppercase">{row.unit_label || "unidad"}</td>
-                  <td className="px-4 py-3 text-right font-black text-[#e85d04]">{Number(row.total_qty || 0)}</td>
-                  <td className="px-4 py-3 text-right font-black text-emerald-400">{Number(row.total_returnable_units || 0)}</td>
-                </tr>
-              ))}
-              {!consolidated.length && (
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <Stat isDark={isDark} icon="📦" title="Pedidos" value={pedidosEnvio.length} />
+        <Stat isDark={isDark} icon="🍱" title="Productos Diferentes" value={consolidated.length} />
+        <Stat isDark={isDark} icon="🧮" title="Total Unidades" value={totalBultos} />
+        <Stat
+          isDark={isDark}
+          icon="♻️"
+          title="Envases Retornables (Salida)"
+          value={totalEnvasesRetornables}
+        />
+        <Stat
+          isDark={isDark}
+          icon="🚫"
+          title="Devoluciones (Rechazos)"
+          value={totalMercaderiaDevuelta}
+        />
+      </div>
+
+      <div className="flex flex-col xl:flex-row gap-4">
+        {/* Table 1 */}
+        <div className={`${isDark ? 'bg-[#1a1a1c] border-zinc-800' : 'bg-white border-zinc-200'} border rounded-2xl overflow-hidden shadow-sm flex-1 flex flex-col min-h-0`}>
+          <div className={`px-5 py-4 border-b text-sm font-black uppercase flex items-center justify-between ${isDark ? 'border-zinc-800 text-zinc-100 bg-[#161618]' : 'border-zinc-100 text-[#e85d04] bg-[#fdfaf8]'}`}>
+            <span>1. PREVISUALIZACION DE MERCADERIA A SACAR</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[500px]">
+              <thead className={`uppercase text-[10px] ${isDark ? 'bg-[#161618] text-zinc-400' : 'bg-zinc-50/80 text-zinc-500'}`}>
                 <tr>
-                  <td colSpan={5} className="text-center py-6 text-zinc-500 font-bold">No hay mercadería</td>
+                  <th className="text-left px-5 py-3 whitespace-nowrap font-bold">
+                    Código
+                  </th>
+                  <th className="text-left px-5 py-3 font-bold">Producto</th>
+                  <th className="text-left px-5 py-3 whitespace-nowrap font-bold">
+                    Unidad
+                  </th>
+                  <th className="text-right px-5 py-3 whitespace-nowrap font-bold">
+                    Cantidad
+                  </th>
+                  <th className="text-right px-5 py-3 whitespace-nowrap font-bold">
+                    Envases
+                  </th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {consolidated.map((row) => (
+                  <tr
+                    key={row.product_id}
+                    className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                  >
+                    <td className={`px-5 py-3 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
+                    <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                      {row.name}
+                    </td>
+                    <td className={`px-5 py-3 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      {row.unit_label || "unidad"}
+                    </td>
+                    <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
+                      {Number(row.total_qty || 0)}
+                    </td>
+                    <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-emerald-600'}`}>
+                      {Number(row.total_returnable_units || 0)}
+                    </td>
+                  </tr>
+                ))}
+                {!consolidated.length && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className={`text-center py-8 font-bold ${isDark ? 'text-zinc-500 bg-black/10' : 'text-zinc-400 bg-zinc-50/30'}`}
+                    >
+                      No hay mercadería
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
 
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800 text-sm font-black uppercase text-[#e85d04]">
-          2) Definir de donde se saca cada cantidad (LOCAL / GALPON)
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[500px]">
-            <thead className="text-zinc-400 uppercase text-[10px] bg-[#1a1a1a]">
-              <tr>
-                <th className="text-left px-4 py-3">Producto</th>
-                <th className="text-right px-4 py-3 whitespace-nowrap">Total</th>
-                <th className="text-right px-4 py-3 whitespace-nowrap">LOCAL</th>
-                <th className="text-right px-4 py-3 whitespace-nowrap">GALPON</th>
-                <th className="text-center px-4 py-3 whitespace-nowrap">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pickPlanRows.map((row) => (
-                <tr key={row.product_id} className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
-                  <td className="px-4 py-3 font-bold text-zinc-200">{row.name}</td>
-                  <td className="px-4 py-3 text-right font-black text-[#e85d04]">{Number(row.total_qty || 0)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <input
-                      className="input w-20 md:w-24 ml-auto text-right"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={row.localQty}
-                      onChange={(e) => setPlan(row.product_id, "localQty", e.target.value, row.total_qty)}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <input
-                      className="input w-20 md:w-24 ml-auto text-right"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={row.galponQty}
-                      onChange={(e) => setPlan(row.product_id, "galponQty", e.target.value, row.total_qty)}
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {row.mismatch ? (
-                      <span className="text-xs font-black text-rose-400">NO CUADRA</span>
-                    ) : (
-                      <span className="text-xs font-black text-emerald-400">OK</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {!pickPlanRows.length && (
-                <tr>
-                  <td colSpan={5} className="text-center py-6 text-zinc-500 font-bold">No hay mercadería</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="bg-[#121212] border border-zinc-800/80 rounded-lg overflow-hidden flex flex-col min-h-0">
-        <div className="px-4 py-3 border-b border-zinc-800 text-sm font-black uppercase text-[#e85d04]">
-          Mercaderia a Devolver por Rechazos
-        </div>
-        <div className="overflow-x-auto flex-1">
-          <table className="w-full text-sm min-w-[500px]">
-            <thead className="text-zinc-400 uppercase text-[10px] bg-[#1a1a1a]">
-              <tr>
-                <th className="text-left px-4 py-3 whitespace-nowrap">SKU</th>
-                <th className="text-left px-4 py-3">Producto</th>
-                <th className="text-left px-4 py-3 whitespace-nowrap">Unidad</th>
-                <th className="text-right px-4 py-3 whitespace-nowrap">Cantidad Dev.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rejectedReturns.map((row) => (
-                <tr key={row.product_id} className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
-                  <td className="px-4 py-3 text-zinc-400">{row.sku || "-"}</td>
-                  <td className="px-4 py-3 font-bold text-zinc-200">{row.name}</td>
-                  <td className="px-4 py-3 text-zinc-400 uppercase">{row.unit_label || "unidad"}</td>
-                  <td className="px-4 py-3 text-right font-black text-yellow-400">{Number(row.qty_to_return || 0)}</td>
-                </tr>
-              ))}
-              {!rejectedReturns.length && (
-                <tr>
-                  <td colSpan={4} className="text-center py-6 text-zinc-500 font-bold">No hay rechazos</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {controlOpen && canControl ? (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-5xl bg-[#121212] border border-zinc-800 rounded-2xl p-4 md:p-6 space-y-4 my-auto">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="text-sm md:text-base font-black uppercase text-[#e85d04]">Control Secuencial de Consolidado</div>
-              <button className="btn btn-muted w-full sm:w-auto" onClick={() => setControlOpen(false)}>Cerrar</button>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-6 items-start min-h-0">
+          {/* Table 1: Mercaderia Consolidad */}
+          <div className={`border rounded-2xl flex flex-col min-h-[400px] xl:min-h-0 xl:h-[600px] shadow-sm ${isDark ? 'bg-[#121212] border-zinc-800' : 'bg-white border-zinc-200'}`}>
+            <div className={`p-4 xl:p-5 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isDark ? 'border-zinc-800/60 bg-zinc-900/50' : 'border-zinc-100 bg-zinc-50/50'}`}>
+              <h2 className={`font-black uppercase tracking-tight text-sm xl:text-base flex items-center gap-2 ${isDark ? 'text-zinc-100' : 'text-zinc-800'}`}>
+                <span className={`w-6 h-6 rounded flex items-center justify-center text-white text-xs ${isDark ? 'bg-[#e85d04]/80' : 'bg-[#e85d04]'}`}>1</span>
+                Previsualizacion de Mercaderia
+              </h2>
+              <div className={`text-xs font-bold px-3 py-1.5 rounded-lg ${isDark ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-200/50 text-zinc-600'}`}>
+                {consolidated.length} {consolidated.length === 1 ? 'item' : 'items'}
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] md:text-xs font-black uppercase">
-              <div className={`p-2 rounded flex items-center justify-center ${controlStep === "checklist" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>1. Checklist</div>
-              <div className={`p-2 rounded flex items-center justify-center ${controlStep === "cashier" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>2. Firma Cajero</div>
-              <div className={`p-2 rounded flex items-center justify-center ${controlStep === "driver" ? "bg-[#e85d04] text-white" : "bg-zinc-900 text-zinc-400"}`}>3. Firma Chofer</div>
-            </div>
-
-            {controlStep === "checklist" ? (
-              <div className="space-y-3">
-                <div className="text-xs text-zinc-400">Marcar con tilde la mercaderia verificada ({checklistDoneCount}/{consolidated.length})</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[50vh] overflow-y-auto pr-2">
+            <div className="flex-1 overflow-x-auto overflow-y-auto">
+              <table className="w-full min-w-[500px] text-xs xl:text-sm text-left">
+                <thead className={`text-[10px] xl:text-xs uppercase tracking-widest border-b sticky top-0 z-10 ${isDark ? 'text-zinc-500 border-zinc-800/60 bg-[#121212]' : 'text-zinc-500 border-zinc-100 bg-white'}`}>
+                  <tr>
+                    <th className="px-4 xl:px-5 py-3 xl:py-4 font-black">
+                      Codigo
+                    </th>
+                    <th className="px-4 xl:px-5 py-3 xl:py-4 font-black">
+                      Producto
+                    </th>
+                    <th className="px-4 xl:px-5 py-3 xl:py-4 font-black">
+                      Unidad
+                    </th>
+                    <th className="text-right px-4 xl:px-5 py-3 xl:py-4 font-black">
+                      Total Prep.
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
                   {consolidated.map((row) => (
-                    <label key={row.product_id} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg p-3 cursor-pointer hover:bg-zinc-800 transition-colors">
-                      <input
-                        type="checkbox"
-                        className="h-5 w-5 md:h-4 md:w-4 accent-[#e85d04]"
-                        checked={Boolean(checklistByProduct[row.product_id])}
-                        onChange={(e) => setChecklistByProduct((prev) => ({ ...prev, [row.product_id]: e.target.checked }))}
-                      />
-                      <span className="text-sm md:text-xs font-bold text-zinc-200 line-clamp-1">{row.name}</span>
-                      <span className="ml-auto text-xs font-black text-emerald-400">{Boolean(checklistByProduct[row.product_id]) ? "✔" : ""}</span>
-                    </label>
+                    <tr
+                      key={row.product_id}
+                      className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                    >
+                      <td className={`px-4 xl:px-5 py-3 xl:py-4 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
+                      <td className={`px-4 xl:px-5 py-3 xl:py-4 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                        {row.name}
+                      </td>
+                      <td className={`px-4 xl:px-5 py-3 xl:py-4 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                        {row.unit_label || "unidad"}
+                      </td>
+                      <td className={`px-4 xl:px-5 py-3 xl:py-4 text-right font-black text-base xl:text-lg ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
+                        {Number(row.total_qty || 0)}
+                      </td>
+                    </tr>
                   ))}
-                </div>
-                <div className="flex justify-end pt-2">
-                  <button className="btn btn-primary w-full sm:w-auto py-3 md:py-2 text-sm md:text-xs font-bold" disabled={!allChecklistDone || !allPickPlanValid} onClick={() => setControlStep("cashier")}>Confirmar checklist</button>
-                </div>
-              </div>
-            ) : null}
+                  {!consolidated.length && (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className={`text-center py-10 font-bold ${isDark ? 'text-zinc-500 bg-black/10' : 'text-zinc-400 bg-zinc-50/30'}`}
+                      >
+                        No hay datos
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-            {controlStep === "cashier" ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Nombre Cajero</label>
-                  <input className="input mt-1 w-full" value={cashierName} onChange={(e) => setCashierName(e.target.value)} />
-                </div>
-                <SignaturePad label="Firma Cajero" initialDataUrl={cashierSignature} onChange={setCashierSignature} />
-                <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-2">
-                  <button className="btn btn-muted w-full sm:w-auto py-3 md:py-2" onClick={() => setControlStep("checklist")}>Volver</button>
-                  <button className="btn btn-primary w-full sm:w-auto py-3 md:py-2 font-bold" disabled={!cashierName.trim() || !cashierSignature} onClick={() => setControlStep("driver")}>Continuar a firma chofer</button>
-                </div>
-              </div>
-            ) : null}
+          {/* Table 2 */}
+          <div className={`${isDark ? 'bg-[#1a1a1c] border-zinc-800' : 'bg-white border-zinc-200'} border rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-[400px] xl:min-h-0 xl:h-[600px]`}>
+            <div className={`px-5 py-4 border-b text-sm font-black uppercase flex items-center justify-between ${isDark ? 'border-zinc-800 text-zinc-100 bg-[#161618]' : 'border-zinc-100 text-[#e85d04] bg-[#fdfaf8]'}`}>
+              <span>2. ASIGNACIÓN DE STOCK (LOCAL/GALPÓN)</span>
+            </div>
+            <div className="flex-1 overflow-x-auto overflow-y-auto">
+              <table className="w-full text-xs xl:text-sm min-w-[500px]">
+                <thead className={`uppercase text-[10px] xl:text-xs tracking-widest sticky top-0 z-10 ${isDark ? 'bg-[#161618] text-zinc-400' : 'bg-zinc-50/80 text-zinc-500'}`}>
+                  <tr>
+                    <th className="text-left px-5 py-3 xl:py-4 font-black">Producto</th>
+                    <th className="text-right px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                      Total
+                    </th>
+                    <th className="text-right px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                      LOCAL
+                    </th>
+                    <th className="text-right px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                      GALPÓN
+                    </th>
+                    <th className="text-center px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                      Estado
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pickPlanRows.map((row) => (
+                    <tr
+                      key={row.product_id}
+                      className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                    >
+                      <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                        {row.name}
+                      </td>
+                      <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
+                        {Number(row.total_qty || 0)}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <input
+                          className={`input w-20 md:w-24 ml-auto text-right py-1 text-sm font-bold focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-900'}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={row.localQty}
+                          onChange={(e) =>
+                            setPlan(
+                              row.product_id,
+                              "localQty",
+                              e.target.value,
+                              row.total_qty,
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <input
+                          className={`input w-20 md:w-24 ml-auto text-right py-1 text-sm font-bold focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-900'}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={row.galponQty}
+                          onChange={(e) =>
+                            setPlan(
+                              row.product_id,
+                              "galponQty",
+                              e.target.value,
+                              row.total_qty,
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="px-5 py-3 text-center">
+                        {row.mismatch ? (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${isDark ? 'bg-amber-500/20 text-amber-500 ring-1 ring-inset ring-amber-500/40' : 'bg-rose-100 text-rose-600'}`}>
+                            {isDark ? 'Requerir Galpón' : 'NO CUADRA'}
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${isDark ? 'bg-emerald-500/20 text-emerald-500 ring-1 ring-inset ring-emerald-500/40' : 'bg-emerald-100 text-emerald-600'}`}>
+                            OK
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!pickPlanRows.length && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className={`text-center py-8 font-bold ${isDark ? 'text-zinc-500 bg-black/10' : 'text-zinc-400 bg-zinc-50/30'}`}
+                      >
+                        No hay mercadería
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
-            {controlStep === "driver" ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Nombre Chofer</label>
-                  <input className="input mt-1 w-full" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
+        <div className={`${isDark ? 'bg-[#1a1a1c] border-zinc-800' : 'bg-white border-zinc-200'} border rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-[300px] mt-2`}>
+          <div className={`px-5 py-4 border-b text-sm font-black uppercase flex items-center justify-between ${isDark ? 'border-zinc-800 text-zinc-100 bg-[#161618]' : 'border-zinc-100 text-[#e85d04] bg-[#fdfaf8]'}`}>
+            <span>MERCADERIA A DEVOLVER POR RECHAZOS (AYER)</span>
+          </div>
+          <div className="flex-1 overflow-x-auto overflow-y-auto">
+            <table className="w-full text-xs xl:text-sm min-w-[500px]">
+              <thead className={`uppercase text-[10px] xl:text-xs tracking-widest sticky top-0 z-10 ${isDark ? 'bg-[#161618] text-zinc-400' : 'bg-zinc-50/80 text-zinc-500'}`}>
+                <tr>
+                  <th className="text-left px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                    Código
+                  </th>
+                  <th className="text-left px-5 py-3 xl:py-4 font-black">Producto</th>
+                  <th className="text-left px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                    Unidad
+                  </th>
+                  <th className="text-right px-5 py-3 xl:py-4 whitespace-nowrap font-black">
+                    Cantidad Dev.
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rejectedReturns.map((row) => (
+                  <tr
+                    key={row.product_id}
+                    className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                  >
+                    <td className={`px-5 py-3 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
+                    <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                      {row.name}
+                    </td>
+                    <td className={`px-5 py-3 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                      {row.unit_label || "unidad"}
+                    </td>
+                    <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-amber-500'}`}>
+                      {Number(row.qty_to_return || 0)}
+                    </td>
+                  </tr>
+                ))}
+                {!rejectedReturns.length && (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className={`text-center py-8 font-bold ${isDark ? 'text-zinc-500 bg-black/10' : 'text-zinc-400 bg-zinc-50/30'}`}
+                    >
+                      No hay rechazos
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {
+          controlOpen && canControl ? (
+            <div className="fixed inset-0 z-[200] bg-zinc-900/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+              <div className={`w-full max-w-5xl border rounded-2xl p-5 md:p-8 space-y-6 my-auto shadow-xl ${isDark ? 'bg-[#121212] border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="text-base md:text-lg font-black uppercase text-[#e85d04] tracking-tight">
+                    Control Secuencial de Consolidado
+                  </div>
+                  <button
+                    className={`btn w-full sm:w-auto ${isDark ? 'btn-muted' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'}`}
+                    onClick={() => setControlOpen(false)}
+                  >
+                    Cerrar
+                  </button>
                 </div>
-                <SignaturePad label="Firma Chofer" initialDataUrl={driverSignature} onChange={setDriverSignature} />
-                <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-2">
-                  <button className="btn btn-muted w-full sm:w-auto py-3 md:py-2" onClick={() => setControlStep("cashier")}>Volver</button>
-                  <button className="btn btn-primary w-full sm:w-auto py-3 md:py-2 font-bold" disabled={savingControl || !driverName.trim() || !driverSignature} onClick={saveControl}>
-                    {savingControl ? "Guardando..." : "Guardar control firmado"}
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[10px] md:text-xs font-black uppercase">
+                  <div
+                    className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${controlStep === "checklist"
+                      ? "bg-[#e85d04] text-white shadow-md"
+                      : isDark ? "bg-zinc-900 text-zinc-400" : "bg-zinc-100 text-zinc-500 border border-zinc-200"
+                      }`}
+                  >
+                    1. Checklist
+                  </div>
+                  <div
+                    className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${controlStep === "cashier"
+                      ? "bg-[#e85d04] text-white shadow-md"
+                      : isDark ? "bg-zinc-900 text-zinc-400" : "bg-zinc-100 text-zinc-500 border border-zinc-200"
+                      }`}
+                  >
+                    2. Firma Cajero
+                  </div>
+                  <div
+                    className={`p-2.5 rounded-lg flex items-center justify-center transition-colors ${controlStep === "driver"
+                      ? "bg-[#e85d04] text-white shadow-md"
+                      : isDark ? "bg-zinc-900 text-zinc-400" : "bg-zinc-100 text-zinc-500 border border-zinc-200"
+                      }`}
+                  >
+                    3. Firma Chofer
+                  </div>
+                </div>
+
+                {controlStep === "checklist" ? (
+                  <div className="space-y-4">
+                    <div className={`text-sm font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                      Marcar con tilde la mercaderia verificada (
+                      {checklistDoneCount}/{consolidated.length})
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[50vh] overflow-y-auto pr-2 pb-2">
+                      {consolidated.map((row) => (
+                        <label
+                          key={row.product_id}
+                          className={`flex items-center gap-3 border rounded-xl p-3.5 cursor-pointer hover:border-[#e85d04]/50 transition-all shadow-sm ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800'}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-5 w-5 md:h-4 md:w-4 accent-[#e85d04] cursor-pointer"
+                            checked={Boolean(checklistByProduct[row.product_id])}
+                            onChange={(e) =>
+                              setChecklistByProduct((prev) => ({
+                                ...prev,
+                                [row.product_id]: e.target.checked,
+                              }))
+                            }
+                          />
+                          <span className="text-sm md:text-xs font-bold line-clamp-2 leading-tight">
+                            {row.name}
+                          </span>
+                          <span className={`ml-auto text-sm font-black ${isDark ? 'text-emerald-400' : 'text-emerald-500'}`}>
+                            {Boolean(checklistByProduct[row.product_id]) ? "✔" : ""}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex justify-end pt-3">
+                      <button
+                        className="btn btn-primary w-full sm:w-auto py-3 md:py-2.5 px-6 text-sm font-bold shadow-md"
+                        disabled={!allChecklistDone || !allPickPlanValid}
+                        onClick={() => setControlStep("cashier")}
+                      >
+                        Confirmar checklist
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {controlStep === "cashier" ? (
+                  <div className="space-y-5">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">
+                        Nombre Cajero
+                      </label>
+                      <input
+                        className={`input mt-1.5 w-full focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-900'}`}
+                        value={cashierName}
+                        onChange={(e) => setCashierName(e.target.value)}
+                      />
+                    </div>
+                    <SignaturePad
+                      label="Firma Cajero"
+                      initialDataUrl={cashierSignature}
+                      onChange={setCashierSignature}
+                    />
+                    <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-4">
+                      <button
+                        className={`btn w-full sm:w-auto py-3 md:py-2 ${isDark ? 'btn-muted' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'}`}
+                        onClick={() => setControlStep("checklist")}
+                      >
+                        Volver
+                      </button>
+                      <button
+                        className="btn btn-primary w-full sm:w-auto py-3 md:py-2 font-bold px-6 shadow-md"
+                        disabled={!cashierName.trim() || !cashierSignature}
+                        onClick={() => setControlStep("driver")}
+                      >
+                        Continuar a firma chofer
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {controlStep === "driver" ? (
+                  <div className="space-y-5">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">
+                        Nombre Chofer
+                      </label>
+                      <input
+                        className={`input mt-1.5 w-full focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-900'}`}
+                        value={driverName}
+                        onChange={(e) => setDriverName(e.target.value)}
+                      />
+                    </div>
+                    <SignaturePad
+                      label="Firma Chofer"
+                      initialDataUrl={driverSignature}
+                      onChange={setDriverSignature}
+                    />
+                    <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 pt-4">
+                      <button
+                        className={`btn w-full sm:w-auto py-3 md:py-2 ${isDark ? 'btn-muted' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'}`}
+                        onClick={() => setControlStep("cashier")}
+                      >
+                        Volver
+                      </button>
+                      <button
+                        className="btn btn-primary w-full sm:w-auto py-3 md:py-2 font-bold px-6 shadow-md"
+                        disabled={
+                          savingControl || !driverName.trim() || !driverSignature
+                        }
+                        onClick={saveControl}
+                      >
+                        {savingControl ? "Guardando..." : "Guardar control firmado"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null
+        }
+
+        {
+          showPrintPrompt ? (
+            <div className="fixed inset-0 bg-zinc-900/60 dark:bg-black/70 backdrop-blur-sm z-[210] flex items-center justify-center p-4">
+              <div className={`w-full max-w-xl rounded-2xl border shadow-xl p-6 space-y-5 ${isDark ? 'bg-[#121212] border-zinc-800' : 'bg-white border-zinc-200'}`}>
+                <div className="text-lg font-black uppercase tracking-tight text-[#e85d04]">
+                  Imprimir boleta consolidado
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-500 mb-1.5 block">
+                    Impresora
+                  </label>
+                  <select
+                    className={`input w-full focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-900'}`}
+                    value={selectedPrinter}
+                    onChange={(e) => setSelectedPrinter(e.target.value)}
+                  >
+                    {!availablePrinters.length && (
+                      <option value="">Predeterminada del sistema</option>
+                    )}
+                    {availablePrinters.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.displayName || p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={`border rounded-xl p-4 max-h-80 overflow-auto shadow-inner ${isDark ? 'bg-white text-black border-zinc-800' : 'bg-zinc-50 text-zinc-800 border-zinc-200'}`}>
+                  <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight flex flex-col items-center">
+                    {printPreviewLines.map((line, idx) => (
+                      <div key={`${line}-${idx}`} className="whitespace-pre">
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className={`text-xs font-medium px-3 py-2 rounded-lg border flex items-center gap-2 ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-50 text-zinc-500 border-zinc-100'}`}>
+                  <span>Atajos:</span>
+                  <span className={`font-black px-1.5 py-0.5 rounded border shadow-sm ${isDark ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-white text-zinc-800 border-zinc-200'}`}>
+                    Y
+                  </span>{" "}
+                  = SI,{" "}
+                  <span className={`font-black px-1.5 py-0.5 rounded border shadow-sm ${isDark ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-white text-zinc-800 border-zinc-200'}`}>
+                    N
+                  </span>{" "}
+                  = NO
+                </div>
+                <div className="flex justify-end gap-3 pt-3">
+                  <button
+                    type="button"
+                    className={`btn ${isDark ? 'btn-muted' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200'}`}
+                    onClick={() => resolvePrintConfirmation(false)}
+                  >
+                    No (N)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary px-6 shadow-md"
+                    onClick={() => resolvePrintConfirmation(true)}
+                  >
+                    Si (Y)
                   </button>
                 </div>
               </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {showPrintPrompt ? (
-        <div className="fixed inset-0 bg-black/70 z-[210] flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-[#121212] p-5 space-y-4">
-            <div className="text-lg font-black uppercase tracking-wider text-[#e85d04]">
-              Imprimir boleta consolidado
             </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-zinc-500">Impresora</label>
-              <select
-                className="input mt-1"
-                value={selectedPrinter}
-                onChange={(e) => setSelectedPrinter(e.target.value)}
-              >
-                {!availablePrinters.length && <option value="">Predeterminada del sistema</option>}
-                {availablePrinters.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.displayName || p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="border border-zinc-800 rounded-lg bg-white text-black p-3 max-h-80 overflow-auto">
-              <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight">
-                {printPreviewLines.map((line, idx) => (
-                  <div key={`${line}-${idx}`} className="whitespace-pre">
-                    {line}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="text-xs text-zinc-500">
-              Atajos: <span className="font-black text-zinc-300">Y</span> = SI,{" "}
-              <span className="font-black text-zinc-300">N</span> = NO
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" className="btn btn-muted" onClick={() => resolvePrintConfirmation(false)}>
-                No (N)
-              </button>
-              <button type="button" className="btn btn-primary" onClick={() => resolvePrintConfirmation(true)}>
-                Si (Y)
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          ) : null
+        }
+      </div>
     </div>
   );
 }
 
-function Stat({ title, value }) {
+function Stat({ title, subtitle = "Total", value, icon, isDark }) {
   return (
-    <div className="bg-[#121212] border border-zinc-800/80 rounded-lg p-4">
-      <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">{title}</div>
-      <div className="text-2xl font-black text-white mt-1">{value}</div>
+    <div className={`${isDark ? 'bg-[#1a1a1c] border-zinc-800' : 'bg-white border-zinc-200'} border rounded-xl p-4 md:p-5 shadow-sm flex items-start gap-4`}>
+      <div className={`text-3xl mt-1 opacity-90 ${isDark ? '' : 'inherit'}`}>
+        {icon}
+      </div>
+      <div>
+        <div className={`text-sm md:text-xs xl:text-sm font-bold leading-tight ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+          {title}
+        </div>
+        <div className={`text-[10px] mt-1 uppercase font-black tracking-wider ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>
+          {subtitle}: <span className={isDark ? 'text-zinc-300' : 'text-zinc-900'}>{value}</span>
+        </div>
+      </div>
     </div>
   );
 }

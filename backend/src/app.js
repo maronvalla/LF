@@ -23,8 +23,10 @@ const rubrosRoutes = require("./routes/rubros.routes");
 const importExportRoutes = require("./routes/import-export.routes");
 const settingsRoutes = require("./routes/settings.routes");
 const cajaRoutes = require("./routes/caja.routes");
+const currentAccountRoutes = require("./routes/current-account.routes");
 
 const app = express();
+const jsonLimit = process.env.API_JSON_LIMIT || "12mb";
 
 app.use(
   cors({
@@ -35,7 +37,8 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: jsonLimit }));
+app.use(express.urlencoded({ limit: jsonLimit, extended: true }));
 app.use(cookieParser());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -59,8 +62,15 @@ app.use("/api/rubros", authRequired, rubrosRoutes);
 app.use("/api/import-export", authRequired, importExportRoutes);
 app.use("/api/settings", authRequired, settingsRoutes);
 app.use("/api/caja", authRequired, cajaRoutes);
+app.use("/api/current-account", authRequired, currentAccountRoutes);
 
 app.use((err, _req, res, _next) => {
+  if (err?.status === 413 || err?.type === "entity.too.large") {
+    return res.status(413).json({
+      ok: false,
+      message: "El archivo es demasiado grande. Intenta con una foto mas liviana.",
+    });
+  }
   const status = err.status || 500;
   console.error(err);
   res.status(status).json({ ok: false, message: err.message || "Error interno" });

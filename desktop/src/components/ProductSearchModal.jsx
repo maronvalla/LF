@@ -1,136 +1,199 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function ProductSearchModal({ products, onClose, onSelect }) {
-    const [search, setSearch] = useState("");
-    const [selectedIndex, setSelectedIndex] = useState(0);
-    const inputRef = useRef(null);
+  const [search, setSearch] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef(null);
 
-    // Filter products
-    const filtered = search.trim() === ""
-        ? products.slice(0, 100)
-        : products.filter(p =>
-            (p.name || "").toLowerCase().includes(search.toLowerCase()) ||
-            (p.sku || "").toLowerCase().includes(search.toLowerCase())
-        ).slice(0, 100);
+  const filtered =
+    search.trim() === ""
+      ? products.slice(0, 100)
+      : products
+        .filter(
+          (product) =>
+            (product.name || "").toLowerCase().includes(search.toLowerCase()) ||
+            (product.codigo || product.sku || "").toLowerCase().includes(search.toLowerCase())
+        )
+        .slice(0, 100);
 
-    useEffect(() => {
-        // Auto focus the input when modal opens
-        setTimeout(() => inputRef.current?.focus(), 50);
-    }, []);
+  useEffect(() => {
+    const id = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(id);
+  }, []);
 
-    // Reset selection when search changes
-    useEffect(() => {
-        setSelectedIndex(0);
-    }, [search]);
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [search]);
 
-    const handleKeyDown = (e) => {
-        if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            onClose();
-        } else if (e.key === "ArrowDown") {
-            e.preventDefault();
-            e.stopPropagation();
-            setSelectedIndex(prev => Math.min(prev + 1, filtered.length - 1));
-        } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            e.stopPropagation();
-            setSelectedIndex(prev => Math.max(prev - 1, 0));
-        } else if (e.key === "Enter") {
-            e.preventDefault();
-            e.stopPropagation();
-            if (filtered[selectedIndex]) {
-                onSelect(filtered[selectedIndex]);
-            }
-        }
-    };
+  const tableContainerRef = useRef(null);
 
-    return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-            <div
-                className="bg-[#121212] border border-zinc-800/80 rounded-2xl w-full max-w-5xl shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col h-[600px] overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-                onKeyDown={handleKeyDown}
-            >
-                {/* Header */}
-                <div className="bg-[#1a1a1a] px-6 py-4 border-b border-zinc-800/80 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-[#e85d04] tracking-tight flex items-center gap-2">
-                        <span className="text-2xl">🔍</span> Búsqueda de Artículos
-                    </h2>
-                    <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-1 bg-zinc-800/50 hover:bg-zinc-700/50 rounded">
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
+  useEffect(() => {
+    if (tableContainerRef.current) {
+      const activeRow = tableContainerRef.current.querySelector(`tr[data-index="${selectedIndex}"]`);
+      if (activeRow) {
+        activeRow.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [selectedIndex]);
 
-                {/* Search Bar */}
-                <div className="p-4 bg-[#151515] border-b border-zinc-800/80 flex items-center gap-4">
-                    <label className="text-xs font-black uppercase tracking-widest text-zinc-400 whitespace-nowrap">Artículo:</label>
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        className="flex-1 bg-[#1a1a1a] border border-zinc-800/80 rounded-lg p-3 text-lg font-bold text-white outline-none focus:border-[#e85d04] placeholder-zinc-600 transition-colors"
-                        placeholder="Tipeá descripción o código..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                    />
-                </div>
+  const handleKeyDown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
 
-                {/* Grid */}
-                <div className="flex-1 overflow-auto bg-[#121212] relative">
-                    <table className="w-full text-xs text-left select-none">
-                        <thead className="text-[10px] uppercase text-zinc-500 tracking-widest border-b border-zinc-800/80 sticky top-0 bg-[#151515] z-10 shadow-md">
-                            <tr>
-                                <th className="px-4 py-3 font-black w-24">Código</th>
-                                <th className="px-4 py-3 font-black">Descripción</th>
-                                <th className="px-4 py-3 font-black w-32">Marca/Rubro</th>
-                                <th className="px-4 py-3 font-black w-24 text-right">Stock (Local)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filtered.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="text-center py-10 text-zinc-600 font-bold uppercase tracking-widest">
-                                        No se encontraron artículos
-                                    </td>
-                                </tr>
-                            ) : (
-                                filtered.map((p, i) => (
-                                    <tr
-                                        key={p.id}
-                                        className={`cursor-pointer transition-colors border-b border-zinc-800/30 ${i === selectedIndex ? "bg-[#e85d04] text-white" : "text-zinc-300 hover:bg-zinc-800/40"
-                                            }`}
-                                        onClick={() => onSelect(p)}
-                                    >
-                                        <td className={`px-4 py-2.5 font-mono font-bold ${i === selectedIndex ? "text-white" : "text-zinc-400"}`}>
-                                            {p.sku || p.id}
-                                        </td>
-                                        <td className="px-4 py-2.5 font-bold text-sm uppercase">
-                                            {p.name}
-                                        </td>
-                                        <td className={`px-4 py-2.5 ${i === selectedIndex ? "text-white/80" : "text-zinc-500"}`}>
-                                            {p.category || "-"}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right font-bold text-[13px]">
-                                            {p.stock_local ?? p.stock ?? 0}
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedIndex((prev) => Math.min(prev + 1, filtered.length - 1));
+      return;
+    }
 
-                {/* Footer */}
-                <div className="bg-[#151515] border-t border-zinc-800/80 px-6 py-3 flex justify-between items-center text-xs font-black tracking-widest text-zinc-500 uppercase">
-                    <span>{filtered.length} Registros</span>
-                    <div className="flex gap-4">
-                        <span className="flex items-center gap-1.5"><kbd className="bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono">↑↓</kbd> Navegar</span>
-                        <span className="flex items-center gap-1.5"><kbd className="bg-[#e85d04]/20 text-[#e85d04] px-1.5 py-0.5 rounded font-mono">ENTER</kbd> Seleccionar</span>
-                        <span className="flex items-center gap-1.5"><kbd className="bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono">ESC</kbd> Salir</span>
-                    </div>
-                </div>
-            </div>
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedIndex((prev) => Math.max(prev - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (filtered[selectedIndex]) {
+        onSelect(filtered[selectedIndex]);
+      }
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+      <div
+        className="flex max-h-[85vh] h-[600px] w-full max-w-[980px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-900/10 animate-in zoom-in-95 duration-200"
+        onKeyDown={handleKeyDown}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-6 py-4">
+          <h2 className="flex items-center gap-3 text-lg font-bold tracking-tight text-zinc-800">
+            <svg className="h-6 w-6 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <span>Búsqueda de Artículos</span>
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-200 hover:text-zinc-900"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-    );
+
+        {/* Search Input Area */}
+        <div className="flex flex-col gap-2 border-b border-zinc-200 bg-white px-6 py-5">
+          <div className="relative flex items-center">
+            <input
+              ref={inputRef}
+              type="text"
+              className="w-full rounded-xl border-2 border-zinc-200 bg-zinc-50/50 px-4 py-3 pl-12 text-base font-semibold text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 placeholder:font-medium focus:border-amber-500 focus:bg-white focus:ring-4 focus:ring-amber-500/10"
+              placeholder="Tipea descripción, código o SKU..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <svg className="absolute left-4 h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Results Table */}
+        <div ref={tableContainerRef} className="flex-1 overflow-auto bg-zinc-50/50 p-6">
+          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="sticky top-0 z-10 border-b border-zinc-200 bg-zinc-100/80 text-xs font-bold uppercase tracking-wider text-zinc-600 backdrop-blur-md">
+                <tr>
+                  <th className="w-32 px-5 py-3.5">Código / SKU</th>
+                  <th className="px-5 py-3.5">Descripción</th>
+                  <th className="w-32 px-5 py-3.5 text-right">P. Minorista</th>
+                  <th className="w-32 px-5 py-3.5 text-right">P. Mayorista</th>
+                  <th className="w-32 px-5 py-3.5 text-right">Stock (Local)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                      No se encontraron artículos
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((product, index) => {
+                    const isSelected = index === selectedIndex;
+                    return (
+                      <tr
+                        key={product.id}
+                        data-index={index}
+                        className={`cursor-pointer transition-colors ${isSelected
+                          ? "bg-amber-50 shadow-[inset_2px_0_0_#d97706]"
+                          : "bg-white hover:bg-zinc-50"
+                          }`}
+                        onClick={() => onSelect(product)}
+                      >
+                        <td className={`px-5 py-3 font-mono text-xs font-bold ${isSelected ? "text-amber-900" : "text-zinc-500"}`}>
+                          {product.codigo || product.sku || product.id}
+                        </td>
+                        <td className={`px-5 py-3 font-bold uppercase ${isSelected ? "text-amber-900" : "text-zinc-800"}`}>
+                          {product.name}
+                        </td>
+                        <td className={`px-5 py-3 text-right font-medium ${isSelected ? "text-amber-700" : "text-emerald-600"}`}>
+                          <span className="font-bold">${Number(product.priceMinorista || 0).toLocaleString()}</span>
+                        </td>
+                        <td className={`px-5 py-3 text-right font-medium ${isSelected ? "text-amber-700" : "text-emerald-600"}`}>
+                          {product.priceMayorista != null && product.priceMayorista > 0 ? (
+                            <span className="font-bold">${Number(product.priceMayorista).toLocaleString()}</span>
+                          ) : (
+                            <span className="text-zinc-400">-</span>
+                          )}
+                        </td>
+                        <td className={`px-5 py-3 text-right font-bold xl:text-base ${isSelected ? "text-amber-900" : "text-zinc-700"}`}>
+                          {product.stock_local ?? product.stock ?? 0}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-zinc-200 bg-white px-6 py-4">
+          <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+            {filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}
+          </span>
+          <div className="flex gap-6">
+            <span className="flex items-center gap-2 text-xs font-bold text-zinc-500">
+              <div className="flex gap-1">
+                <kbd className="flex h-5 min-w-[20px] items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-1 font-mono text-[10px] text-zinc-600 shadow-sm">↑</kbd>
+                <kbd className="flex h-5 min-w-[20px] items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-1 font-mono text-[10px] text-zinc-600 shadow-sm">↓</kbd>
+              </div>
+              Navegar
+            </span>
+            <span className="flex items-center gap-2 text-xs font-bold text-zinc-500">
+              <kbd className="flex h-5 min-w-[36px] items-center justify-center rounded border border-amber-300 bg-amber-100 px-1.5 font-mono text-[10px] text-amber-800 shadow-sm">ENTER</kbd>
+              Seleccionar
+            </span>
+            <span className="flex items-center gap-2 text-xs font-bold text-zinc-500">
+              <kbd className="flex h-5 min-w-[28px] items-center justify-center rounded border border-zinc-300 bg-zinc-100 px-1.5 font-mono text-[10px] text-zinc-600 shadow-sm">ESC</kbd>
+              Salir
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
