@@ -26,6 +26,7 @@ export default function Caja({ user, setToast }) {
   const [canOpen, setCanOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [suppliers, setSuppliers] = useState([]);
+  const [lastConsolidatedAmount, setLastConsolidatedAmount] = useState(0);
 
   // Modal de apertura
   const [showOpenModal, setShowOpenModal] = useState(false);
@@ -101,6 +102,7 @@ export default function Caja({ user, setToast }) {
       setSession(data.session);
       setMovements(data.movements || []);
       setCanOpen(Boolean(data.canOpen));
+      setLastConsolidatedAmount(Number(data.lastConsolidatedAmount || 0));
       if (data.canOpen) {
         const carryOverAmount = Number(data.session?.closing_total || 0);
         setOpeningAmount(carryOverAmount > 0 ? carryOverAmount.toFixed(2) : "");
@@ -303,7 +305,7 @@ export default function Caja({ user, setToast }) {
     const llegaConsolidado = window.confirm("Llego el consolidado del dia para sumarlo?");
     setConsolidatedIncluded(llegaConsolidado);
     if (llegaConsolidado) {
-      setConsolidatedAmount("");
+      setConsolidatedAmount(lastConsolidatedAmount > 0 ? String(lastConsolidatedAmount) : "");
     }
     setShowCloseModal(true);
   };

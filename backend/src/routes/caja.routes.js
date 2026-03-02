@@ -111,7 +111,16 @@ router.get(
        LIMIT 1`,
       [today]
     );
+    const { rows: lastConsolidatedRows } = await pool.query(
+      `SELECT consolidated_amount
+       FROM cash_register_sessions
+       WHERE consolidated_included = true
+         AND consolidated_amount IS NOT NULL
+       ORDER BY COALESCE(closed_at, updated_at, created_at) DESC
+       LIMIT 1`
+    );
     const currentSession = openRows[0] || latestRows[0];
+    const lastConsolidatedAmount = Number(lastConsolidatedRows[0]?.consolidated_amount || 0);
 
     if (currentSession) {
       // Obtener movimientos de la sesión
@@ -127,10 +136,11 @@ router.get(
         session: currentSession,
         movements: movRes.rows,
         canOpen: !openRows[0],
+        lastConsolidatedAmount,
       });
     }
 
-    res.json({ session: null, movements: [], canOpen: true });
+    res.json({ session: null, movements: [], canOpen: true, lastConsolidatedAmount });
   })
 );
 

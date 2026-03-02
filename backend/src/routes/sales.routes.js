@@ -130,6 +130,98 @@ async function restoreSaleInventory(client, saleId, actorUserId) {
   }
 }
 
+async function getSaleTotalAmount(client, saleId) {
+  const totalRes = await client.query(
+    "SELECT COALESCE(SUM(line_total), 0)::numeric AS total FROM sale_items WHERE sale_id = $1",
+    [saleId]
+  );
+  return Number(totalRes.rows[0]?.total || 0);
+}
+
+function getSaleCashImpactAmount(sale, totalAmount) {
+  const method = String(sale?.payment_method || "").trim().toUpperCase();
+  if (method === "EFECTIVO") return Number(totalAmount || 0);
+  if (method === "MIXTO") return Number(totalAmount || 0) / 2;
+  return 0;
+}
+
+async function getOpenCashRegisterSession(client) {
+  const today = new Date().toISOString().slice(0, 10);
+  const sessionRes = await client.query(
+    `SELECT * FROM cash_register_sessions
+     WHERE date = $1 AND status = 'ABIERTA'
+     ORDER BY opened_at DESC
+     LIMIT 1`,
+    [today]
+  );
+  return sessionRes.rows[0] || null;
+}
+
+async function registerSaleCancellationCashMovement(client, sale, actorUserId, totalAmount) {
+  const cashImpact = getSaleCashImpactAmount(sale, totalAmount);
+  if (cashImpact <= 0) {
+    return { adjusted: false, amount: 0 };
+  }
+
+  const session = await getOpenCashRegisterSession(client);
+  if (!session) {
+    throw new Error("No hay caja abierta para registrar la devolucion en caja de esta venta anulada");
+  }
+
+  await client.query(
+    `INSERT INTO cash_register_movements (session_id, movement_type, amount, concept, created_by)
+     VALUES ($1, 'RETIRO', $2, $3, $4)`,
+    [
+      session.id,
+      cashImpact,
+      `Anulacion de venta ${sale.sale_number || sale.id}`,
+      actorUserId,
+    ]
+  );
+
+  return { adjusted: true, amount: cashImpact, sessionId: session.id };
+}
+
+async function reverseCustomerCurrentAccountDebit(client, sale, actorUserId, totalAmount) {
+  if (String(sale?.payment_method || "").trim().toUpperCase() !== "CUENTA_CORRIENTE" || !sale?.customer_id) {
+    return { adjusted: false, amount: 0 };
+  }
+
+  const debitRes = await client.query(
+    `SELECT COALESCE(SUM(amount), 0)::int AS total
+     FROM customer_current_account_entries
+     WHERE sale_id = $1 AND customer_id = $2 AND entry_type = 'DEBITO'`,
+    [sale.id, sale.customer_id]
+  );
+
+  const debitAmount = Number(debitRes.rows[0]?.total || 0) || Number(totalAmount || 0);
+  if (debitAmount <= 0) {
+    return { adjusted: false, amount: 0 };
+  }
+
+  await client.query(
+    `INSERT INTO customer_current_account_entries(
+      customer_id,
+      sale_id,
+      entry_type,
+      amount,
+      payment_method,
+      description,
+      created_by
+    )
+    VALUES ($1, $2, 'PAGO', $3, 'ANULACION_VENTA', $4, $5)`,
+    [
+      sale.customer_id,
+      sale.id,
+      debitAmount,
+      `Anulacion de venta ${sale.sale_number || sale.id}`,
+      actorUserId,
+    ]
+  );
+
+  return { adjusted: true, amount: debitAmount };
+}
+
 function canChargeSales(user) {
   const role = String(user?.role || "").toUpperCase();
   return role === "ADMIN" || role === "CAJERO";
@@ -266,11 +358,7 @@ async function registerCustomerCurrentAccountDebit(client, sale, actorUserId) {
     throw new Error("El cliente no tiene cuenta corriente habilitada");
   }
 
-  const totalRes = await client.query(
-    "SELECT COALESCE(SUM(line_total), 0)::int AS total FROM sale_items WHERE sale_id = $1",
-    [sale.id]
-  );
-  const totalAmount = Number(totalRes.rows[0]?.total || 0);
+  const totalAmount = await getSaleTotalAmount(client, sale.id);
 
   await client.query(
     `
@@ -819,10 +907,28 @@ router.post(
         return res.status(400).json({ message: "No se puede anular una venta ya entregada" });
       }
 
-      const shouldRestoreInventory = ["PREPARADO", "CARGADO"].includes(String(sale.status || "").toUpperCase());
+      const saleStatus = String(sale.status || "").toUpperCase();
+      const saleType = String(sale.sale_type || "").toUpperCase();
+      const totalAmount = await getSaleTotalAmount(client, sale.id);
+      const shouldRestoreInventory =
+        ["PREPARADO", "CARGADO"].includes(saleStatus) ||
+        (saleType === "MOSTRADOR" && saleStatus === "COMPLETADO");
       if (shouldRestoreInventory) {
         await restoreSaleInventory(client, sale.id, req.user.id);
       }
+
+      const cashRegisterAdjustment = await registerSaleCancellationCashMovement(
+        client,
+        sale,
+        req.user.id,
+        totalAmount
+      );
+      const currentAccountAdjustment = await reverseCustomerCurrentAccountDebit(
+        client,
+        sale,
+        req.user.id,
+        totalAmount
+      );
 
       await client.query("DELETE FROM delivery_sales WHERE sale_id = $1", [sale.id]);
 
@@ -852,6 +958,8 @@ router.post(
           after: updated.rows[0],
           reason: parsed.data.reason,
           restoredInventory: shouldRestoreInventory,
+          cashRegisterAdjustment,
+          currentAccountAdjustment,
         },
         client,
       });
@@ -864,6 +972,9 @@ router.post(
       res.json({ ...updated.rows[0], cancel_reason: parsed.data.reason });
     } catch (err) {
       await client.query("ROLLBACK");
+      if (String(err?.message || "").includes("No hay caja abierta para registrar la devolucion")) {
+        return res.status(400).json({ message: err.message });
+      }
       throw err;
     } finally {
       client.release();
