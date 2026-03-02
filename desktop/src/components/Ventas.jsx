@@ -275,6 +275,12 @@ export default function Ventas({
     onPendingOrderHandled?.();
   };
 
+  const confirmRemoveSelectedItem = () => {
+    if (readOnlyPendingOrder) return false;
+    if (!draft.items.length) return false;
+    return window.confirm("Seguro que quieres borrar el producto seleccionado?");
+  };
+
   const loadPendingOrder = async (orderId) => {
     if (!orderId || !canChargeOrders) return;
     try {
@@ -366,8 +372,7 @@ export default function Ventas({
       }
       if (removeShortcut) {
         e.preventDefault();
-        if (readOnlyPendingOrder) return;
-        if (!draft.items.length) return;
+        if (!confirmRemoveSelectedItem()) return;
         setDraft((prev) => ({
           ...prev,
           items: prev.items.filter((_, index) => index !== selectedIdx),
@@ -397,8 +402,8 @@ export default function Ventas({
         }
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canOverrideLinePrice, readOnlyPendingOrder, selectedIdx, draft.items]); // need selectedIdx dependency to access current value
 
   useEffect(() => {
@@ -1072,7 +1077,7 @@ export default function Ventas({
   };
 
   const removeSelectedItem = () => {
-    if (readOnlyPendingOrder) return;
+    if (!confirmRemoveSelectedItem()) return;
     setDraft((prev) => ({ ...prev, items: prev.items.filter((_, index) => index !== selectedIdx) }));
     setSelectedIdx((index) => Math.max(0, index - 1));
   };

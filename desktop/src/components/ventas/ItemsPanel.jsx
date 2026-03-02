@@ -110,7 +110,7 @@ export default function ItemsPanel({
             type="button"
             disabled={disabled}
           >
-            Buscar Producto (F3)
+            Buscar Producto (F5)
           </button>
         </div>
 
