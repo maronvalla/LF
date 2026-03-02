@@ -316,6 +316,11 @@ export default function Ventas({
     onPendingOrderHandled?.();
   };
 
+  const clearPendingOrderContext = () => {
+    setActiveOrderId("");
+    onPendingOrderHandled?.();
+  };
+
   const confirmRemoveSelectedItem = () => {
     if (readOnlyPendingOrder) return false;
     if (!draft.items.length) return false;
@@ -453,6 +458,23 @@ export default function Ventas({
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canOverrideLinePrice, readOnlyPendingOrder, selectedIdx, draft.items]); // need selectedIdx dependency to access current value
+
+  useEffect(() => {
+    const onEscape = (event) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector(".fixed.inset-0")) return;
+      if (!draft.items.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const confirmed = window.confirm("Hay productos cargados. Seguro que quieres salir?");
+      if (confirmed) {
+        window.dispatchEvent(new CustomEvent("app:navigate-dashboard"));
+      }
+    };
+
+    window.addEventListener("keydown", onEscape, true);
+    return () => window.removeEventListener("keydown", onEscape, true);
+  }, [draft.items.length]);
 
   useEffect(() => {
     if (!pendingOrderId || !canChargeOrders) return;
@@ -676,6 +698,7 @@ export default function Ventas({
 
   const addItem = (product) => {
     if (readOnlyPendingOrder) return;
+    clearPendingOrderContext();
     const qtyToAdd = Number(qty || 1);
     const availableStock = getProductLocalStock(product);
     const existingQty = Number(
@@ -834,6 +857,7 @@ export default function Ventas({
     const ticket = {
       lines: Array.isArray(lines) ? lines : [],
       logoDataUrl: ticketConfig.logoDataUrl || "",
+      fontSize: Number(ticketConfig.fontSize || 13),
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -856,7 +880,7 @@ export default function Ventas({
     if (!printable) throw new Error("No se pudo abrir ventana de impresion");
     printable.document.write(`
       <html><head><title>Ticket</title><style>
-      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: 11px; }
+      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: ${Math.min(18, Math.max(9, Number(ticketConfig.fontSize || 13) || 13))}px; }
       .logo-wrap { text-align: center; margin-bottom: 2mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
       .line { white-space: pre; }
@@ -875,11 +899,15 @@ export default function Ventas({
     if (!draft.items.length) {
       throw new Error("Venta vacia");
     }
-    if (isDelivery && !draft.customerId) {
-      throw new Error("Para envio debes seleccionar un cliente registrado");
-    }
     if (isDelivery && !String(draft.deliveryAddress || "").trim()) {
       throw new Error("Para envio la direccion es obligatoria");
+    }
+    if (!String(draft.customerName || "").trim()) {
+      throw new Error(
+        isDelivery
+          ? "Ingresa al menos un nombre para el envio"
+          : "Ingresa un nombre para el cliente de mostrador"
+      );
     }
     if (!isDelivery && !draft.customerId && !String(draft.customerName || "").trim()) {
       throw new Error("Ingresa un nombre para el cliente de mostrador");
@@ -990,6 +1018,12 @@ export default function Ventas({
       resetSaleState();
       onOrdersChanged?.();
     } catch (err) {
+      if (
+        activeOrderId &&
+        /la orden ya fue cobrada/i.test(String(err?.response?.data?.message || err?.message || ""))
+      ) {
+        clearPendingOrderContext();
+      }
       setToast?.({ message: err.response?.data?.message || err.message || "Error al guardar", type: "error" });
     }
   };
@@ -999,16 +1033,17 @@ export default function Ventas({
       setToast?.({ message: "Presupuesto vacio", type: "error" });
       return;
     }
-    if (isDelivery && !draft.customerId) {
-      setToast?.({ message: "Para envio debes seleccionar un cliente registrado", type: "error" });
-      return;
-    }
     if (isDelivery && !String(draft.deliveryAddress || "").trim()) {
       setToast?.({ message: "Para envio la direccion es obligatoria", type: "error" });
       return;
     }
-    if (!isDelivery && !draft.customerId && !String(draft.customerName || "").trim()) {
-      setToast?.({ message: "Ingresa un nombre para el cliente del presupuesto", type: "error" });
+    if (!String(draft.customerName || "").trim()) {
+      setToast?.({
+        message: isDelivery
+          ? "Ingresa al menos un nombre para el envio"
+          : "Ingresa un nombre para el cliente del presupuesto",
+        type: "error",
+      });
       return;
     }
 
@@ -1101,6 +1136,7 @@ export default function Ventas({
 
   const handleCustomerChange = (id) => {
     if (readOnlyPendingOrder) return;
+    clearPendingOrderContext();
     if (!id) {
       setDraft((prev) => ({
         ...prev,
@@ -1126,6 +1162,7 @@ export default function Ventas({
 
   const handleToggleDelivery = () => {
     if (readOnlyPendingOrder) return;
+    clearPendingOrderContext();
     setIsDelivery((prev) => {
       const next = !prev;
       if (next) {
@@ -1167,6 +1204,7 @@ export default function Ventas({
   };
 
   const removeSelectedItem = () => {
+    clearPendingOrderContext();
     if (!confirmRemoveSelectedItem()) return;
     setDraft((prev) => ({ ...prev, items: prev.items.filter((_, index) => index !== selectedIdx) }));
     setSelectedIdx((index) => Math.max(0, index - 1));

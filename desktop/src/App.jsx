@@ -75,6 +75,12 @@ export default function App() {
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
   }, []);
 
+  useEffect(() => {
+    const handleNavigateDashboard = () => setActiveTab("Dashboard");
+    window.addEventListener("app:navigate-dashboard", handleNavigateDashboard);
+    return () => window.removeEventListener("app:navigate-dashboard", handleNavigateDashboard);
+  }, []);
+
   const role = String(user?.role || "").toUpperCase();
   const allowedTabs = useMemo(() => ROLE_TABS[role] || [], [role]);
   const canManageCashOrders = role === "ADMIN" || role === "CAJERO";

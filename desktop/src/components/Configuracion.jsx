@@ -1182,6 +1182,19 @@ export default function Configuracion({ user, setToast }) {
           />
         </div>
 
+        <div className="max-w-xs">
+          <label className={sectionLabelClass}>Tamano de letra del ticket</label>
+          <input
+            type="number"
+            min="9"
+            max="18"
+            className={`${panelInputClass} mt-1`}
+            value={ticketConfig.fontSize || 13}
+            onChange={(e) => setTicketField("fontSize", e.target.value)}
+            disabled={!canEdit}
+          />
+        </div>
+
         <div className="rounded-xl border border-zinc-800 bg-[#0f1115] p-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -1267,7 +1280,10 @@ export default function Configuracion({ user, setToast }) {
                   />
                 </div>
               ) : null}
-              <div className="font-mono text-[11px] leading-5 text-zinc-900 whitespace-pre-wrap break-words">
+              <div
+                className="font-mono leading-5 text-zinc-900 whitespace-pre-wrap break-words"
+                style={{ fontSize: `${Math.min(18, Math.max(9, Number(ticketConfig.fontSize || 13) || 13))}px` }}
+              >
                 {ticketPreview.lines.join("\n")}
               </div>
             </div>

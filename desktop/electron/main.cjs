@@ -17,8 +17,7 @@ function createWindow() {
 
   win.webContents.on("before-input-event", (event, input) => {
     const key = String(input.key || "").toUpperCase();
-    const isReloadShortcut =
-      key === "F5" || ((input.control || input.meta) && key === "R");
+    const isReloadShortcut = (input.control || input.meta) && key === "R";
 
     if (!isReloadShortcut) return;
     event.preventDefault();
@@ -43,6 +42,7 @@ function escapeHtml(value) {
 function buildTicketHtml(ticket) {
   const lines = Array.isArray(ticket?.lines) ? ticket.lines : [];
   const logoDataUrl = typeof ticket?.logoDataUrl === "string" ? ticket.logoDataUrl : "";
+  const fontSize = Math.min(18, Math.max(9, Number(ticket?.fontSize || 13) || 13));
   const body = lines
     .map((line) => `<div class="line">${escapeHtml(line)}</div>`)
     .join("");
@@ -58,7 +58,7 @@ function buildTicketHtml(ticket) {
   <style>
     @page { size: 58mm auto; margin: 2mm; }
     html, body { margin: 0; padding: 0; width: 58mm; background: #fff; color: #000; }
-    body { font-family: "Courier New", monospace; font-size: 11px; line-height: 1.25; }
+    body { font-family: "Courier New", monospace; font-size: ${fontSize}px; line-height: 1.25; }
     .ticket { width: 54mm; padding: 1mm 0; }
     .logo-wrap { text-align: center; margin: 0 0 2mm; }
     .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); image-rendering: crisp-edges; }
