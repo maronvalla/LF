@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Geolocation } from '@capacitor/geolocation';
+import { Capacitor } from '@capacitor/core';
 import { io } from 'socket.io-client';
 import CustomerLocationModal from './drivers/CustomerLocationModal';
+import TrackingPlugin from '../plugins/TrackingPlugin';
 
 import api, { socketOrigin } from '../api';
 
@@ -143,78 +145,63 @@ export default function DriverApp({ onLogout }) {
     };
 
     let cancelled = false;
+    let listenerHandle = null;
 
-    const startCapacitorWatch = async () => {
-      try {
-        // Request permissions explicitly (required on Android)
-        const perm = await Geolocation.requestPermissions({ permissions: ['location'] });
-        if (perm?.location === 'denied') {
-          if (!cancelled) setTrackingState('GPS_DENEGADO');
-          return;
-        }
-
-        // Emit first position immediately
+    const startTracking = async () => {
+      if (Capacitor.isNativePlatform()) {
+        // Android: use foreground service so GPS keeps running when screen locks
         try {
-          const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 15000 });
-          if (!cancelled) emitCoords(pos.coords.latitude, pos.coords.longitude);
-        } catch {
-          // Non-fatal — watch will still provide updates
-        }
-
-        // Start continuous watch
-        const watchId = await Geolocation.watchPosition(
-          { enableHighAccuracy: true },
-          (position, err) => {
-            if (cancelled) return;
-            if (err) {
-              setTrackingState('GPS_ERROR');
-              return;
-            }
-            if (position) {
-              emitCoords(position.coords.latitude, position.coords.longitude);
-            }
-          }
-        );
-        watchIdRef.current = watchId;
-      } catch (err) {
-        if (cancelled) return;
-        const code = Number(err?.code);
-        if (code === 1) {
-          setTrackingState('GPS_DENEGADO');
-        } else {
-          // Capacitor not available (desktop/web), fall back to browser API
-          if (!navigator.geolocation) {
-            setTrackingState('SIN_GEOLOCATION');
+          const perm = await Geolocation.requestPermissions({ permissions: ['location'] });
+          if (perm?.location === 'denied') {
+            if (!cancelled) setTrackingState('GPS_DENEGADO');
             return;
           }
-          navigator.geolocation.getCurrentPosition(
-            (position) => {
-              if (cancelled) return;
-              emitCoords(position.coords.latitude, position.coords.longitude);
-              watchIdRef.current = navigator.geolocation.watchPosition(
-                (pos) => { if (!cancelled) emitCoords(pos.coords.latitude, pos.coords.longitude); },
-                () => { if (!cancelled) setTrackingState('GPS_ERROR'); },
-                { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
-              );
-            },
-            () => { if (!cancelled) setTrackingState('GPS_ERROR'); },
-            { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-          );
+        } catch {
+          // Permission API unavailable — proceed anyway; service will handle the error
         }
+
+        try {
+          listenerHandle = await TrackingPlugin.addListener('location', (data) => {
+            if (!cancelled) emitCoords(data.lat, data.lng);
+          });
+          await TrackingPlugin.startTracking();
+        } catch (err) {
+          if (!cancelled) {
+            setTrackingState('GPS_ERROR');
+            setTrackingError(String(err?.message || 'Error al iniciar servicio GPS'));
+          }
+        }
+      } else {
+        // Web/desktop: browser geolocation fallback
+        if (!navigator.geolocation) {
+          setTrackingState('SIN_GEOLOCATION');
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (cancelled) return;
+            emitCoords(position.coords.latitude, position.coords.longitude);
+            watchIdRef.current = navigator.geolocation.watchPosition(
+              (pos) => { if (!cancelled) emitCoords(pos.coords.latitude, pos.coords.longitude); },
+              () => { if (!cancelled) setTrackingState('GPS_ERROR'); },
+              { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+            );
+          },
+          () => { if (!cancelled) setTrackingState('GPS_ERROR'); },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+        );
       }
     };
 
-    startCapacitorWatch();
+    startTracking();
 
     return () => {
       cancelled = true;
-      if (watchIdRef.current != null) {
-        Geolocation.clearWatch({ id: watchIdRef.current }).catch(() => {
-          // If it was a browser watchId (number), try clearing via browser API too
-          if (navigator.geolocation) {
-            try { navigator.geolocation.clearWatch(watchIdRef.current); } catch { /* ignore */ }
-          }
-        });
+      if (Capacitor.isNativePlatform()) {
+        listenerHandle?.remove();
+        TrackingPlugin.stopTracking().catch(() => {});
+      } else if (watchIdRef.current != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
       }
       socket.disconnect();
     };
