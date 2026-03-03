@@ -18,6 +18,7 @@ export default function SearchableSelect({
     const [query, setQuery] = useState("");
     const [highlightedIndex, setHighlightedIndex] = useState(0);
     const containerRef = useRef(null);
+    const dropdownRef = useRef(null);
 
     const selectedOption = options.find(o => o.id === value);
     const displayValue = open
@@ -61,6 +62,12 @@ export default function SearchableSelect({
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        if (!open || !dropdownRef.current) return;
+        const highlightedNode = dropdownRef.current.querySelector(`[data-option-index="${highlightedIndex}"]`);
+        highlightedNode?.scrollIntoView({ block: "nearest" });
+    }, [highlightedIndex, open]);
 
     const handleKeyDown = (e) => {
         if (!open) {
@@ -129,13 +136,17 @@ export default function SearchableSelect({
             />
 
             {open && (
-                <div className={`absolute z-[60] top-full left-0 right-0 mt-1 border rounded-lg max-h-60 overflow-y-auto ${dropdownBaseClass} ${dropdownClassName}`}>
+                <div
+                    ref={dropdownRef}
+                    className={`absolute z-[60] top-full left-0 right-0 mt-1 border rounded-lg max-h-60 overflow-y-auto ${dropdownBaseClass} ${dropdownClassName}`}
+                >
                     {totalItems === 0 ? (
                         <div className={`p-3 text-xs text-center font-bold ${emptyClass}`}>Sin resultados</div>
                     ) : (
                         <>
                             {showFreeTextOption ? (
                                 <div
+                                    data-option-index={0}
                                     className={`p-2.5 cursor-pointer text-xs flex justify-between items-center border-b ${isLight ? "border-[#ececf1]" : "border-zinc-800/50"} ${highlightedIndex === 0 ? activeOptionClass : idleOptionClass} ${optionClassName}`}
                                     onClick={() => {
                                     onChange("");
@@ -153,6 +164,7 @@ export default function SearchableSelect({
                                 return (
                             <div
                                 key={opt.id}
+                                data-option-index={optionHighlightedIndex}
                                 className={`p-2.5 cursor-pointer text-xs flex justify-between items-center border-b ${isLight ? "border-[#ececf1]" : "border-zinc-800/50"} last:border-0 ${optionHighlightedIndex === highlightedIndex ? activeOptionClass : idleOptionClass} ${optionClassName}`}
                                 onClick={() => {
                                     onChange(opt.id);

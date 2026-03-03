@@ -1,10 +1,12 @@
 export default function SalesMetaBar({
   draft,
-  vendedoresActivos,
+  sellerOptions,
+  selectedSellerOption,
   listaActiva,
   priceLists,
   onSellerChange,
   onPriceListChange,
+  onInvoiceTypeChange,
   readOnly = false,
 }) {
   const lightSelectStyle = { colorScheme: "light" };
@@ -16,9 +18,12 @@ export default function SalesMetaBar({
         <label className="text-[9px] text-zinc-600 uppercase font-black tracking-wide mb-1 block">
           Comprobante
         </label>
-        <div className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-xs md:text-sm font-black text-[#d97706] min-h-[38px] flex items-center">
-          {draft.invoiceType}
-        </div>
+        <input
+          className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-xs md:text-sm font-black text-[#d97706] min-h-[38px] outline-none focus:border-[#d97706]"
+          value={draft.invoiceType}
+          onChange={(event) => onInvoiceTypeChange(event.target.value)}
+          disabled={readOnly}
+        />
       </div>
       <div>
         <label className="text-[9px] text-zinc-600 uppercase font-black tracking-wide mb-1 block">
@@ -27,13 +32,13 @@ export default function SalesMetaBar({
         <select
           className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-xs md:text-sm font-semibold text-zinc-800 outline-none focus:border-[#d97706]"
           style={lightSelectStyle}
-          value={draft.sellerId}
+          value={selectedSellerOption}
           onChange={(event) => onSellerChange(event.target.value)}
           disabled={readOnly}
         >
-          {vendedoresActivos.map((user) => (
-            <option key={user.id} value={user.id} style={lightOptionStyle}>
-              {String(user.full_name || user.fullName || user.username || "SIN NOMBRE").toUpperCase()}
+          {sellerOptions.map((option) => (
+            <option key={option.key} value={option.key} style={lightOptionStyle}>
+              {String(option.label || "SIN NOMBRE").toUpperCase()}
             </option>
           ))}
         </select>

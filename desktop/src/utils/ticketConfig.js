@@ -6,7 +6,7 @@ export const DEFAULT_TICKET_CONFIG = {
   cityLine: "Tucuman - Argentina",
   footerText: "Gracias por su compra",
   logoDataUrl: "",
-  fontSize: 13,
+  fontSize: 15,
   includeComprobante: true,
   includeTicketNumber: true,
   includeDate: true,
@@ -14,6 +14,7 @@ export const DEFAULT_TICKET_CONFIG = {
   includeSeller: true,
   includeClient: true,
   includePaymentDetail: true,
+  includeItemSeparators: true,
   customLines: [],
 };
 
@@ -34,7 +35,7 @@ export function normalizeTicketConfig(raw) {
     cityLine: asString(source.cityLine, DEFAULT_TICKET_CONFIG.cityLine),
     footerText: asString(source.footerText, DEFAULT_TICKET_CONFIG.footerText),
     logoDataUrl: asString(source.logoDataUrl, DEFAULT_TICKET_CONFIG.logoDataUrl),
-    fontSize: Math.min(18, Math.max(9, Number(source.fontSize || DEFAULT_TICKET_CONFIG.fontSize) || DEFAULT_TICKET_CONFIG.fontSize)),
+    fontSize: Math.min(32, Math.max(9, Number(source.fontSize || DEFAULT_TICKET_CONFIG.fontSize) || DEFAULT_TICKET_CONFIG.fontSize)),
     includeComprobante: Boolean(source.includeComprobante ?? DEFAULT_TICKET_CONFIG.includeComprobante),
     includeTicketNumber: Boolean(source.includeTicketNumber ?? DEFAULT_TICKET_CONFIG.includeTicketNumber),
     includeDate: Boolean(source.includeDate ?? DEFAULT_TICKET_CONFIG.includeDate),
@@ -42,6 +43,7 @@ export function normalizeTicketConfig(raw) {
     includeSeller: Boolean(source.includeSeller ?? DEFAULT_TICKET_CONFIG.includeSeller),
     includeClient: Boolean(source.includeClient ?? DEFAULT_TICKET_CONFIG.includeClient),
     includePaymentDetail: Boolean(source.includePaymentDetail ?? DEFAULT_TICKET_CONFIG.includePaymentDetail),
+    includeItemSeparators: Boolean(source.includeItemSeparators ?? DEFAULT_TICKET_CONFIG.includeItemSeparators),
     customLines,
   };
 }

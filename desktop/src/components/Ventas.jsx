@@ -154,14 +154,25 @@ export default function Ventas({
   const [draft, setDraft] = useState(
     buildEmptySaleDraft(getSuggestedDeliverySchedule(DEFAULT_DELIVERY_SHIFT_CONFIG), user?.id || "")
   );
+  const hasVentasModalOpen =
+    showPaymentModal ||
+    loadingPendingOrder ||
+    showQuickClientModal ||
+    showQuickClientMapPicker ||
+    showQtyEditModal ||
+    showPriceEditModal ||
+    showPrintPrompt ||
+    showProductModal;
 
   useEffect(() => {
     const load = async () => {
       try {
+        const usersRequest =
+          role === "ADMIN" ? api.get("/users") : Promise.resolve({ data: [] });
         const [productsRes, customersRes, usersRes, priceListsRes, sellerAliasesRes] = await Promise.allSettled([
           api.get("/products"),
           api.get("/customers"),
-          api.get("/users"),
+          usersRequest,
           api.get("/settings/price-lists"),
           api.get("/settings/seller-aliases"),
         ]);
@@ -200,7 +211,6 @@ export default function Ventas({
 
         const partialFailures = [];
         if (customersRes.status !== "fulfilled") partialFailures.push("clientes");
-        if (usersRes.status !== "fulfilled" && role === "ADMIN") partialFailures.push("usuarios");
         if (partialFailures.length) {
           setToast?.({
             message: `Se cargaron ventas con datos parciales. Revisa ${partialFailures.join(" o ")}.`,
@@ -215,7 +225,7 @@ export default function Ventas({
     setTicketConfig(loadTicketConfig());
     setDeliveryConditions(loadDeliveryConditions());
     setDeliveryShiftConfig(loadDeliveryShiftConfig());
-  }, [setToast, user]);
+  }, [role, setToast, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -386,9 +396,7 @@ export default function Ventas({
 
   useEffect(() => {
     const onKeyDown = (e) => {
-      // Si el modal de pago esta abierto o el modal de productos esta abierto, 
-      // dejamos que sus propios listeners manejen las teclas
-      if (document.querySelector(".fixed.inset-0")) return;
+      if (hasVentasModalOpen) return;
       const typing = isTypingTarget(e.target);
       const qtyShortcut = isQtyShortcut(e);
       const priceShortcut = isPriceShortcut(e);
@@ -457,12 +465,12 @@ export default function Ventas({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [canOverrideLinePrice, readOnlyPendingOrder, selectedIdx, draft.items]); // need selectedIdx dependency to access current value
+  }, [canOverrideLinePrice, draft.items, hasVentasModalOpen, readOnlyPendingOrder, selectedIdx]);
 
   useEffect(() => {
     const onEscape = (event) => {
       if (event.key !== "Escape") return;
-      if (document.querySelector(".fixed.inset-0")) return;
+      if (hasVentasModalOpen) return;
       if (!draft.items.length) return;
       event.preventDefault();
       event.stopPropagation();
@@ -474,7 +482,7 @@ export default function Ventas({
 
     window.addEventListener("keydown", onEscape, true);
     return () => window.removeEventListener("keydown", onEscape, true);
-  }, [draft.items.length]);
+  }, [draft.items.length, hasVentasModalOpen]);
 
   useEffect(() => {
     if (!pendingOrderId || !canChargeOrders) return;
@@ -666,6 +674,12 @@ export default function Ventas({
     localStorage.setItem(VENDEDOR_LOCAL_KEY, buildSellerSelectionKey(sellerId, sellerName));
   };
 
+  const selectedSellerOption = useMemo(() => {
+    const currentKey = buildSellerSelectionKey(draft.sellerId, draft.sellerName);
+    if (sellerOptions.some((option) => option.key === currentKey)) return currentKey;
+    return sellerOptions[0]?.key || "";
+  }, [draft.sellerId, draft.sellerName, sellerOptions]);
+
   useEffect(() => {
     if (!sellerOptions.length) return;
     const persistedSelection = localStorage.getItem(VENDEDOR_LOCAL_KEY);
@@ -742,6 +756,14 @@ export default function Ventas({
 
   const buildTicketLines = ({ saleData, paymentData }, opts = {}) => {
     const MAX = 32;
+    const separatorLength = (() => {
+      const size = Number(ticketConfig.fontSize || 15);
+      if (size >= 30) return 12;
+      if (size >= 26) return 14;
+      if (size >= 22) return 18;
+      if (size >= 18) return 24;
+      return MAX;
+    })();
     const docLabel = opts.docLabel || draft.invoiceType || "Factura B";
     const includePayment = opts.includePayment !== false;
     const budgetNotice = Boolean(opts.budgetNotice);
@@ -798,28 +820,31 @@ export default function Ventas({
     if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
     if (ticketConfig.addressLine) lines.push(center(ticketConfig.addressLine));
     if (ticketConfig.cityLine) lines.push(center(ticketConfig.cityLine));
-    lines.push(repeat("-", MAX));
+    lines.push(repeat("-", separatorLength));
     if (ticketConfig.includeComprobante) lines.push(leftRight("Comprobante", docLabel));
     if (ticketConfig.includeTicketNumber) lines.push(leftRight("Ticket", ticketNumber));
     if (ticketConfig.includeDate) lines.push(leftRight("Fecha", formatDate));
     if (ticketConfig.includeTime) lines.push(leftRight("Hora", formatTime));
     if (ticketConfig.includeSeller) lines.push(leftRight("Vendedor", sellerLabel.slice(0, 16)));
-    lines.push(repeat("-", MAX));
+    lines.push(repeat("-", separatorLength));
     if (ticketConfig.includeClient) {
       lines.push(`Cliente: ${customerLabel.slice(0, MAX - 9)}`);
-      lines.push(repeat("-", MAX));
+      lines.push(repeat("-", separatorLength));
     }
     lines.push(leftRight("Cant x P.Unit", "Importe"));
 
-    draft.items.forEach((item) => {
+    draft.items.forEach((item, index) => {
       const qtyLabel = Number(item.qty || 0).toString();
       const unitPrice = Number(item.unitPrice || 0);
       const lineTotal = Number(item.qty || 0) * unitPrice;
       lines.push(String(item.name || "").toUpperCase().slice(0, MAX));
       lines.push(leftRight(`${qtyLabel} x ${formatMoney(unitPrice)}`, formatMoney(lineTotal)));
+      if (ticketConfig.includeItemSeparators && index < draft.items.length - 1) {
+        lines.push(repeat(".", MAX));
+      }
     });
 
-    lines.push(repeat("-", MAX));
+    lines.push(repeat("-", separatorLength));
     lines.push(leftRight("TOTAL", formatMoney(subtotal)));
     if (ticketConfig.includePaymentDetail && includePayment) {
       lines.push(leftRight("Pago", paymentMethod));
@@ -834,7 +859,7 @@ export default function Ventas({
 
     const customLines = Array.isArray(ticketConfig.customLines) ? ticketConfig.customLines : [];
     if (customLines.length) {
-      lines.push(repeat("-", MAX));
+      lines.push(repeat("-", separatorLength));
       customLines.forEach((line) => {
         const rendered = formatCustomLine(line);
         if (rendered) lines.push(rendered.slice(0, MAX));
@@ -842,10 +867,10 @@ export default function Ventas({
     }
 
     if (budgetNotice) {
-      lines.push(repeat("-", MAX));
+      lines.push(repeat("-", separatorLength));
       lines.push(center("PRESUPUESTO SIN VALIDEZ FISCAL"));
     }
-    lines.push(repeat("-", MAX));
+    lines.push(repeat("-", separatorLength));
     if (ticketConfig.footerText) lines.push(center(ticketConfig.footerText));
     lines.push("");
     lines.push("");
@@ -857,7 +882,7 @@ export default function Ventas({
     const ticket = {
       lines: Array.isArray(lines) ? lines : [],
       logoDataUrl: ticketConfig.logoDataUrl || "",
-      fontSize: Number(ticketConfig.fontSize || 13),
+      fontSize: Number(ticketConfig.fontSize || 15),
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -880,10 +905,10 @@ export default function Ventas({
     if (!printable) throw new Error("No se pudo abrir ventana de impresion");
     printable.document.write(`
       <html><head><title>Ticket</title><style>
-      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: ${Math.min(18, Math.max(9, Number(ticketConfig.fontSize || 13) || 13))}px; }
+      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.35; }
       .logo-wrap { text-align: center; margin-bottom: 2mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
-      .line { white-space: pre; }
+      .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
       </style></head><body>
       ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
       ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
@@ -982,7 +1007,10 @@ export default function Ventas({
       const payload = buildSalePayload();
       const orderResponse = activeOrderId
         ? { data: { id: activeOrderId } }
-        : await api.post("/sales", payload);
+        : await api.post("/sales", {
+            ...payload,
+            paymentMethod: null,
+          });
       const checkoutResponse = await api.post(`/sales/${orderResponse.data.id}/checkout`, {
         paymentMethod: paymentData.paymentMethod,
         customerId: payload.customerId,
@@ -999,6 +1027,7 @@ export default function Ventas({
         { saleData: checkoutResponse?.data, paymentData },
         { docLabel: draft.invoiceType || "Factura B" }
       );
+      setShowPaymentModal(false);
       const printDecision = await askPrintConfirmation(lines, "Imprimir comprobante");
       if (printDecision?.shouldPrint) {
         try {
@@ -1014,7 +1043,6 @@ export default function Ventas({
 
       await persistCustomerPriceListChange();
       setToast?.({ message: "Venta confirmada", type: "success" });
-      setShowPaymentModal(false);
       resetSaleState();
       onOrdersChanged?.();
     } catch (err) {
@@ -1176,6 +1204,10 @@ export default function Ventas({
   const handleSearchEnter = () => {
     if (readOnlyPendingOrder) return;
     if (!search.trim()) {
+      if (!draft.items.length) {
+        codeInputRef.current?.focus();
+        return;
+      }
       if (isSellerOnly) {
         confirmAndSubmitOrderOnly();
       } else {
@@ -1319,11 +1351,15 @@ export default function Ventas({
       {/* Row 1: Top parameters */}
       <SalesMetaBar
         draft={draft}
-        vendedoresActivos={vendedoresActivos}
+        sellerOptions={sellerOptions}
+        selectedSellerOption={selectedSellerOption}
         listaActiva={listaActiva}
         priceLists={priceLists}
         onSellerChange={setVendedorActual}
         onPriceListChange={handleCambioLista}
+        onInvoiceTypeChange={(value) =>
+          setDraft((prev) => ({ ...prev, invoiceType: String(value || "") || "Factura B" }))
+        }
         readOnly={readOnlyPendingOrder}
       />
 
@@ -1387,7 +1423,7 @@ export default function Ventas({
         onSubmitBudget={submitBudget}
         onPrimaryAction={() => {
           if (isSellerOnly) {
-            submitOrderOnly();
+            confirmAndSubmitOrderOnly();
             return;
           }
           setShowPaymentModal(true);

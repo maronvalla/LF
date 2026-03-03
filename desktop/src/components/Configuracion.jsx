@@ -62,6 +62,24 @@ function centerPreviewText(text, max = 32) {
   return `${" ".repeat(left)}${value}`;
 }
 
+function leftRightPreview(left, right, max = 32) {
+  const l = String(left || "");
+  const r = String(right || "");
+  const avail = Math.max(1, max - r.length);
+  const trimmedLeft = l.length > avail ? `${l.slice(0, avail - 1)}.` : l;
+  const spaces = Math.max(1, max - trimmedLeft.length - r.length);
+  return `${trimmedLeft}${" ".repeat(spaces)}${r}`;
+}
+
+function getTicketSeparatorLength(fontSize) {
+  const size = Number(fontSize || 15);
+  if (size >= 30) return 12;
+  if (size >= 26) return 14;
+  if (size >= 22) return 18;
+  if (size >= 18) return 24;
+  return 32;
+}
+
 function formatTicketTemplateLine(line, templateVars, max = 32) {
   const rendered = String(line || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => templateVars[key] ?? "");
   if (!rendered) return "";
@@ -73,6 +91,7 @@ function formatTicketTemplateLine(line, templateVars, max = 32) {
 
 function buildTicketPreview(config) {
   const safeConfig = config || DEFAULT_TICKET_CONFIG;
+  const separator = "-".repeat(getTicketSeparatorLength(safeConfig.fontSize));
   const customLines = String(
     safeConfig.customLinesText ?? (safeConfig.customLines || []).join("\n")
   )
@@ -94,33 +113,37 @@ function buildTicketPreview(config) {
   if (safeConfig.businessName) previewLines.push(centerPreviewText(safeConfig.businessName));
   if (safeConfig.addressLine) previewLines.push(centerPreviewText(safeConfig.addressLine));
   if (safeConfig.cityLine) previewLines.push(centerPreviewText(safeConfig.cityLine));
-  previewLines.push("--------------------------------");
+  previewLines.push(separator);
   if (safeConfig.includeComprobante) previewLines.push("Comprobante: Factura B");
   if (safeConfig.includeTicketNumber) previewLines.push(`Ticket: ${templateVars.ticket}`);
   if (safeConfig.includeDate) previewLines.push(`Fecha: ${templateVars.fecha}`);
   if (safeConfig.includeTime) previewLines.push(`Hora: ${templateVars.hora}`);
   if (safeConfig.includeSeller) previewLines.push(`Vendedor: ${templateVars.vendedor}`);
-  previewLines.push("--------------------------------");
+  previewLines.push(separator);
   if (safeConfig.includeClient) {
     previewLines.push(`Cliente: ${templateVars.cliente}`);
-    previewLines.push("--------------------------------");
+    previewLines.push(separator);
   }
-  previewLines.push("2 x GASEOSA COLA      $4.500,00");
-  previewLines.push("1 x AGUA MINERAL      $3.450,00");
-  previewLines.push("--------------------------------");
+  previewLines.push(leftRightPreview("Cant x P.Unit", "Importe"));
+  previewLines.push("GASEOSA COLA");
+  previewLines.push(leftRightPreview("2 x $2.250,00", "$4.500,00"));
+  if (safeConfig.includeItemSeparators) previewLines.push("................................");
+  previewLines.push("AGUA MINERAL");
+  previewLines.push(leftRightPreview("1 x $3.450,00", "$3.450,00"));
+  previewLines.push(separator);
   previewLines.push(`TOTAL: ${templateVars.total}`);
   if (safeConfig.includePaymentDetail) {
     previewLines.push(`Pago: ${templateVars.pago}`);
   }
   if (customLines.length) {
-    previewLines.push("--------------------------------");
+    previewLines.push(separator);
     customLines.forEach((line) => {
       const rendered = formatTicketTemplateLine(line, templateVars);
       if (rendered) previewLines.push(rendered);
     });
   }
   if (safeConfig.footerText) {
-    previewLines.push("--------------------------------");
+    previewLines.push(separator);
     previewLines.push(centerPreviewText(safeConfig.footerText));
   }
 
@@ -1187,9 +1210,9 @@ export default function Configuracion({ user, setToast }) {
           <input
             type="number"
             min="9"
-            max="18"
+            max="32"
             className={`${panelInputClass} mt-1`}
-            value={ticketConfig.fontSize || 13}
+            value={ticketConfig.fontSize || 15}
             onChange={(e) => setTicketField("fontSize", e.target.value)}
             disabled={!canEdit}
           />
@@ -1229,6 +1252,7 @@ export default function Configuracion({ user, setToast }) {
             ["includeSeller", "Mostrar vendedor"],
             ["includeClient", "Mostrar cliente"],
             ["includePaymentDetail", "Mostrar detalle de pago"],
+            ["includeItemSeparators", "Separar productos"],
           ].map(([key, label]) => (
             <label key={key} className="flex items-center gap-2 text-zinc-300">
               <input
@@ -1282,7 +1306,7 @@ export default function Configuracion({ user, setToast }) {
               ) : null}
               <div
                 className="font-mono leading-5 text-zinc-900 whitespace-pre-wrap break-words"
-                style={{ fontSize: `${Math.min(18, Math.max(9, Number(ticketConfig.fontSize || 13) || 13))}px` }}
+                style={{ fontSize: `${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px`, lineHeight: 1.35 }}
               >
                 {ticketPreview.lines.join("\n")}
               </div>

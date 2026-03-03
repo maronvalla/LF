@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function ItemsPanel({
   codeInputRef,
@@ -18,11 +18,17 @@ export default function ItemsPanel({
   disabled = false,
 }) {
   const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(0);
+  const rowRefs = useRef([]);
   const showSuggestions = Boolean(search && filteredProducts.length > 0);
 
   useEffect(() => {
     setHighlightedSuggestionIndex(0);
   }, [search, filteredProducts.length]);
+
+  useEffect(() => {
+    if (selectedIdx < 0 || selectedIdx >= draftItems.length) return;
+    rowRefs.current[selectedIdx]?.scrollIntoView({ block: "nearest" });
+  }, [draftItems.length, selectedIdx]);
 
   return (
     <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl flex-[1_1_auto] min-h-0 flex flex-col relative shrink overflow-hidden">
@@ -40,12 +46,22 @@ export default function ItemsPanel({
               disabled={disabled}
               onKeyDown={(event) => {
                 if (disabled) return;
-                if (event.key === "ArrowDown" && filteredProducts.length > 0) {
+                if (event.key === "ArrowDown" && showSuggestions && filteredProducts.length > 0) {
                   event.preventDefault();
                   setHighlightedSuggestionIndex((prev) => Math.min(prev + 1, filteredProducts.length - 1));
-                } else if (event.key === "ArrowUp" && filteredProducts.length > 0) {
+                } else if (event.key === "ArrowUp" && showSuggestions && filteredProducts.length > 0) {
                   event.preventDefault();
                   setHighlightedSuggestionIndex((prev) => Math.max(prev - 1, 0));
+                } else if (event.key === "ArrowDown" && draftItems.length > 0) {
+                  event.preventDefault();
+                  const nextIndex =
+                    selectedIdx >= 0 && selectedIdx < draftItems.length - 1 ? selectedIdx + 1 : 0;
+                  onSelectItem(nextIndex);
+                } else if (event.key === "ArrowUp" && draftItems.length > 0) {
+                  event.preventDefault();
+                  const nextIndex =
+                    selectedIdx > 0 && selectedIdx < draftItems.length ? selectedIdx - 1 : 0;
+                  onSelectItem(nextIndex);
                 } else if (event.key === "Enter") {
                   event.preventDefault();
                   if (showSuggestions && filteredProducts[highlightedSuggestionIndex]) {
@@ -132,6 +148,9 @@ export default function ItemsPanel({
             {draftItems.map((item, idx) => (
               <tr
                 key={`${item.productId}-${idx}`}
+                ref={(node) => {
+                  rowRefs.current[idx] = node;
+                }}
                 onClick={() => onSelectItem(idx)}
                 className={`border-b border-[#e5e5e8] cursor-pointer ${selectedIdx === idx ? "bg-[#ffe9d2]" : "hover:bg-[#f8f8f9]"}`}
               >

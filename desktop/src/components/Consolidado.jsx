@@ -490,6 +490,7 @@ export default function Consolidado({ user, setToast }) {
     const ticket = {
       lines: Array.isArray(lines) ? lines : [],
       logoDataUrl: ticketConfig.logoDataUrl || "",
+      fontSize: Number(ticketConfig.fontSize || 15),
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -511,10 +512,10 @@ export default function Consolidado({ user, setToast }) {
     if (!printable) throw new Error("No se pudo abrir ventana de impresion");
     printable.document.write(`
       <html><head><title>Boleta consolidado</title><style>
-      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: 11px; }
+      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.35; }
       .logo-wrap { text-align: center; margin-bottom: 2mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
-      .line { white-space: pre; }
+      .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
       </style></head><body>
       ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
       ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
