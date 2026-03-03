@@ -1,5 +1,5 @@
 import { useState } from "react";
-import api, { setToken } from "../api";
+import api, { isAndroidApk, setToken } from "../api";
 
 export default function LoginView({ onLogin, onError, error }) {
   const [username, setUsername] = useState("");
@@ -13,6 +13,12 @@ export default function LoginView({ onLogin, onError, error }) {
 
     try {
       const { data } = await api.post("/auth/login", { username, password });
+      const role = String(data?.user?.role || "").toUpperCase();
+      if (isAndroidApk && role === "VENDEDOR") {
+        setToken(null);
+        onError("En la APK no se permite ingresar con el rol VENDEDOR.");
+        return;
+      }
       setToken(data?.token);
       onLogin(data?.user || null);
     } catch (err) {

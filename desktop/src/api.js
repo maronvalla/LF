@@ -10,6 +10,11 @@ const isCapacitor =
     window.location.protocol === "capacitor:" ||
     window.location.hostname === "localhost" && /android|iphone|ipad/i.test(navigator.userAgent));
 
+export const isAndroidApk =
+  typeof window !== "undefined" &&
+  (window.Capacitor?.getPlatform?.() === "android" ||
+    (isCapacitor && /android/i.test(navigator.userAgent)));
+
 // URL de producción para Capacitor
 const PRODUCTION_API = "http://146.235.245.156:4000";
 

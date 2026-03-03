@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import api, { SESSION_EXPIRED_EVENT, hydrateToken, setToken } from "./api";
+import api, { SESSION_EXPIRED_EVENT, hydrateToken, isAndroidApk, setToken } from "./api";
 import AppToast from "./components/AppToast";
 import HomeNavigation from "./components/HomeNavigation";
 import LoginView from "./components/LoginView";
@@ -60,8 +60,15 @@ export default function App() {
     api
       .get("/auth/me")
       .then((response) => {
+        const hydratedUser = response.data.user;
+        const hydratedRole = String(hydratedUser?.role || "").toUpperCase();
+        if (isAndroidApk && hydratedRole === "VENDEDOR") {
+          setToken(null);
+          setError("En la APK no se permite ingresar con el rol VENDEDOR.");
+          return;
+        }
         setError("");
-        setUser(response.data.user);
+        setUser(hydratedUser);
       })
       .catch(() => setToken(null));
   }, []);

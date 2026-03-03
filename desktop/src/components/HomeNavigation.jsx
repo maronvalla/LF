@@ -148,7 +148,7 @@ export default function HomeNavigation({
       <button
         key={tab}
         className={`group relative overflow-hidden border rounded-2xl transition-all duration-300 ${isDark ? "hover:-translate-y-1" : "hover:-translate-y-0.5"
-          } ${bgClass} ${borderClass} ${shadowClass} w-full p-4 min-h-[92px] lg:min-h-[98px] justify-self-center ${!compact ? "max-w-[214px]" : ""
+          } ${bgClass} ${borderClass} ${shadowClass} w-full p-3 min-h-[80px] lg:min-h-[80px] justify-self-center ${!compact ? "max-w-[214px]" : ""
           }`}
         onClick={() => onSelectTab(tab)}
       >
@@ -280,7 +280,7 @@ export default function HomeNavigation({
         ) : null}
 
         {sideTabs.length ? (
-          <div className="w-full lg:w-[228px] order-1 lg:fixed lg:left-6 xl:left-8 lg:top-24 xl:top-20 lg:z-20">
+          <div className="w-full lg:w-[228px] order-1 lg:fixed lg:left-6 xl:left-8 lg:top-24 xl:top-20 lg:z-20 lg:max-h-[calc(100vh-88px)] lg:overflow-y-auto scrollbar-hide">
             <div className={`relative w-full rounded-[32px] lg:p-4 ${isDark
               ? "lg:border lg:border-white/10 lg:bg-[linear-gradient(180deg,rgba(38,42,56,0.95),rgba(22,25,35,0.95))] lg:backdrop-blur-2xl lg:shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
               : "lg:border-[3px] lg:border-[#e85d04] lg:bg-[#fdfaf8] lg:shadow-lg"
@@ -297,7 +297,7 @@ export default function HomeNavigation({
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
                 </button>
 
-                <div ref={carouselRef} className="-mx-8 px-8 lg:mx-0 lg:px-0 relative flex overflow-x-auto snap-x snap-mandatory lg:grid lg:grid-cols-1 gap-4 lg:auto-rows-fr pb-4 lg:pb-0 scrollbar-hide">
+                <div ref={carouselRef} className="-mx-8 px-8 lg:mx-0 lg:px-0 relative flex overflow-x-auto snap-x snap-mandatory lg:grid lg:grid-cols-1 gap-3 lg:auto-rows-fr pb-4 lg:pb-0 scrollbar-hide">
                   {sideTabs.map((tab) => (
                     <div key={tab} className="block w-[240px] sm:w-[280px] lg:w-auto lg:min-w-0 flex-shrink-0 snap-center shrink-0">
                       {renderTabButton(tab, true)}
