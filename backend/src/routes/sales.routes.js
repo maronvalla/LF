@@ -960,7 +960,7 @@ router.post(
             status = 'ANULADO',
             delivery_status = CASE
               WHEN COALESCE(NULLIF(TRIM(UPPER(delivery_status)), ''), 'PENDIENTE') = 'ENTREGADO' THEN delivery_status
-              ELSE 'ANULADO'
+              ELSE NULL
             END,
             updated_at = now()
           WHERE id = $1

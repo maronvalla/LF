@@ -14,7 +14,7 @@ export default function PrintPromptModal({
     if (!trimmed) return "min-h-[4px]";
     if (/^[-.]{6,}$/.test(trimmed)) return "text-center tracking-[0.18em] text-[0.78em] leading-none text-zinc-500 my-1";
     if (/^TOTAL\b/i.test(trimmed)) return "font-black text-[1.08em] mt-2";
-    if (/^\d+\s*x\s*\$/.test(trimmed)) return "text-[0.92em] text-zinc-700";
+    if (/^\d+\s*x\s*\$/.test(trimmed)) return "font-bold text-zinc-900";
     if (leadingSpaces > 0) return "text-center tracking-[0.04em]";
     if (!trimmed.includes(":") && trimmed === trimmed.toUpperCase() && trimmed.length > 6) {
       return "font-bold mt-1";

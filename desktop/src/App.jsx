@@ -170,6 +170,16 @@ export default function App() {
     }
   };
 
+  const handleCancelPendingOrder = async (orderId) => {
+    try {
+      await api.post(`/sales/${orderId}/anular`, { reason: "Anulada desde panel de caja" });
+      setPendingCashOrders((prev) => prev.filter((o) => o.id !== orderId));
+      setToast({ message: "Orden anulada", type: "success" });
+    } catch (err) {
+      setToast({ message: err.response?.data?.message || "No se pudo anular la orden", type: "error" });
+    }
+  };
+
   const handleLogout = () => {
     setToken(null);
     setUser(null);
@@ -253,6 +263,7 @@ export default function App() {
             setPendingOrderToOpen(orderId);
             setActiveTab("🏷️ Ventas");
           }}
+          onCancelPendingOrder={handleCancelPendingOrder}
         />
       ) : (
         <main className="flex-1 h-screen flex flex-col relative animate-in fade-in slide-in-from-bottom-4 duration-300">

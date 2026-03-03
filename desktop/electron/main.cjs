@@ -15,14 +15,6 @@ function createWindow() {
     },
   });
 
-  win.webContents.on("before-input-event", (event, input) => {
-    const key = String(input.key || "").toUpperCase();
-    const isReloadShortcut = (input.control || input.meta) && key === "R";
-
-    if (!isReloadShortcut) return;
-    event.preventDefault();
-  });
-
   if (isDev) {
     win.loadURL("http://localhost:5173");
     return;
@@ -89,7 +81,7 @@ function buildTicketHtml(ticket) {
     .line.title { font-weight: 900; font-size: 1.15em; margin-bottom: 0.5mm; }
     .line.separator { text-align: center; letter-spacing: 0.12em; font-size: 0.78em; line-height: 1; color: #444; margin: 0.5mm 0; }
     .line.item-name { font-weight: 700; letter-spacing: 0.02em; margin-top: 0.75mm; }
-    .line.meta { font-size: 0.92em; color: #222; margin-top: -0.1mm; }
+    .line.meta { font-size: 1em; font-weight: 700; color: #111; margin-top: -0.1mm; }
     .line.total { font-weight: 800; font-size: 1.08em; margin-top: 1mm; }
     .line.spacer { margin: 0; min-height: 1.1mm; }
     .line.body { color: #111; }

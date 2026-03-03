@@ -12,6 +12,7 @@ export default function SearchableSelect({
     optionClassName = "",
     freeTextValue = "",
     onFreeTextChange = null,
+    onCommit = null,
     theme = "dark",
     forceOpenSignal = 0,
 }) {
@@ -102,6 +103,7 @@ export default function SearchableSelect({
                 onChange("");
                 onFreeTextChange(query);
                 setOpen(false);
+                onCommit?.();
                 return;
             }
 
@@ -111,10 +113,12 @@ export default function SearchableSelect({
                 if (onFreeTextChange) onFreeTextChange(filtered[optionIndex].label);
                 setOpen(false);
                 setQuery("");
+                onCommit?.();
             } else if (onFreeTextChange) {
                 onChange("");
                 onFreeTextChange(query);
                 setOpen(false);
+                onCommit?.();
             }
         }
     };
@@ -162,6 +166,7 @@ export default function SearchableSelect({
                                     onFreeTextChange(query);
                                     setOpen(false);
                                     setQuery("");
+                                    onCommit?.();
                                 }}
                             >
                                     <div className="font-bold truncate">Usar "{query}" como cliente de mostrador</div>
@@ -180,6 +185,7 @@ export default function SearchableSelect({
                                     if (onFreeTextChange) onFreeTextChange(opt.label);
                                     setOpen(false);
                                     setQuery("");
+                                    onCommit?.();
                                 }}
                                 onMouseEnter={() => setHighlightedIndex(optionHighlightedIndex)}
                             >

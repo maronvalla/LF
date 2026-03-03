@@ -108,8 +108,10 @@ export default function HomeNavigation({
   onLogout,
   pendingCashOrders = [],
   onOpenPendingOrder,
+  onCancelPendingOrder,
 }) {
   const carouselRef = useRef(null);
+  const [cancelConfirmId, setCancelConfirmId] = useState(null);
 
   const scrollCarousel = (direction) => {
     if (carouselRef.current) {
@@ -254,26 +256,68 @@ export default function HomeNavigation({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {pendingCashOrders.slice(0, 6).map((order) => (
-                <button
+                <div
                   key={order.id}
-                  type="button"
-                  onClick={() => onOpenPendingOrder?.(order.id)}
-                  className={`text-left rounded-2xl border px-4 py-3 transition-all ${
+                  className={`relative rounded-2xl border transition-all overflow-hidden ${
                     isDark
-                      ? "bg-black/25 border-white/10 hover:border-amber-400/50 hover:bg-black/35"
-                      : "bg-white border-amber-200 hover:border-amber-400 hover:bg-amber-50"
+                      ? "bg-black/25 border-white/10"
+                      : "bg-white border-amber-200"
                   }`}
                 >
-                  <div className={`text-sm font-black uppercase truncate ${isDark ? "text-white" : "text-zinc-900"}`}>
-                    {order.customer_name || "CONSUMIDOR FINAL"}
-                  </div>
-                  <div className={`mt-1 text-[11px] uppercase tracking-[0.16em] ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
-                    Orden {order.sale_number || order.id}
-                  </div>
-                  <div className={`mt-2 text-lg font-black ${isDark ? "text-amber-300" : "text-amber-700"}`}>
-                    ${Number(order.total_amount || 0).toFixed(2)}
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => cancelConfirmId === order.id ? null : onOpenPendingOrder?.(order.id)}
+                    className={`text-left w-full px-4 py-3 transition-all ${
+                      isDark ? "hover:bg-black/20" : "hover:bg-amber-50"
+                    }`}
+                  >
+                    <div className={`text-sm font-black uppercase truncate pr-14 ${isDark ? "text-white" : "text-zinc-900"}`}>
+                      {order.customer_name || "CONSUMIDOR FINAL"}
+                    </div>
+                    <div className={`mt-1 text-[11px] uppercase tracking-[0.16em] ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
+                      Orden {order.sale_number || order.id}
+                    </div>
+                    <div className={`mt-2 text-lg font-black ${isDark ? "text-amber-300" : "text-amber-700"}`}>
+                      ${Number(order.total_amount || 0).toFixed(2)}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setCancelConfirmId(order.id); }}
+                    className={`absolute top-2 right-2 text-[10px] font-black uppercase px-2 py-1 rounded-lg transition-colors ${
+                      isDark
+                        ? "bg-red-900/40 hover:bg-red-800/60 text-red-300 border border-red-700/40"
+                        : "bg-red-50 hover:bg-red-100 text-red-600 border border-red-200"
+                    }`}
+                  >
+                    Anular
+                  </button>
+                  {cancelConfirmId === order.id ? (
+                    <div className={`absolute inset-0 flex items-center justify-center gap-2 rounded-2xl ${
+                      isDark ? "bg-black/85" : "bg-white/92"
+                    }`}>
+                      <span className={`text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}`}>
+                        ¿Anular esta orden?
+                      </span>
+                      <button
+                        type="button"
+                        className="text-[11px] font-black uppercase px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                        onClick={() => { onCancelPendingOrder?.(order.id); setCancelConfirmId(null); }}
+                      >
+                        Sí
+                      </button>
+                      <button
+                        type="button"
+                        className={`text-[11px] font-black uppercase px-3 py-1 rounded-lg ${
+                          isDark ? "bg-zinc-700 hover:bg-zinc-600 text-white" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                        }`}
+                        onClick={() => setCancelConfirmId(null)}
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ))}
             </div>
           </div>

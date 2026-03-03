@@ -59,22 +59,6 @@ export default function Inventario({ user, setToast }) {
     if (typeof resolver === "function") resolver(Boolean(value));
   };
 
-  useEffect(() => {
-    if (!confirmState) return;
-    const onKey = (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        resolveConfirm(true);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        resolveConfirm(false);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [confirmState]);
 
   const {
     stockControlState,

@@ -350,6 +350,17 @@ export default function Ventas({
     onPendingOrderHandled?.();
   };
 
+  const handleEditActiveOrder = async () => {
+    if (!activeOrderId) return;
+    try {
+      await api.post(`/sales/${activeOrderId}/anular`, { reason: "Editada y reemplazada desde caja" });
+      clearPendingOrderContext();
+      setToast?.({ message: "Orden desbloqueada para edición", type: "success" });
+    } catch (err) {
+      setToast?.({ message: err.response?.data?.message || "No se pudo desbloquear la orden", type: "error" });
+    }
+  };
+
   const openCustomerSearch = () => {
     if (hasVentasModalOpen) return;
     customerSelectRef.current?.focus();
@@ -476,7 +487,9 @@ export default function Ventas({
       const productShortcut = e.key === "F5";
       const focusSearchShortcut = e.key === "Enter";
       const removeShortcut =
-        (e.ctrlKey || e.metaKey) && String(e.key || "").toLowerCase() === "r";
+        (e.ctrlKey || e.metaKey) && String(e.key || "").toLowerCase() === "x";
+      const deliveryShortcut =
+        (e.ctrlKey || e.metaKey) && String(e.key || "").toLowerCase() === "e";
 
       if (
         typing &&
@@ -485,14 +498,19 @@ export default function Ventas({
         !customerShortcut &&
         !productShortcut &&
         !focusSearchShortcut &&
-        !removeShortcut
+        !removeShortcut &&
+        !deliveryShortcut
       ) {
         return;
       }
 
       if (focusSearchShortcut && !typing) {
         e.preventDefault();
-        focusCodeSearch();
+        if (draft.items.length > 0) {
+          triggerPrimarySalesAction();
+        } else {
+          focusCodeSearch();
+        }
       }
       if (customerShortcut) {
         e.preventDefault();
@@ -506,6 +524,10 @@ export default function Ventas({
         e.preventDefault();
         removeSelectedItem();
       }
+      if (deliveryShortcut) {
+        e.preventDefault();
+        handleToggleDelivery();
+      }
       if (qtyShortcut) {
         e.preventDefault();
         openQtyEditorForSelection();
@@ -513,6 +535,14 @@ export default function Ventas({
       if (priceShortcut && canOverrideLinePrice) {
         e.preventDefault();
         openPriceEditorForSelection();
+      }
+      if (!typing && (e.key === "ArrowDown" || e.key === "ArrowUp") && draft.items.length > 0) {
+        e.preventDefault();
+        setSelectedIdx((i) =>
+          e.key === "ArrowDown"
+            ? Math.min(i + 1, draft.items.length - 1)
+            : Math.max(i - 1, 0)
+        );
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -529,36 +559,24 @@ export default function Ventas({
     const onEscape = async (event) => {
       if (event.key !== "Escape") return;
       if (hasVentasModalOpen) return;
-      if (!draft.items.length) return;
-      if (isTypingTarget(event.target)) return;
+      if (isTypingTarget(event.target)) {
+        event.preventDefault();
+        event.target.blur();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
-      const confirmed = await showConfirm("Hay productos cargados.\n¿Seguro que quieres salir?");
-      if (confirmed) {
-        window.dispatchEvent(new CustomEvent("app:navigate-dashboard"));
+      if (draft.items.length > 0) {
+        const confirmed = await showConfirm("Hay productos cargados.\n¿Seguro que quieres salir?");
+        if (!confirmed) return;
       }
+      window.dispatchEvent(new CustomEvent("app:navigate-dashboard"));
     };
 
     window.addEventListener("keydown", onEscape, true);
     return () => window.removeEventListener("keydown", onEscape, true);
   }, [draft.items.length, hasVentasModalOpen]);
 
-  useEffect(() => {
-    if (!confirmState) return;
-    const onKey = (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        resolveConfirm(true);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        resolveConfirm(false);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [confirmState]);
 
   useEffect(() => {
     if (!pendingOrderId || !canChargeOrders) return;
@@ -935,9 +953,11 @@ export default function Ventas({
     draft.items.forEach((item, index) => {
       const qtyLabel = Number(item.qty || 0).toString();
       const unitPrice = Number(item.unitPrice || 0);
+      const lineTotal = Number(item.qty || 0) * unitPrice;
       const itemName = String(item.name || "").toUpperCase();
 
-      lines.push(`[ ] ${qtyLabel} ${itemName} · ${formatMoney(unitPrice)}`);
+      lines.push(leftRight(`${qtyLabel} x ${formatMoney(unitPrice)}`, formatMoney(lineTotal)));
+      lines.push(itemName);
 
       if (ticketConfig.includeItemSeparators && index < draft.items.length - 1) {
         lines.push(repeat(".", Math.min(MAX, 20)));
@@ -952,9 +972,6 @@ export default function Ventas({
       if (paymentMethod === "MIXTO") {
         lines.push(leftRight("Efectivo", formatMoney(paymentData?.cashAmount)));
         lines.push(leftRight("Transfer.", formatMoney(paymentData?.transferAmount)));
-      } else if (paymentMethod === "EFECTIVO") {
-        lines.push(leftRight("Abona con", formatMoney(paymentData?.cashGiven)));
-        lines.push(leftRight("Vuelto", formatMoney(paymentData?.changeAmount)));
       }
     }
 
@@ -1453,8 +1470,17 @@ export default function Ventas({
   return (
     <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-xl bg-[#ededee] p-1 text-zinc-900">
       {readOnlyPendingOrder ? (
-        <div className="mx-1 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
-          Orden pendiente cargada para cobro. Los items y el cliente quedan bloqueados hasta completar el pago.
+        <div className="mx-1 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 flex items-center justify-between gap-2">
+          <span className="text-sm font-bold text-amber-800">
+            Orden cargada para cobro. Items y cliente bloqueados.
+          </span>
+          <button
+            type="button"
+            className="shrink-0 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-400 font-black px-3 py-1 rounded-lg transition-colors text-[11px] uppercase"
+            onClick={handleEditActiveOrder}
+          >
+            Editar orden
+          </button>
         </div>
       ) : null}
       {loadingPendingOrder ? (
@@ -1488,6 +1514,7 @@ export default function Ventas({
         onCustomerChange={handleCustomerChange}
         onToggleDelivery={handleToggleDelivery}
         onOpenCustomerSearch={openCustomerSearch}
+        onCustomerCommit={() => setTimeout(() => focusCodeSearch(), 50)}
         onOpenQuickClient={() => setShowQuickClientModal(true)}
         onCustomerNameChange={(value) => {
           if (readOnlyPendingOrder) return;

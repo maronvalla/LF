@@ -130,7 +130,10 @@ const buildReprintLines = (sale: ReprintSaleDetail, config: TicketConfig): strin
 
   const totalQty = sale.items.reduce((s, i) => s + Number(i.qty || 0), 0);
   sale.items.forEach((item, idx) => {
-    lines.push(`[ ] ${Number(item.qty || 0)} ${String(item.name || "").toUpperCase()} · ${fmt(item.unitPrice)}`);
+    const qty = Number(item.qty || 0);
+    const unitPrice = Number(item.unitPrice || 0);
+    lines.push(leftRight(`${qty} x ${fmt(unitPrice)}`, fmt(qty * unitPrice)));
+    lines.push(String(item.name || "").toUpperCase());
     if (config.includeItemSeparators && idx < sale.items.length - 1) {
       lines.push(repeat(".", Math.min(MAX, 20)));
     }
@@ -510,13 +513,13 @@ export default function ConsultarVentas() {
                     <td className="p-3 text-center">
                       <div className="flex justify-center gap-2">
                         {/* Ver comprobante de transferencia */}
-                        {(venta.metodoPago === "TRANSFERENCIA" || venta.metodoPago === "MIXTO" || Boolean(venta.comprobanteUrl)) ? (
+                        {Boolean(venta.comprobanteUrl) ? (
                           <button
                             title="Ver Comprobante"
                             onClick={() => setSelectedReceipt(venta.comprobanteUrl || "")}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-300 bg-white text-[10px] font-black text-zinc-700 shadow-sm transition-all hover:border-sky-500 hover:bg-sky-600 hover:text-white"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 shadow-sm transition-all hover:border-sky-500 hover:bg-sky-600 hover:text-white"
                           >
-                            <span>OJO</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                           </button>
                         ) : (
                           <div className="w-8 h-8" />

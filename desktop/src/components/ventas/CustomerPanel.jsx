@@ -13,6 +13,7 @@ export default function CustomerPanel({
   onOpenQuickClient,
   onOpenCustomerSearch,
   onCustomerNameChange,
+  onCustomerCommit,
   shiftOptions = [],
   onShiftChange,
   onPaymentConditionChange,
@@ -58,6 +59,7 @@ export default function CustomerPanel({
             optionClassName="border-[#ececf1]"
             className={readOnly ? "pointer-events-none opacity-70 flex-1 min-w-[200px]" : "flex-1 min-w-[200px]"}
             forceOpenSignal={customerForceOpenSignal}
+            onCommit={onCustomerCommit}
           />
         </div>
       </div>

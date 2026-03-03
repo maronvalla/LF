@@ -13,10 +13,13 @@ export default function QtyEditModal({
   const inputRef = useRef(null);
 
   useEffect(() => {
-    const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    input.select();
+    const id = setTimeout(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    }, 50);
+    return () => clearTimeout(id);
   }, []);
 
   return (
