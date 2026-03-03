@@ -53,6 +53,8 @@ export default function Compras({ user, setToast }) {
     receiptImageDataUrl: "",
     receiptImageName: "",
   });
+  const hasComprasModalOpen =
+    showQtyEditModal || showCostEditModal || showProductModal || showHistoryModal;
 
   useEffect(() => {
     const load = async () => {
@@ -93,7 +95,7 @@ export default function Compras({ user, setToast }) {
 
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (document.querySelector(".fixed.inset-0")) return;
+      if (hasComprasModalOpen) return;
       const typing = isTypingTarget(e.target);
       const qtyShortcut = isQtyShortcut(e);
       const priceShortcut = isPriceShortcut(e);
@@ -127,7 +129,7 @@ export default function Compras({ user, setToast }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canOverrideLinePrice, draft.items, selectedIdx]);
+  }, [canOverrideLinePrice, draft.items, hasComprasModalOpen, selectedIdx]);
 
   const subtotal = useMemo(
     () => draft.items.reduce((acc, i) => acc + Number(i.qty) * Number(i.unitCost), 0),

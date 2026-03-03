@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { productMatchesSearch } from "../utils/productSearch";
 
+const getProductLocalStock = (product) => Number(product?.stock_local ?? product?.stockLocal ?? 0);
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
 export default function ProductSearchModal({ products, onClose, onSelect }) {
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -9,8 +17,37 @@ export default function ProductSearchModal({ products, onClose, onSelect }) {
 
   const filtered =
     search.trim() === ""
-      ? products.slice(0, 100)
-      : products.filter((product) => productMatchesSearch(product, search)).slice(0, 100);
+      ? products
+          .slice()
+          .sort((a, b) => {
+            const stockDiff = getProductLocalStock(b) - getProductLocalStock(a);
+            if (stockDiff !== 0) return stockDiff;
+            return String(a.name || "").localeCompare(String(b.name || ""));
+          })
+          .slice(0, 100)
+      : products
+          .filter((product) => productMatchesSearch(product, search))
+          .sort((a, b) => {
+            const normalizedQuery = normalizeSearchText(search);
+            const aStock = getProductLocalStock(a);
+            const bStock = getProductLocalStock(b);
+            const aAvailable = aStock > 0 ? 1 : 0;
+            const bAvailable = bStock > 0 ? 1 : 0;
+            if (aAvailable !== bAvailable) return bAvailable - aAvailable;
+
+            const aName = normalizeSearchText(a.name);
+            const bName = normalizeSearchText(b.name);
+            const aStartsWithName = aName.startsWith(normalizedQuery) ? 1 : 0;
+            const bStartsWithName = bName.startsWith(normalizedQuery) ? 1 : 0;
+            if (aStartsWithName !== bStartsWithName) return bStartsWithName - aStartsWithName;
+
+            const aIncludesName = aName.includes(normalizedQuery) ? 1 : 0;
+            const bIncludesName = bName.includes(normalizedQuery) ? 1 : 0;
+            if (aIncludesName !== bIncludesName) return bIncludesName - aIncludesName;
+
+            return aName.localeCompare(bName);
+          })
+          .slice(0, 100);
 
   useEffect(() => {
     const id = setTimeout(() => inputRef.current?.focus(), 50);
@@ -190,7 +227,7 @@ export default function ProductSearchModal({ products, onClose, onSelect }) {
                             isSelected ? "text-amber-900" : "text-zinc-700"
                           }`}
                         >
-                          {product.stock_local ?? product.stock ?? 0}
+                          {getProductLocalStock(product)}
                         </td>
                       </tr>
                     );

@@ -100,7 +100,18 @@ export default function ItemsPanel({
                   >
                     <div>
                       <div className="text-sm font-bold text-zinc-900 uppercase">{product.name}</div>
-                      <div className="mt-1 text-xs text-zinc-500">{product.codigo || product.sku || "-"}</div>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
+                        <span>{product.codigo || product.sku || "-"}</span>
+                        {Number(product.stock_local ?? product.stockLocal ?? 0) > 0 ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-bold text-emerald-700">
+                            Stock {Number(product.stock_local ?? product.stockLocal ?? 0)}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-rose-100 px-2 py-0.5 font-bold text-rose-700">
+                            Sin stock
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="text-lg font-bold text-[#d97706]">
                       ${Number(getProductPrice(product, listaActiva) || 0).toFixed(2)}

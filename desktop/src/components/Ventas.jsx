@@ -52,6 +52,12 @@ const parseOptionalCoordinate = (value) => {
   return Number.isFinite(parsed) ? parsed : NaN;
 };
 const getProductLocalStock = (product) => Number(product?.stock_local ?? product?.stockLocal ?? 0);
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 const getUserDisplayName = (user) =>
   String(user?.full_name || user?.fullName || user?.username || "SIN NOMBRE").trim();
 const buildSellerSelectionKey = (sellerId, sellerName = "") =>
@@ -705,8 +711,28 @@ export default function Ventas({
   const filteredProducts = useMemo(() => {
     const q = search.trim();
     if (!q) return [];
+    const normalizedQuery = normalizeSearchText(q);
     return products
       .filter((p) => productMatchesSearch(p, q))
+      .sort((a, b) => {
+        const aStock = getProductLocalStock(a);
+        const bStock = getProductLocalStock(b);
+        const aAvailable = aStock > 0 ? 1 : 0;
+        const bAvailable = bStock > 0 ? 1 : 0;
+        if (aAvailable !== bAvailable) return bAvailable - aAvailable;
+
+        const aName = normalizeSearchText(a.name);
+        const bName = normalizeSearchText(b.name);
+        const aStartsWithName = aName.startsWith(normalizedQuery) ? 1 : 0;
+        const bStartsWithName = bName.startsWith(normalizedQuery) ? 1 : 0;
+        if (aStartsWithName !== bStartsWithName) return bStartsWithName - aStartsWithName;
+
+        const aIncludesName = aName.includes(normalizedQuery) ? 1 : 0;
+        const bIncludesName = bName.includes(normalizedQuery) ? 1 : 0;
+        if (aIncludesName !== bIncludesName) return bIncludesName - aIncludesName;
+
+        return aName.localeCompare(bName);
+      })
       .slice(0, 20);
   }, [products, search]);
 

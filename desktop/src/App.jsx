@@ -5,6 +5,11 @@ import HomeNavigation from "./components/HomeNavigation";
 import LoginView from "./components/LoginView";
 import { ROLE_TABS, SHORTCUTS } from "./config/navigation";
 
+function isTypingTarget(target) {
+  const tag = String(target?.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+}
+
 const ConsultarVentas = lazy(() => import("./components/ConsultarVentas"));
 const DriverApp = lazy(() => import("./components/DriverApp"));
 const AdminTrackingMap = lazy(() => import("./components/AdminTrackingMap"));
@@ -96,6 +101,7 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.defaultPrevented) return;
+      if (isTypingTarget(event.target)) return;
 
       const allowedShortcuts = Object.fromEntries(
         Object.entries(SHORTCUTS).filter(([, tab]) => allowedTabs.includes(tab))

@@ -40,6 +40,10 @@ export default function LoginView({ onLogin, onError, error }) {
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             autoFocus
+            autoComplete="username"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
           />
         </div>
         <div>
@@ -49,6 +53,10 @@ export default function LoginView({ onLogin, onError, error }) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             type="password"
+            autoComplete="current-password"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
           />
         </div>
         {error ? <div className="text-sm text-rose-400">{error}</div> : null}
