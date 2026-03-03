@@ -7,6 +7,8 @@ export const DEFAULT_TICKET_CONFIG = {
   footerText: "Gracias por su compra",
   logoDataUrl: "",
   fontSize: 15,
+  paperWidthMm: 58,
+  contentWidthMm: 50,
   includeComprobante: true,
   includeTicketNumber: true,
   includeDate: true,
@@ -36,6 +38,11 @@ export function normalizeTicketConfig(raw) {
     footerText: asString(source.footerText, DEFAULT_TICKET_CONFIG.footerText),
     logoDataUrl: asString(source.logoDataUrl, DEFAULT_TICKET_CONFIG.logoDataUrl),
     fontSize: Math.min(32, Math.max(9, Number(source.fontSize || DEFAULT_TICKET_CONFIG.fontSize) || DEFAULT_TICKET_CONFIG.fontSize)),
+    paperWidthMm: Math.min(80, Math.max(48, Number(source.paperWidthMm || DEFAULT_TICKET_CONFIG.paperWidthMm) || DEFAULT_TICKET_CONFIG.paperWidthMm)),
+    contentWidthMm: Math.min(
+      Math.min(76, Math.max(40, Number(source.contentWidthMm || DEFAULT_TICKET_CONFIG.contentWidthMm) || DEFAULT_TICKET_CONFIG.contentWidthMm)),
+      Math.min(80, Math.max(48, Number(source.paperWidthMm || DEFAULT_TICKET_CONFIG.paperWidthMm) || DEFAULT_TICKET_CONFIG.paperWidthMm)) - 6
+    ),
     includeComprobante: Boolean(source.includeComprobante ?? DEFAULT_TICKET_CONFIG.includeComprobante),
     includeTicketNumber: Boolean(source.includeTicketNumber ?? DEFAULT_TICKET_CONFIG.includeTicketNumber),
     includeDate: Boolean(source.includeDate ?? DEFAULT_TICKET_CONFIG.includeDate),
@@ -46,6 +53,28 @@ export function normalizeTicketConfig(raw) {
     includeItemSeparators: Boolean(source.includeItemSeparators ?? DEFAULT_TICKET_CONFIG.includeItemSeparators),
     customLines,
   };
+}
+
+export function getTicketPaperWidthMm(config) {
+  return Math.min(
+    80,
+    Math.max(48, Number(config?.paperWidthMm || DEFAULT_TICKET_CONFIG.paperWidthMm) || DEFAULT_TICKET_CONFIG.paperWidthMm)
+  );
+}
+
+export function getTicketContentWidthMm(config) {
+  const paperWidth = getTicketPaperWidthMm(config);
+  const requested = Number(config?.contentWidthMm || DEFAULT_TICKET_CONFIG.contentWidthMm) || DEFAULT_TICKET_CONFIG.contentWidthMm;
+  return Math.min(paperWidth - 6, Math.max(40, requested));
+}
+
+export function getTicketMaxChars(config) {
+  const paperWidth = getTicketPaperWidthMm(config);
+  const fontSize = Math.min(32, Math.max(9, Number(config?.fontSize || DEFAULT_TICKET_CONFIG.fontSize) || DEFAULT_TICKET_CONFIG.fontSize));
+  // Ajuste para el margen izquierdo de 6mm y derecho de 4mm (10mm total)
+  const printableWidth = Math.max(38, paperWidth - 10);
+  const estimated = Math.floor(32 * (printableWidth / 48) * (15 / fontSize));
+  return Math.min(48, Math.max(16, estimated - 2));
 }
 
 export function loadTicketConfig() {

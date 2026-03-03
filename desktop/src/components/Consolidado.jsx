@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
-import { DEFAULT_TICKET_CONFIG, loadTicketConfig } from "../utils/ticketConfig";
+import {
+  DEFAULT_TICKET_CONFIG,
+  getTicketContentWidthMm,
+  getTicketMaxChars,
+  getTicketPaperWidthMm,
+  loadTicketConfig,
+} from "../utils/ticketConfig";
 
 function SignaturePad({ label, onChange, initialDataUrl }) {
   const canvasRef = useRef(null);
@@ -491,6 +497,7 @@ export default function Consolidado({ user, setToast }) {
       lines: Array.isArray(lines) ? lines : [],
       logoDataUrl: ticketConfig.logoDataUrl || "",
       fontSize: Number(ticketConfig.fontSize || 15),
+      paperWidthMm: getTicketPaperWidthMm(ticketConfig),
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -512,13 +519,28 @@ export default function Consolidado({ user, setToast }) {
     if (!printable) throw new Error("No se pudo abrir ventana de impresion");
     printable.document.write(`
       <html><head><title>Boleta consolidado</title><style>
-      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.35; }
-      .logo-wrap { text-align: center; margin-bottom: 2mm; }
+      @page { size: ${getTicketPaperWidthMm(ticketConfig)}mm auto; margin: 0; }
+      html, body { margin: 0; padding: 0; width: ${getTicketPaperWidthMm(ticketConfig)}mm; background: #fff; color: #000; box-sizing: border-box; overflow: hidden; }
+      body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.18; font-weight: 600; padding: 2mm 4mm 2mm 6mm; box-sizing: border-box; }
+      .ticket { width: 100%; padding: 0.8mm 0; }
+      .logo-wrap { text-align: center; margin-bottom: 1.8mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
-      .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+      .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0 0 0.55mm; }
+      .line.center { text-align: center; }
+      .line.title { font-weight: 900; font-size: 1.15em; text-align: center; margin-bottom: 0.5mm; }
       </style></head><body>
+      <div class="ticket">
       ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
-      ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
+      ${ticket.lines.map((line) => {
+      const raw = String(line || "");
+      const isCenter = raw.match(/^\s+/) !== null;
+      const text = raw.replace(/</g, "&lt;").trim() || "&nbsp;";
+      let cls = "line";
+      if (text === "DISTRIBUIDORA LA FAMILIA" || text === "BOLETA DE CONSOLIDADO") cls += " title";
+      else if (isCenter) cls += " center";
+      return `<div class="${cls}">${text}</div>`;
+    }).join("")}
+      </div>
       </body></html>
     `);
     printable.document.close();
@@ -528,7 +550,7 @@ export default function Consolidado({ user, setToast }) {
   };
 
   const buildConsolidatedTicketLines = () => {
-    const MAX = 32;
+    const MAX = getTicketMaxChars(ticketConfig);
     const repeat = (char, len) => new Array(Math.max(0, len) + 1).join(char);
     const center = (text) => {
       const t = String(text || "").slice(0, MAX);

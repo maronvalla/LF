@@ -1,5 +1,18 @@
 import React, { useEffect, useState } from "react";
 
+const normalizeMoneyInput = (value) =>
+  String(value || "")
+    .replace(",", ".")
+    .replace(/[^\d.]/g, "")
+    .replace(/(\..*)\./g, "$1");
+
+const parseMoneyInput = (value) => {
+  const normalized = normalizeMoneyInput(value);
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 export default function PaymentModal({
   total,
   onClose,
@@ -21,15 +34,18 @@ export default function PaymentModal({
   const lightOptionStyle = { color: "#18181b", backgroundColor: "#ffffff" };
   const lightSelectStyle = { colorScheme: "light" };
 
-  const change = method === "EFECTIVO" && cashGiven ? Number(cashGiven) - total : 0;
-  const isMixedValid = method === "MIXTO" && Number(mixedCash) + Number(mixedTransfer) === total;
+  const cashGivenValue = parseMoneyInput(cashGiven);
+  const mixedCashValue = parseMoneyInput(mixedCash);
+  const mixedTransferValue = parseMoneyInput(mixedTransfer);
+  const change = method === "EFECTIVO" && cashGiven ? cashGivenValue - total : 0;
+  const isMixedValid = method === "MIXTO" && mixedCashValue + mixedTransferValue === total;
   const transferNeedsProof =
-    method === "TRANSFERENCIA" || (method === "MIXTO" && Number(mixedTransfer || 0) > 0);
+    method === "TRANSFERENCIA" || (method === "MIXTO" && mixedTransferValue > 0);
 
   const canConfirm =
     method === "TRANSFERENCIA" ||
     method === "CUENTA_CORRIENTE" ||
-    (method === "EFECTIVO" && (requireCashGiven ? Number(cashGiven) >= total : true)) ||
+    (method === "EFECTIVO" && (requireCashGiven ? cashGivenValue >= total : true)) ||
     (method === "MIXTO" && isMixedValid);
 
   useEffect(() => {
@@ -68,12 +84,12 @@ export default function PaymentModal({
     e.preventDefault();
     if (!canConfirm) return;
 
-    const efectivoMixto = method === "MIXTO" ? Number(mixedCash || 0) : 0;
-    const transferenciaMixto = method === "MIXTO" ? Number(mixedTransfer || 0) : 0;
+    const efectivoMixto = method === "MIXTO" ? mixedCashValue : 0;
+    const transferenciaMixto = method === "MIXTO" ? mixedTransferValue : 0;
     const abonaCon =
       method === "EFECTIVO"
         ? requireCashGiven
-          ? Number(cashGiven || 0)
+          ? cashGivenValue
           : Number(total || 0)
         : 0;
     const [proofHeader, proofBase64 = ""] = String(proofDataUrl || "").split(",");
@@ -140,10 +156,16 @@ export default function PaymentModal({
                     Abona con $
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     className={`${whiteInputClass} text-lg font-mono font-bold`}
                     value={cashGiven}
-                    onChange={(e) => setCashGiven(e.target.value)}
+                    onChange={(e) => setCashGiven(normalizeMoneyInput(e.target.value))}
+                    onFocus={(e) => e.target.select()}
                     autoFocus
                   />
                 </div>
@@ -170,10 +192,16 @@ export default function PaymentModal({
               <div>
                 <label className="text-[10px] text-zinc-500 uppercase font-bold">Efectivo</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className={whiteInputClass}
                   value={mixedCash}
-                  onChange={(e) => setMixedCash(e.target.value)}
+                  onChange={(e) => setMixedCash(normalizeMoneyInput(e.target.value))}
+                  onFocus={(e) => e.target.select()}
                   placeholder="0.00"
                 />
               </div>
@@ -182,10 +210,16 @@ export default function PaymentModal({
                   Transferencia
                 </label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className={whiteInputClass}
                   value={mixedTransfer}
-                  onChange={(e) => setMixedTransfer(e.target.value)}
+                  onChange={(e) => setMixedTransfer(normalizeMoneyInput(e.target.value))}
+                  onFocus={(e) => e.target.select()}
                   placeholder="0.00"
                 />
               </div>

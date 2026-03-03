@@ -32,15 +32,14 @@ export default function ItemsPanel({
 
   return (
     <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl flex-[1_1_auto] min-h-0 flex flex-col relative shrink overflow-hidden">
-      <div className="p-2.5 border-b border-[#d8d8dc] flex flex-col gap-2 shrink-0">
-        <div className="text-[16px] md:text-[18px] leading-none font-black text-zinc-900">Carga Rapida de Items</div>
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_auto] gap-2 items-end">
-          <div className="relative flex gap-2 w-full items-center">
-            <label className="text-[11px] font-black text-zinc-700 uppercase mr-2 shrink-0">Codigo:</label>
+      <div className="p-1 border-b border-[#d8d8dc] flex flex-col gap-1 shrink-0">
+        <div className="flex xl:grid xl:grid-cols-[1fr_auto_auto] gap-1 items-stretch">
+          <div className="relative flex gap-1 flex-1 items-center">
+            <label className="text-[10px] font-black text-zinc-700 uppercase shrink-0">Cod / F5:</label>
             <input
               ref={codeInputRef}
-              className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706] placeholder:text-zinc-500"
-              placeholder="Escanee o tipee el codigo..."
+              className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[26px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706] placeholder:text-zinc-500"
+              placeholder="Escanee o busque..."
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
               disabled={disabled}
@@ -77,13 +76,13 @@ export default function ItemsPanel({
               autoComplete="off"
             />
             <button
-              className="bg-white hover:bg-zinc-50 border border-[#caa57f] text-[#b26a1e] rounded-lg w-[38px] h-[38px] flex items-center justify-center transition-colors shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-white hover:bg-zinc-50 border border-[#caa57f] text-[#b26a1e] rounded w-[26px] h-[26px] flex items-center justify-center transition-colors shadow-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={onOpenProductModal}
               title="Busqueda de articulos (F5)"
               type="button"
               disabled={disabled}
             >
-              <span className="text-lg font-black">?</span>
+              <span className="text-xs font-black">?</span>
             </button>
 
             {showSuggestions ? (
@@ -91,9 +90,8 @@ export default function ItemsPanel({
                 {filteredProducts.map((product, index) => (
                   <button
                     key={product.id}
-                    className={`flex w-full items-center justify-between border-b border-[#ececf1] px-5 py-3 text-left last:border-b-0 ${
-                      index === highlightedSuggestionIndex ? "bg-[#ffe9d2]" : "hover:bg-amber-50"
-                    }`}
+                    className={`flex w-full items-center justify-between border-b border-[#ececf1] px-5 py-3 text-left last:border-b-0 ${index === highlightedSuggestionIndex ? "bg-[#ffe9d2]" : "hover:bg-amber-50"
+                      }`}
                     onMouseEnter={() => setHighlightedSuggestionIndex(index)}
                     onClick={() => onSelectSuggestion(product)}
                     type="button"
@@ -123,7 +121,7 @@ export default function ItemsPanel({
           </div>
 
           <button
-            className="w-full xl:w-auto bg-[#f07c0f] hover:bg-[#df6f08] text-white font-black rounded-lg px-4 h-[38px] transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full xl:w-auto bg-[#f07c0f] hover:bg-[#df6f08] text-white font-black rounded px-3 h-[26px] transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={onAddCurrent}
             type="button"
             disabled={disabled}
@@ -132,27 +130,26 @@ export default function ItemsPanel({
           </button>
 
           <button
-            className="w-full xl:w-auto bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded-lg px-4 h-[38px] transition-colors text-[11px] md:text-xs font-black uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full xl:w-auto bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded px-3 h-[26px] transition-colors text-[10px] md:text-xs font-black uppercase disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={onOpenProductModal}
             type="button"
             disabled={disabled}
           >
-            Buscar Producto (F5)
+            Buscar Producto
           </button>
         </div>
-
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-[11px] md:text-xs text-left min-w-[520px]">
           <thead className="text-[9px] uppercase text-zinc-600 tracking-wide bg-[#f5f5f6] border-b border-[#d8d8dc] sticky top-0 z-10">
             <tr>
-              <th className="px-3 py-2.5 font-black w-16">CANT</th>
-              <th className="px-3 py-2.5 font-black w-28">CODIGO</th>
-              <th className="px-3 py-2.5 font-black">DESCRIPCION</th>
-              <th className="px-3 py-2.5 font-black w-24 text-right">PRECIO</th>
-              <th className="px-3 py-2.5 font-black w-16 text-center">DTO%</th>
-              <th className="px-3 py-2.5 font-black w-24 text-right">TOTAL</th>
+              <th className="px-3 py-1 font-black w-16">CANT</th>
+              <th className="px-3 py-1 font-black w-28">CODIGO</th>
+              <th className="px-3 py-1 font-black">DESCRIPCION</th>
+              <th className="px-3 py-1 font-black w-24 text-right">PRECIO</th>
+              <th className="px-3 py-1 font-black w-16 text-center">DTO%</th>
+              <th className="px-3 py-1 font-black w-24 text-right">TOTAL</th>
             </tr>
           </thead>
           <tbody>
@@ -165,12 +162,12 @@ export default function ItemsPanel({
                 onClick={() => onSelectItem(idx)}
                 className={`border-b border-[#e5e5e8] cursor-pointer ${selectedIdx === idx ? "bg-[#ffe9d2]" : "hover:bg-[#f8f8f9]"}`}
               >
-                <td className="px-3 py-2.5 text-zinc-800 font-medium">{item.qty}</td>
-                <td className="px-3 py-2.5 text-zinc-600">{item.codigo || "-"}</td>
-                <td className="px-3 py-2.5 font-semibold text-zinc-900 uppercase">{item.name}</td>
-                <td className="px-3 py-2.5 text-right text-zinc-700">${Number(item.unitPrice).toFixed(2)}</td>
-                <td className="px-3 py-2.5 text-center text-zinc-500">{Number(item.discount || 0).toFixed(0)}</td>
-                <td className="px-3 py-2.5 text-right font-bold text-zinc-900">
+                <td className="px-3 py-1 text-zinc-800 font-medium">{item.qty}</td>
+                <td className="px-3 py-1 text-zinc-600">{item.codigo || "-"}</td>
+                <td className="px-3 py-1 font-semibold text-zinc-900 uppercase">{item.name}</td>
+                <td className="px-3 py-1 text-right text-zinc-700">${Number(item.unitPrice).toFixed(2)}</td>
+                <td className="px-3 py-1 text-center text-zinc-500">{Number(item.discount || 0).toFixed(0)}</td>
+                <td className="px-3 py-1 text-right font-bold text-zinc-900">
                   ${(Number(item.qty) * Number(item.unitPrice)).toFixed(2)}
                 </td>
               </tr>

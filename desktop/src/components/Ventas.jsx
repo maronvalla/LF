@@ -10,7 +10,13 @@ import QuickClientModal from "./ventas/QuickClientModal";
 import SalesMetaBar from "./ventas/SalesMetaBar";
 import SalesSummary from "./ventas/SalesSummary";
 import ClientMapPickerModal from "./clientes/ClientMapPickerModal";
-import { DEFAULT_TICKET_CONFIG, loadTicketConfig } from "../utils/ticketConfig";
+import {
+  DEFAULT_TICKET_CONFIG,
+  getTicketContentWidthMm,
+  getTicketMaxChars,
+  getTicketPaperWidthMm,
+  loadTicketConfig,
+} from "../utils/ticketConfig";
 import { DEFAULT_DELIVERY_CONDITIONS, loadDeliveryConditions } from "../utils/deliveryPaymentConditions";
 import {
   DEFAULT_PRICE_LIST_KEY,
@@ -147,6 +153,7 @@ export default function Ventas({
   const customerSelectRef = useRef(null);
   const codeInputRef = useRef(null);
   const printPromptResolverRef = useRef(null);
+  const selectedPrinterRef = useRef("");
   const [showProductModal, setShowProductModal] = useState(false);
   const [quickClientDraft, setQuickClientDraft] = useState({
     name: "",
@@ -195,15 +202,15 @@ export default function Ventas({
         setUsers(hasCurrentUser || !user?.id
           ? loadedUsers
           : [
-              ...loadedUsers,
-              {
-                id: user.id,
-                username: user.username,
-                full_name: user.full_name || user.fullName || user.username,
-                role: user.role,
-                is_active: true,
-              },
-            ]);
+            ...loadedUsers,
+            {
+              id: user.id,
+              username: user.username,
+              full_name: user.full_name || user.fullName || user.username,
+              role: user.role,
+              is_active: true,
+            },
+          ]);
         const normalizedPriceLists =
           priceListsRes.status === "fulfilled"
             ? normalizePriceListsConfig(priceListsRes.value.data)
@@ -394,13 +401,13 @@ export default function Ventas({
       const { data } = await api.get(`/sales/${orderId}`);
       const items = Array.isArray(data?.items)
         ? data.items.map((item) => ({
-            productId: item.product_id,
-            codigo: item.product_sku || item.product_id,
-            name: item.product_name,
-            qty: Number(item.qty || 0),
-            unitPrice: Number(item.unit_price || 0),
-            discount: 0,
-          }))
+          productId: item.product_id,
+          codigo: item.product_sku || item.product_id,
+          name: item.product_name,
+          qty: Number(item.qty || 0),
+          unitPrice: Number(item.unit_price || 0),
+          discount: 0,
+        }))
         : [];
       const customerName =
         String(data?.customer_name || data?.customer_name_snapshot || "").trim() ||
@@ -508,6 +515,7 @@ export default function Ventas({
       if (event.key !== "Escape") return;
       if (hasVentasModalOpen) return;
       if (!draft.items.length) return;
+      if (isTypingTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       const confirmed = window.confirm("Hay productos cargados. Seguro que quieres salir?");
@@ -580,12 +588,15 @@ export default function Ventas({
       setShowPrintPrompt(true);
     });
 
+  // Keep ref always current so stale closures (e.g. keyboard handler) read the latest printer.
+  selectedPrinterRef.current = selectedPrinter;
+
   const resolvePrintConfirmation = (value) => {
     const resolver = printPromptResolverRef.current;
     printPromptResolverRef.current = null;
     setShowPrintPrompt(false);
     if (typeof resolver === "function") {
-      resolver({ shouldPrint: Boolean(value), deviceName: selectedPrinter || undefined });
+      resolver({ shouldPrint: Boolean(value), deviceName: selectedPrinterRef.current || undefined });
     }
   };
 
@@ -669,12 +680,12 @@ export default function Ventas({
       const hayClienteRegistrado = Boolean(prev.customerId);
       setCambioManualLista(hayClienteRegistrado && listaNormalizada !== listaClienteOriginal);
       return {
-      ...prev,
-      items: prev.items.map((item) => {
-        const product = products.find((p) => p.id === item.productId);
-        if (!product) return item;
-        return { ...item, unitPrice: obtenerPrecioPorLista(product, listaNormalizada) };
-      }),
+        ...prev,
+        items: prev.items.map((item) => {
+          const product = products.find((p) => p.id === item.productId);
+          if (!product) return item;
+          return { ...item, unitPrice: obtenerPrecioPorLista(product, listaNormalizada) };
+        }),
       };
     });
   };
@@ -811,13 +822,13 @@ export default function Ventas({
   const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
 
   const buildTicketLines = ({ saleData, paymentData }, opts = {}) => {
-    const MAX = 32;
+    const MAX = getTicketMaxChars(ticketConfig);
     const separatorLength = (() => {
       const size = Number(ticketConfig.fontSize || 15);
-      if (size >= 30) return 12;
-      if (size >= 26) return 14;
-      if (size >= 22) return 18;
-      if (size >= 18) return 24;
+      if (size >= 30) return Math.min(MAX, 12);
+      if (size >= 26) return Math.min(MAX, 14);
+      if (size >= 22) return Math.min(MAX, 18);
+      if (size >= 18) return Math.min(MAX, 24);
       return MAX;
     })();
     const docLabel = opts.docLabel || draft.invoiceType || "Factura B";
@@ -887,21 +898,23 @@ export default function Ventas({
       lines.push(`Cliente: ${customerLabel.slice(0, MAX - 9)}`);
       lines.push(repeat("-", separatorLength));
     }
-    lines.push(leftRight("Cant x P.Unit", "Importe"));
+    const totalQty = draft.items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
 
     draft.items.forEach((item, index) => {
       const qtyLabel = Number(item.qty || 0).toString();
       const unitPrice = Number(item.unitPrice || 0);
-      const lineTotal = Number(item.qty || 0) * unitPrice;
-      lines.push(String(item.name || "").toUpperCase().slice(0, MAX));
-      lines.push(leftRight(`${qtyLabel} x ${formatMoney(unitPrice)}`, formatMoney(lineTotal)));
+      const itemName = String(item.name || "").toUpperCase();
+
+      lines.push(`[ ] ${qtyLabel} ${itemName} · ${formatMoney(unitPrice)}`);
+
       if (ticketConfig.includeItemSeparators && index < draft.items.length - 1) {
-        lines.push(repeat(".", MAX));
+        lines.push(repeat(".", Math.min(MAX, 20)));
       }
     });
 
     lines.push(repeat("-", separatorLength));
-    lines.push(leftRight("TOTAL", formatMoney(subtotal)));
+    lines.push(`Total: ${formatMoney(subtotal)}`);
+    lines.push(`Cantidad total: ${totalQty}`);
     if (ticketConfig.includePaymentDetail && includePayment) {
       lines.push(leftRight("Pago", paymentMethod));
       if (paymentMethod === "MIXTO") {
@@ -939,6 +952,7 @@ export default function Ventas({
       lines: Array.isArray(lines) ? lines : [],
       logoDataUrl: ticketConfig.logoDataUrl || "",
       fontSize: Number(ticketConfig.fontSize || 15),
+      paperWidthMm: getTicketPaperWidthMm(ticketConfig),
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -961,13 +975,28 @@ export default function Ventas({
     if (!printable) throw new Error("No se pudo abrir ventana de impresion");
     printable.document.write(`
       <html><head><title>Ticket</title><style>
-      body { font-family: 'Courier New', monospace; width: 58mm; margin: 0; padding: 2mm; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.35; }
-      .logo-wrap { text-align: center; margin-bottom: 2mm; }
+      @page { size: ${getTicketPaperWidthMm(ticketConfig)}mm auto; margin: 0; }
+      html, body { margin: 0; padding: 0; width: ${getTicketPaperWidthMm(ticketConfig)}mm; background: #fff; color: #000; box-sizing: border-box; overflow: hidden; }
+      body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.18; font-weight: 600; padding: 2mm 4mm 2mm 6mm; box-sizing: border-box; }
+      .ticket { width: 100%; padding: 0.8mm 0; }
+      .logo-wrap { text-align: center; margin-bottom: 1.8mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
-      .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+      .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0 0 0.55mm; }
+      .line.center { text-align: center; }
+      .line.title { font-weight: 900; font-size: 1.15em; text-align: center; margin-bottom: 0.5mm; }
       </style></head><body>
+      <div class="ticket">
       ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
-      ${ticket.lines.map((line) => `<div class="line">${String(line).replace(/</g, "&lt;")}</div>`).join("")}
+      ${ticket.lines.map((line) => {
+      const raw = String(line || "");
+      const isCenter = raw.match(/^\s+/) !== null;
+      const text = raw.replace(/</g, "&lt;").trim() || "&nbsp;";
+      let cls = "line";
+      if (text === "DISTRIBUIDORA LA FAMILIA" || text === "BOLETA DE CONSOLIDADO") cls += " title";
+      else if (isCenter) cls += " center";
+      return `<div class="${cls}">${text}</div>`;
+    }).join("")}
+      </div>
       </body></html>
     `);
     printable.document.close();
@@ -1081,9 +1110,9 @@ export default function Ventas({
       const orderResponse = activeOrderId
         ? { data: { id: activeOrderId } }
         : await api.post("/sales", {
-            ...payload,
-            paymentMethod: null,
-          });
+          ...payload,
+          paymentMethod: null,
+        });
       const checkoutResponse = await api.post(`/sales/${orderResponse.data.id}/checkout`, {
         paymentMethod: paymentData.paymentMethod,
         customerId: payload.customerId,
@@ -1390,12 +1419,7 @@ export default function Ventas({
   );
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-2xl bg-[#ededee] p-2 text-zinc-900">
-      {/* Header */}
-      <div className="px-1 shrink-0">
-        <h1 className="text-[18px] md:text-[20px] font-bold leading-none text-zinc-900 tracking-tight">Ventas</h1>
-        <p className="text-[10px] text-zinc-500 mt-1">Fase 1 - sistema interno</p>
-      </div>
+    <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-xl bg-[#ededee] p-1 text-zinc-900">
       {readOnlyPendingOrder ? (
         <div className="mx-1 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
           Orden pendiente cargada para cobro. Los items y el cliente quedan bloqueados hasta completar el pago.

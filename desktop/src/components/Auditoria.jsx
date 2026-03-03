@@ -31,7 +31,7 @@ export default function Auditoria({ user, setToast }) {
             <th className="text-left py-2">Entidad</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="text-zinc-300">
           {rows.map((r) => (
             <tr key={r.id} className="border-t border-zinc-800">
               <td className="py-2">{new Date(r.created_at).toLocaleString()}</td>

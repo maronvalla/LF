@@ -7,6 +7,21 @@ export default function PrintPromptModal({
   onCancel,
   onConfirm,
 }) {
+  const classifyLine = (line) => {
+    const raw = String(line ?? "");
+    const trimmed = raw.trim();
+    const leadingSpaces = raw.match(/^\s+/)?.[0]?.length || 0;
+    if (!trimmed) return "min-h-[4px]";
+    if (/^[-.]{6,}$/.test(trimmed)) return "text-center tracking-[0.18em] text-[0.78em] leading-none text-zinc-500 my-1";
+    if (/^TOTAL\b/i.test(trimmed)) return "font-black text-[1.08em] mt-2";
+    if (/^\d+\s*x\s*\$/.test(trimmed)) return "text-[0.92em] text-zinc-700";
+    if (leadingSpaces > 0) return "text-center tracking-[0.04em]";
+    if (!trimmed.includes(":") && trimmed === trimmed.toUpperCase() && trimmed.length > 6) {
+      return "font-bold mt-1";
+    }
+    return "";
+  };
+
   return (
     <div className="fixed inset-0 bg-black/70 z-[80] flex items-center justify-center p-4">
       <div className="w-full max-w-3xl rounded-xl border border-zinc-800 bg-[#121212] p-5 space-y-4">
@@ -24,10 +39,10 @@ export default function PrintPromptModal({
           </select>
         </div>
         <div className="border border-zinc-800 rounded-lg bg-white text-black p-3 max-h-80 overflow-auto">
-          <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight">
+          <div className="mx-auto w-[58mm] font-['Segoe_UI',Arial,sans-serif] text-[11px] leading-[1.18] font-semibold">
             {lines.map((line, idx) => (
-              <div key={`${line}-${idx}`} className="whitespace-pre">
-                {line}
+              <div key={`${line}-${idx}`} className={`whitespace-pre-wrap break-words ${classifyLine(line)}`}>
+                {String(line || "").trim() || " "}
               </div>
             ))}
           </div>

@@ -254,15 +254,15 @@ export default function Compras({ user, setToast }) {
       await api.post("/purchases", payload);
 
       setToast?.({ message: "Compra registrada correctamente", type: "success" });
-        setDraft({
-          supplierId: "",
-          supplierName: "",
-          invoiceNumber: "",
-          invoiceType: "Factura A",
-          paymentMethod: "EFECTIVO",
-          items: [],
-          date: new Date().toISOString().split("T")[0],
-          receiptImageDataUrl: "",
+      setDraft({
+        supplierId: "",
+        supplierName: "",
+        invoiceNumber: "",
+        invoiceType: "Factura A",
+        paymentMethod: "EFECTIVO",
+        items: [],
+        date: new Date().toISOString().split("T")[0],
+        receiptImageDataUrl: "",
         receiptImageName: "",
       });
     } catch (err) {
@@ -357,38 +357,28 @@ export default function Compras({ user, setToast }) {
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-2 overflow-hidden rounded-2xl bg-[#ededee] p-2 text-zinc-900">
-      <div className="px-1 flex items-center gap-3 shrink-0">
+    <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-xl bg-[#ededee] p-1 text-zinc-900">
+      <div className="px-1 flex items-center justify-between gap-3 shrink-0">
         <button
           type="button"
-          className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded-lg px-3 h-[34px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
+          className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded px-3 h-[24px] flex items-center justify-center transition-colors text-[9px] font-black uppercase"
         >
-          Volver al inicio (Esc)
+          Volver (Esc)
         </button>
-        <h1 className="text-[18px] md:text-[20px] font-bold leading-none text-zinc-900 tracking-tight">
-          Ingreso de mercaderia y stock
-        </h1>
-        <div className="ml-auto">
-          <button
-            type="button"
-            className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded-lg px-3 h-[34px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
-            onClick={openHistory}
-          >
-            Ver historial
-          </button>
-        </div>
+        <button
+          type="button"
+          className="bg-zinc-800 hover:bg-zinc-700 text-white rounded px-3 h-[24px] flex items-center justify-center transition-colors text-[9px] font-black uppercase"
+          onClick={openHistory}
+        >
+          Ver historial de compras
+        </button>
       </div>
 
-      <div className="px-1 shrink-0 text-sm text-zinc-700">
-        Fecha: {draft.date.split("-").reverse().join("/")}
-      </div>
-
-      <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
-        <div className="sm:col-span-2 lg:col-span-4 text-[14px] font-black text-zinc-900">Datos del Comprobante</div>
-        <div>
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">Tipo Comprobante</label>
+      <div className="bg-[#ededee] border border-[#d1d1d4] rounded p-1 px-2 flex flex-col lg:flex-row gap-2 shrink-0">
+        <div className="flex-1 min-w-[120px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Tipo Comp.</label>
           <select
-            className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-800 outline-none focus:border-[#d97706]"
+            className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-800 outline-none focus:border-[#d97706]"
             value={draft.invoiceType}
             onChange={(e) => setDraft((p) => ({ ...p, invoiceType: e.target.value }))}
           >
@@ -399,35 +389,29 @@ export default function Compras({ user, setToast }) {
             <option value="Orden de Compra">Orden de Compra</option>
           </select>
         </div>
-        <div>
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">N° Comprobante</label>
+        <div className="flex-1 min-w-[120px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Nro Comp.</label>
           <input
             type="text"
-            className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+            className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
             placeholder="0001-00001234"
             value={draft.invoiceNumber}
             onChange={(e) => setDraft((p) => ({ ...p, invoiceNumber: e.target.value }))}
           />
         </div>
-        <div>
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">Fecha Emision</label>
+        <div className="flex-1 min-w-[120px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Fecha</label>
           <input
             type="date"
-            className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+            className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
             value={draft.date}
             onChange={(e) => setDraft((p) => ({ ...p, date: e.target.value }))}
           />
         </div>
-        <div>
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">Operador</label>
-          <div className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900">
-            {user?.username || "ADMIN"}
-          </div>
-        </div>
-        <div>
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">Medio de Pago</label>
+        <div className="flex-1 min-w-[120px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Medio Pago</label>
           <select
-            className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+            className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
             value={draft.paymentMethod}
             onChange={(e) => setDraft((p) => ({ ...p, paymentMethod: e.target.value }))}
           >
@@ -435,13 +419,13 @@ export default function Compras({ user, setToast }) {
             <option value="TRANSFERENCIA">TRANSFERENCIA</option>
             <option value="OTRO">OTRO</option>
             {supplierHasCurrentAccount ? (
-              <option value="CUENTA_CORRIENTE">CUENTA CORRIENTE</option>
+              <option value="CUENTA_CORRIENTE">CUENTA CTA</option>
             ) : null}
           </select>
         </div>
-        <div className="sm:col-span-2 lg:col-span-4">
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">Boleta</label>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="flex-1 lg:max-w-xs xl:max-w-md">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Boleta</label>
+          <div className="flex items-center gap-1 h-[24px]">
             <input
               ref={purchaseReceiptInputRef}
               type="file"
@@ -451,16 +435,16 @@ export default function Compras({ user, setToast }) {
             />
             <button
               type="button"
-              className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded-lg px-3 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
+              className="bg-zinc-200 hover:bg-zinc-300 text-zinc-800 rounded px-2 h-full flex items-center justify-center transition-colors text-[9px] font-black uppercase shrink-0"
               onClick={() => purchaseReceiptInputRef.current?.click()}
             >
-              {draft.receiptImageDataUrl ? "Cambiar boleta" : "Cargar boleta"}
+              {draft.receiptImageDataUrl ? "Cambiar" : "Cargar IMaGE..."}
             </button>
             {draft.receiptImageDataUrl ? (
               <>
                 <button
                   type="button"
-                  className="bg-white hover:bg-zinc-50 text-sky-700 border border-sky-300 rounded-lg px-3 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
+                  className="bg-sky-100 hover:bg-sky-200 text-sky-800 rounded px-2 h-full flex items-center justify-center transition-colors text-[9px] font-black uppercase shrink-0"
                   onClick={() =>
                     setSelectedReceipt({
                       title: draft.receiptImageName || "Boleta adjunta",
@@ -468,11 +452,11 @@ export default function Compras({ user, setToast }) {
                     })
                   }
                 >
-                  Ver preview
+                  Ver
                 </button>
                 <button
                   type="button"
-                  className="bg-white hover:bg-zinc-50 text-rose-600 border border-rose-300 rounded-lg px-3 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
+                  className="bg-rose-100 hover:bg-rose-200 text-rose-800 rounded px-2 h-full flex items-center justify-center transition-colors text-[9px] font-black uppercase shrink-0"
                   onClick={() =>
                     setDraft((prev) => ({
                       ...prev,
@@ -481,70 +465,66 @@ export default function Compras({ user, setToast }) {
                     }))
                   }
                 >
-                  Quitar
+                  X
                 </button>
-                <span className="text-xs text-zinc-600 truncate">{draft.receiptImageName || "Boleta cargada"}</span>
+                <span className="text-[9px] text-zinc-600 truncate ml-1">{draft.receiptImageName || "Boleta cargada"}</span>
               </>
             ) : (
-              <span className="text-xs text-zinc-500">Sin boleta adjunta</span>
+              <span className="text-[9px] text-zinc-500 ml-1">Sin adjunto</span>
             )}
           </div>
         </div>
       </div>
 
-      <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl p-3 flex flex-col gap-3 shrink-0">
-        <div className="text-[14px] font-black text-zinc-900">Identificacion del Proveedor</div>
-        <div className="flex flex-col md:flex-row items-end gap-3 w-full">
-          <div className="flex-1 w-full">
-            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">Proveedor</label>
-            <SearchableSelect
-              inputRef={supplierSelectRef}
-              options={suppliers.map((s) => ({
-                id: s.id,
-                label: String(s.businessName || s.name || "").toUpperCase(),
-                subtext: s.taxId || s.cuit || "Sin CUIT",
-              }))}
-              value={draft.supplierId}
-              onChange={(id) => {
-                const supplier = suppliers.find((x) => x.id === id);
-                setDraft((prev) => ({
-                  ...prev,
-                  supplierId: id,
-                  supplierName: supplier?.businessName || supplier?.name || "",
-                  paymentMethod:
-                    prev.paymentMethod === "CUENTA_CORRIENTE" &&
+      <div className="bg-[#ededee] border border-[#d1d1d4] rounded p-1 px-2 flex flex-col sm:flex-row items-end gap-2 shrink-0">
+        <div className="flex-1 w-full">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Proveedor</label>
+          <SearchableSelect
+            inputRef={supplierSelectRef}
+            options={suppliers.map((s) => ({
+              id: s.id,
+              label: String(s.businessName || s.name || "").toUpperCase(),
+              subtext: s.taxId || s.cuit || "Sin CUIT",
+            }))}
+            value={draft.supplierId}
+            onChange={(id) => {
+              const supplier = suppliers.find((x) => x.id === id);
+              setDraft((prev) => ({
+                ...prev,
+                supplierId: id,
+                supplierName: supplier?.businessName || supplier?.name || "",
+                paymentMethod:
+                  prev.paymentMethod === "CUENTA_CORRIENTE" &&
                     !(supplier?.enable_current_account ?? supplier?.enableCurrentAccount)
-                      ? "EFECTIVO"
-                      : prev.paymentMethod,
-                }));
-              }}
-              placeholder="Buscar proveedor (CUIT/Nombre)..."
-              inputClassName="bg-white border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 placeholder:text-zinc-500 focus:border-[#d97706]"
-              dropdownClassName="bg-white border-[#cfcfd4]"
-              optionClassName="border-[#ececf1]"
-            />
-          </div>
-
-          <button
-            className="bg-[#f07c0f] hover:bg-[#df6f08] text-white border border-[#d86b07] rounded-lg px-5 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
-            onClick={() => supplierSelectRef.current?.focus()}
-            type="button"
-          >
-            Buscar (F2)
-          </button>
+                    ? "EFECTIVO"
+                    : prev.paymentMethod,
+              }));
+            }}
+            placeholder="Buscar proveedor..."
+            inputClassName="bg-white border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 placeholder:text-zinc-500 focus:border-[#d97706] w-full"
+            dropdownClassName="bg-white border-[#cfcfd4]"
+            optionClassName="border-[#ececf1]"
+          />
         </div>
+
+        <button
+          className="bg-[#f07c0f] hover:bg-[#df6f08] text-white border border-[#d86b07] rounded px-3 h-[24px] flex items-center justify-center transition-colors text-[10px] font-black uppercase shrink-0"
+          onClick={() => supplierSelectRef.current?.focus()}
+          type="button"
+        >
+          Buscar Prv. (F2)
+        </button>
       </div>
 
-      <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="p-3 border-b border-[#d8d8dc] flex flex-col gap-2 shrink-0">
-          <div className="text-[16px] md:text-[18px] font-black text-zinc-900">Carga Rapida de Items</div>
-          <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_auto_auto_auto] gap-2 items-end">
-            <div className="flex-1 flex gap-2 w-full items-center">
-              <label className="text-[11px] font-black text-zinc-700 uppercase mr-2 shrink-0">Codigo:</label>
+      <div className="bg-[#ededee] border border-[#d1d1d4] rounded flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="p-1 border-b border-[#d8d8dc] flex flex-col gap-1 shrink-0">
+          <div className="flex flex-col xl:flex-row gap-1 items-end">
+            <div className="flex-1 flex gap-1 w-full items-center">
+              <label className="text-[10px] font-black text-zinc-700 uppercase shrink-0">Cod / F5:</label>
               <input
                 ref={codeInputRef}
-                className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706] placeholder:text-zinc-500"
-                placeholder="Escanee o tipee el codigo..."
+                className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[26px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706] placeholder:text-zinc-500"
+                placeholder="Escanee o busque..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -559,44 +539,44 @@ export default function Compras({ user, setToast }) {
                 autoComplete="off"
               />
               <button
-                className="bg-white hover:bg-zinc-50 border border-[#caa57f] text-[#b26a1e] rounded-lg w-[38px] h-[38px] flex items-center justify-center transition-colors"
+                className="bg-white hover:bg-zinc-50 border border-[#caa57f] text-[#b26a1e] rounded w-[26px] h-[26px] flex items-center justify-center transition-colors"
                 onClick={() => setShowProductModal(true)}
                 title="Busqueda de Articulos (F5)"
                 type="button"
               >
-                <span className="text-lg font-black">?</span>
+                <span className="text-xs font-black">?</span>
               </button>
             </div>
 
             <div className="w-full sm:w-20">
-              <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-1">Cantidad</label>
+              <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-0">Cant</label>
               <input
                 type="number"
                 min={1}
-                className="w-full bg-white border border-[#cfcfd4] rounded-lg text-center text-base font-bold py-1.5 text-zinc-900 outline-none focus:border-[#d97706]"
+                className="w-full bg-white border border-[#cfcfd4] rounded text-center text-xs font-bold py-0 h-[26px] text-zinc-900 outline-none focus:border-[#d97706]"
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
               />
             </div>
 
             <div className="w-full sm:w-28">
-              <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-1">Costo Unit.</label>
+              <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-0">Costo Unit</label>
               <input
                 type="number"
                 min={0}
                 placeholder="Auto"
-                className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+                className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[26px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
                 value={unitCost}
                 onChange={(e) => setUnitCost(e.target.value)}
               />
             </div>
 
             <button
-              className="w-full xl:w-auto bg-[#f07c0f] hover:bg-[#df6f08] text-white font-black rounded-lg px-5 h-[38px] transition-colors text-[11px] uppercase"
+              className="w-full xl:w-auto bg-[#f07c0f] hover:bg-[#df6f08] text-white font-black rounded px-3 h-[26px] transition-colors text-[10px] uppercase shrink-0"
               onClick={addCurrentSearchItem}
               type="button"
             >
-              + Agregar al ingreso
+              + AGREGAR
             </button>
           </div>
         </div>
@@ -605,11 +585,11 @@ export default function Compras({ user, setToast }) {
           <table className="w-full text-[11px] md:text-xs text-left min-w-[560px]">
             <thead className="text-[9px] uppercase text-zinc-600 tracking-wide bg-[#f5f5f6] border-b border-[#d8d8dc] sticky top-0 z-10">
               <tr>
-                <th className="px-3 py-2.5 font-black w-16">CANT</th>
-                <th className="px-3 py-2.5 font-black w-24">CODIGO</th>
-                <th className="px-3 py-2.5 font-black">DESCRIPCION</th>
-                <th className="px-3 py-2.5 font-black w-24 text-right">COSTO UNIT.</th>
-                <th className="px-3 py-2.5 font-black w-24 text-right">SUBTOTAL</th>
+                <th className="px-3 py-1 font-black w-16">CANT</th>
+                <th className="px-3 py-1 font-black w-24">CODIGO</th>
+                <th className="px-3 py-1 font-black">DESCRIPCION</th>
+                <th className="px-3 py-1 font-black w-24 text-right">COSTO UNIT.</th>
+                <th className="px-3 py-1 font-black w-24 text-right">SUBTOTAL</th>
               </tr>
             </thead>
             <tbody>
@@ -619,11 +599,11 @@ export default function Compras({ user, setToast }) {
                   onClick={() => setSelectedIdx(idx)}
                   className={`border-b border-[#e5e5e8] cursor-pointer ${selectedIdx === idx ? "bg-[#ffe9d2]" : "hover:bg-[#f8f8f9]"}`}
                 >
-                  <td className="px-3 py-2.5 text-zinc-800 font-medium">{it.qty}</td>
-                  <td className="px-3 py-2.5 text-zinc-600">{it.codigo || "-"}</td>
-                  <td className="px-3 py-2.5 font-semibold text-zinc-900 uppercase">{it.name}</td>
-                  <td className="px-3 py-2.5 text-right text-zinc-700">${Number(it.unitCost).toFixed(2)}</td>
-                  <td className="px-3 py-2.5 text-right font-bold text-zinc-900">
+                  <td className="px-3 py-1 text-zinc-800 font-medium">{it.qty}</td>
+                  <td className="px-3 py-1 text-zinc-600">{it.codigo || "-"}</td>
+                  <td className="px-3 py-1 font-semibold text-zinc-900 uppercase">{it.name}</td>
+                  <td className="px-3 py-1 text-right text-zinc-700">${Number(it.unitCost).toFixed(2)}</td>
+                  <td className="px-3 py-1 text-right font-bold text-zinc-900">
                     ${(Number(it.qty) * Number(it.unitCost)).toFixed(2)}
                   </td>
                 </tr>
@@ -677,40 +657,46 @@ export default function Compras({ user, setToast }) {
         </div>
       </div>
 
-      {showProductModal ? (
-        <ProductSearchModal
-          products={products}
-          onClose={() => {
-            setShowProductModal(false);
-            setTimeout(() => codeInputRef.current?.focus(), 50);
-          }}
-          onSelect={(product) => {
-            addItem(product);
-            setShowProductModal(false);
-            setTimeout(() => codeInputRef.current?.focus(), 50);
-          }}
-        />
-      ) : null}
-      {showQtyEditModal ? (
-        <QtyEditModal
-          value={qtyEditValue}
-          onChange={setQtyEditValue}
-          onCancel={() => setShowQtyEditModal(false)}
-          onApply={applyQtyEdit}
-        />
-      ) : null}
-      {showCostEditModal ? (
-        <QtyEditModal
-          value={costEditValue}
-          onChange={setCostEditValue}
-          onCancel={() => setShowCostEditModal(false)}
-          onApply={applyCostEdit}
-          title="Editar costo"
-          label="Nuevo costo transaccional"
-          min="0"
-          step="0.01"
-        />
-      ) : null}
+      {
+        showProductModal ? (
+          <ProductSearchModal
+            products={products}
+            onClose={() => {
+              setShowProductModal(false);
+              setTimeout(() => codeInputRef.current?.focus(), 50);
+            }}
+            onSelect={(product) => {
+              addItem(product);
+              setShowProductModal(false);
+              setTimeout(() => codeInputRef.current?.focus(), 50);
+            }}
+          />
+        ) : null
+      }
+      {
+        showQtyEditModal ? (
+          <QtyEditModal
+            value={qtyEditValue}
+            onChange={setQtyEditValue}
+            onCancel={() => setShowQtyEditModal(false)}
+            onApply={applyQtyEdit}
+          />
+        ) : null
+      }
+      {
+        showCostEditModal ? (
+          <QtyEditModal
+            value={costEditValue}
+            onChange={setCostEditValue}
+            onCancel={() => setShowCostEditModal(false)}
+            onApply={applyCostEdit}
+            title="Editar costo"
+            label="Nuevo costo transaccional"
+            min="0"
+            step="0.01"
+          />
+        ) : null
+      }
       <input
         ref={historyReceiptInputRef}
         type="file"
@@ -718,127 +704,131 @@ export default function Compras({ user, setToast }) {
         className="hidden"
         onChange={handleHistoryReceiptChange}
       />
-      {showHistoryModal ? (
-        <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm p-4 flex items-center justify-center">
-          <div className="w-full max-w-6xl max-h-[88vh] overflow-hidden rounded-2xl bg-[#111214] border border-zinc-800 flex flex-col">
-            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
-              <div>
-                <div className="text-lg font-black uppercase tracking-wide text-white">Historial de compras</div>
-                <div className="text-xs text-zinc-400">Boletas adjuntas y compras registradas</div>
+      {
+        showHistoryModal ? (
+          <div className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm p-4 flex items-center justify-center">
+            <div className="w-full max-w-6xl max-h-[88vh] overflow-hidden rounded-2xl bg-[#111214] border border-zinc-800 flex flex-col">
+              <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+                <div>
+                  <div className="text-lg font-black uppercase tracking-wide text-white">Historial de compras</div>
+                  <div className="text-xs text-zinc-400">Boletas adjuntas y compras registradas</div>
+                </div>
+                <button
+                  type="button"
+                  className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 h-[36px] text-[11px] font-black uppercase"
+                  onClick={() => setShowHistoryModal(false)}
+                >
+                  Cerrar
+                </button>
               </div>
-              <button
-                type="button"
-                className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 h-[36px] text-[11px] font-black uppercase"
-                onClick={() => setShowHistoryModal(false)}
-              >
-                Cerrar
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto">
-              <table className="w-full text-sm min-w-[920px]">
-                <thead className="sticky top-0 bg-[#18191d] text-zinc-300 text-[10px] uppercase">
-                  <tr>
-                    <th className="px-3 py-3 text-left font-black">Fecha</th>
-                    <th className="px-3 py-3 text-left font-black">Comprobante</th>
-                    <th className="px-3 py-3 text-left font-black">Proveedor</th>
-                    <th className="px-3 py-3 text-right font-black">Items</th>
-                    <th className="px-3 py-3 text-right font-black">Total</th>
-                    <th className="px-3 py-3 text-center font-black">Boleta</th>
-                    <th className="px-3 py-3 text-center font-black">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historyLoading ? (
+              <div className="flex-1 overflow-auto">
+                <table className="w-full text-sm min-w-[920px]">
+                  <thead className="sticky top-0 bg-[#18191d] text-zinc-300 text-[10px] uppercase">
                     <tr>
-                      <td colSpan={7} className="px-3 py-10 text-center text-zinc-400">
-                        Cargando historial...
-                      </td>
+                      <th className="px-3 py-3 text-left font-black">Fecha</th>
+                      <th className="px-3 py-3 text-left font-black">Comprobante</th>
+                      <th className="px-3 py-3 text-left font-black">Proveedor</th>
+                      <th className="px-3 py-3 text-right font-black">Items</th>
+                      <th className="px-3 py-3 text-right font-black">Total</th>
+                      <th className="px-3 py-3 text-center font-black">Boleta</th>
+                      <th className="px-3 py-3 text-center font-black">Acciones</th>
                     </tr>
-                  ) : historyRows.length ? (
-                    historyRows.map((row) => (
-                      <tr key={row.id} className="border-t border-zinc-800 text-zinc-100">
-                        <td className="px-3 py-3">{new Date(row.purchase_date).toLocaleDateString("es-AR")}</td>
-                        <td className="px-3 py-3">{row.purchase_number || "S/N"}</td>
-                        <td className="px-3 py-3">{row.supplier_name || "SIN PROVEEDOR"}</td>
-                        <td className="px-3 py-3 text-right">{Number(row.total_items || 0)}</td>
-                        <td className="px-3 py-3 text-right font-bold">${Number(row.total_amount || 0).toFixed(2)}</td>
-                        <td className="px-3 py-3 text-center">
-                          {row.receipt_image_data_url ? (
-                            <span className="inline-flex rounded-full bg-emerald-500/15 text-emerald-300 px-2 py-1 text-[10px] font-black uppercase">
-                              Cargada
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-zinc-700 text-zinc-200 px-2 py-1 text-[10px] font-black uppercase">
-                              Sin boleta
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex justify-center gap-2">
-                            {row.receipt_image_data_url ? (
-                              <button
-                                type="button"
-                                className="bg-white hover:bg-zinc-50 text-sky-700 border border-sky-300 rounded-lg px-3 h-[34px] text-[10px] font-black uppercase"
-                                onClick={() =>
-                                  setSelectedReceipt({
-                                    title: row.receipt_image_name || `Boleta ${row.purchase_number || "S/N"}`,
-                                    url: row.receipt_image_data_url,
-                                  })
-                                }
-                              >
-                                Ver boleta
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="bg-[#f07c0f] hover:bg-[#df6f08] text-white rounded-lg px-3 h-[34px] text-[10px] font-black uppercase"
-                                onClick={() => openAttachReceipt(row.id)}
-                              >
-                                Asociar boleta
-                              </button>
-                            )}
-                          </div>
+                  </thead>
+                  <tbody>
+                    {historyLoading ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-10 text-center text-zinc-400">
+                          Cargando historial...
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="px-3 py-10 text-center text-zinc-400">
-                        No hay compras registradas
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {selectedReceipt ? (
-        <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm p-4 flex items-center justify-center">
-          <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-2xl bg-[#111214] border border-zinc-800 flex flex-col">
-            <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
-              <div className="text-sm font-black uppercase tracking-wide text-white">
-                {selectedReceipt.title || "Boleta"}
+                    ) : historyRows.length ? (
+                      historyRows.map((row) => (
+                        <tr key={row.id} className="border-t border-zinc-800 text-zinc-100">
+                          <td className="px-3 py-3">{new Date(row.purchase_date).toLocaleDateString("es-AR")}</td>
+                          <td className="px-3 py-3">{row.purchase_number || "S/N"}</td>
+                          <td className="px-3 py-3">{row.supplier_name || "SIN PROVEEDOR"}</td>
+                          <td className="px-3 py-3 text-right">{Number(row.total_items || 0)}</td>
+                          <td className="px-3 py-3 text-right font-bold">${Number(row.total_amount || 0).toFixed(2)}</td>
+                          <td className="px-3 py-3 text-center">
+                            {row.receipt_image_data_url ? (
+                              <span className="inline-flex rounded-full bg-emerald-500/15 text-emerald-300 px-2 py-1 text-[10px] font-black uppercase">
+                                Cargada
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-zinc-700 text-zinc-200 px-2 py-1 text-[10px] font-black uppercase">
+                                Sin boleta
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="flex justify-center gap-2">
+                              {row.receipt_image_data_url ? (
+                                <button
+                                  type="button"
+                                  className="bg-white hover:bg-zinc-50 text-sky-700 border border-sky-300 rounded-lg px-3 h-[34px] text-[10px] font-black uppercase"
+                                  onClick={() =>
+                                    setSelectedReceipt({
+                                      title: row.receipt_image_name || `Boleta ${row.purchase_number || "S/N"}`,
+                                      url: row.receipt_image_data_url,
+                                    })
+                                  }
+                                >
+                                  Ver boleta
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="bg-[#f07c0f] hover:bg-[#df6f08] text-white rounded-lg px-3 h-[34px] text-[10px] font-black uppercase"
+                                  onClick={() => openAttachReceipt(row.id)}
+                                >
+                                  Asociar boleta
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-10 text-center text-zinc-400">
+                          No hay compras registradas
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <button
-                type="button"
-                className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 h-[34px] text-[11px] font-black uppercase"
-                onClick={() => setSelectedReceipt(null)}
-              >
-                Cerrar
-              </button>
-            </div>
-            <div className="p-4 bg-[#18191d] flex-1 overflow-auto flex items-center justify-center">
-              <img
-                src={selectedReceipt.url}
-                alt={selectedReceipt.title || "Boleta"}
-                className="max-w-full max-h-[75vh] object-contain rounded-xl"
-              />
             </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null
+      }
+      {
+        selectedReceipt ? (
+          <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-sm p-4 flex items-center justify-center">
+            <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-2xl bg-[#111214] border border-zinc-800 flex flex-col">
+              <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+                <div className="text-sm font-black uppercase tracking-wide text-white">
+                  {selectedReceipt.title || "Boleta"}
+                </div>
+                <button
+                  type="button"
+                  className="bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg px-3 h-[34px] text-[11px] font-black uppercase"
+                  onClick={() => setSelectedReceipt(null)}
+                >
+                  Cerrar
+                </button>
+              </div>
+              <div className="p-4 bg-[#18191d] flex-1 overflow-auto flex items-center justify-center">
+                <img
+                  src={selectedReceipt.url}
+                  alt={selectedReceipt.title || "Boleta"}
+                  className="max-w-full max-h-[75vh] object-contain rounded-xl"
+                />
+              </div>
+            </div>
+          </div>
+        ) : null
+      }
+    </div >
   );
 }

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import {
   DEFAULT_TICKET_CONFIG,
+  getTicketContentWidthMm,
+  getTicketMaxChars,
+  getTicketPaperWidthMm,
   loadTicketConfig,
   saveTicketConfig,
 } from "../utils/ticketConfig";
@@ -71,13 +74,8 @@ function leftRightPreview(left, right, max = 32) {
   return `${trimmedLeft}${" ".repeat(spaces)}${r}`;
 }
 
-function getTicketSeparatorLength(fontSize) {
-  const size = Number(fontSize || 15);
-  if (size >= 30) return 12;
-  if (size >= 26) return 14;
-  if (size >= 22) return 18;
-  if (size >= 18) return 24;
-  return 32;
+function getTicketSeparatorLength(config) {
+  return getTicketMaxChars(config);
 }
 
 function formatTicketTemplateLine(line, templateVars, max = 32) {
@@ -91,7 +89,8 @@ function formatTicketTemplateLine(line, templateVars, max = 32) {
 
 function buildTicketPreview(config) {
   const safeConfig = config || DEFAULT_TICKET_CONFIG;
-  const separator = "-".repeat(getTicketSeparatorLength(safeConfig.fontSize));
+  const maxChars = getTicketMaxChars(safeConfig);
+  const separator = "-".repeat(getTicketSeparatorLength(safeConfig));
   const customLines = String(
     safeConfig.customLinesText ?? (safeConfig.customLines || []).join("\n")
   )
@@ -110,9 +109,9 @@ function buildTicketPreview(config) {
   };
 
   const previewLines = [];
-  if (safeConfig.businessName) previewLines.push(centerPreviewText(safeConfig.businessName));
-  if (safeConfig.addressLine) previewLines.push(centerPreviewText(safeConfig.addressLine));
-  if (safeConfig.cityLine) previewLines.push(centerPreviewText(safeConfig.cityLine));
+  if (safeConfig.businessName) previewLines.push(centerPreviewText(safeConfig.businessName, maxChars));
+  if (safeConfig.addressLine) previewLines.push(centerPreviewText(safeConfig.addressLine, maxChars));
+  if (safeConfig.cityLine) previewLines.push(centerPreviewText(safeConfig.cityLine, maxChars));
   previewLines.push(separator);
   if (safeConfig.includeComprobante) previewLines.push("Comprobante: Factura B");
   if (safeConfig.includeTicketNumber) previewLines.push(`Ticket: ${templateVars.ticket}`);
@@ -124,12 +123,12 @@ function buildTicketPreview(config) {
     previewLines.push(`Cliente: ${templateVars.cliente}`);
     previewLines.push(separator);
   }
-  previewLines.push(leftRightPreview("Cant x P.Unit", "Importe"));
+  previewLines.push(leftRightPreview("Cant x P.Unit", "Importe", maxChars));
   previewLines.push("GASEOSA COLA");
-  previewLines.push(leftRightPreview("2 x $2.250,00", "$4.500,00"));
-  if (safeConfig.includeItemSeparators) previewLines.push("................................");
+  previewLines.push(leftRightPreview("2 x $2.250,00", "$4.500,00", maxChars));
+  if (safeConfig.includeItemSeparators) previewLines.push(".".repeat(maxChars));
   previewLines.push("AGUA MINERAL");
-  previewLines.push(leftRightPreview("1 x $3.450,00", "$3.450,00"));
+  previewLines.push(leftRightPreview("1 x $3.450,00", "$3.450,00", maxChars));
   previewLines.push(separator);
   previewLines.push(`TOTAL: ${templateVars.total}`);
   if (safeConfig.includePaymentDetail) {
@@ -138,13 +137,13 @@ function buildTicketPreview(config) {
   if (customLines.length) {
     previewLines.push(separator);
     customLines.forEach((line) => {
-      const rendered = formatTicketTemplateLine(line, templateVars);
+      const rendered = formatTicketTemplateLine(line, templateVars, maxChars);
       if (rendered) previewLines.push(rendered);
     });
   }
   if (safeConfig.footerText) {
     previewLines.push(separator);
-    previewLines.push(centerPreviewText(safeConfig.footerText));
+    previewLines.push(centerPreviewText(safeConfig.footerText, maxChars));
   }
 
   return {
@@ -1205,17 +1204,45 @@ export default function Configuracion({ user, setToast }) {
           />
         </div>
 
-        <div className="max-w-xs">
-          <label className={sectionLabelClass}>Tamano de letra del ticket</label>
-          <input
-            type="number"
-            min="9"
-            max="32"
-            className={`${panelInputClass} mt-1`}
-            value={ticketConfig.fontSize || 15}
-            onChange={(e) => setTicketField("fontSize", e.target.value)}
-            disabled={!canEdit}
-          />
+        <div className="grid md:grid-cols-2 gap-3 max-w-2xl">
+          <div>
+            <label className={sectionLabelClass}>Tamano de letra del ticket</label>
+            <input
+              type="number"
+              min="9"
+              max="32"
+              className={`${panelInputClass} mt-1`}
+              value={ticketConfig.fontSize || 15}
+              onChange={(e) => setTicketField("fontSize", e.target.value)}
+              disabled={!canEdit}
+            />
+          </div>
+          <div>
+            <label className={sectionLabelClass}>Ancho de papel del ticket (mm)</label>
+            <input
+              type="number"
+              min="48"
+              max="80"
+              step="1"
+              className={`${panelInputClass} mt-1`}
+              value={ticketConfig.paperWidthMm || 58}
+              onChange={(e) => setTicketField("paperWidthMm", e.target.value)}
+              disabled={!canEdit}
+            />
+          </div>
+          <div>
+            <label className={sectionLabelClass}>Ancho util del contenido (mm)</label>
+            <input
+              type="number"
+              min="40"
+              max={Math.max(40, Number(ticketConfig.paperWidthMm || 58) - 2)}
+              step="1"
+              className={`${panelInputClass} mt-1`}
+              value={ticketConfig.contentWidthMm || 50}
+              onChange={(e) => setTicketField("contentWidthMm", e.target.value)}
+              disabled={!canEdit}
+            />
+          </div>
         </div>
 
         <div className="rounded-xl border border-zinc-800 bg-[#0f1115] p-4">
@@ -1294,7 +1321,10 @@ export default function Configuracion({ user, setToast }) {
             </div>
           </div>
           <div className="mt-3 flex justify-center">
-            <div className="w-full max-w-[320px] rounded-2xl border border-zinc-700 bg-[#f8f8f6] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.25)]">
+            <div
+              className="w-full rounded-2xl border border-zinc-700 bg-[#f8f8f6] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.25)]"
+              style={{ maxWidth: `${getTicketPaperWidthMm(ticketConfig) * 5.4}px` }}
+            >
               {ticketPreview.logoDataUrl ? (
                 <div className="mb-3 flex justify-center border-b border-zinc-300 pb-3">
                   <img
@@ -1305,8 +1335,12 @@ export default function Configuracion({ user, setToast }) {
                 </div>
               ) : null}
               <div
-                className="font-mono leading-5 text-zinc-900 whitespace-pre-wrap break-words"
-                style={{ fontSize: `${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px`, lineHeight: 1.35 }}
+                className="font-['Segoe_UI',Arial,sans-serif] text-zinc-900 whitespace-pre-wrap break-words font-semibold"
+                style={{
+                  fontSize: `${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px`,
+                  lineHeight: 1.18,
+                  width: `${getTicketContentWidthMm(ticketConfig) * 5.4}px`,
+                }}
               >
                 {ticketPreview.lines.join("\n")}
               </div>

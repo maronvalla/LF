@@ -24,13 +24,10 @@ export default function CustomerPanel({
   const lightOptionStyle = { color: "#18181b", backgroundColor: "#ffffff" };
 
   return (
-    <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl p-2.5 flex flex-col gap-2 shrink-0">
-      <div className="text-[16px] md:text-[18px] leading-none font-black text-zinc-900">
-        Identificacion del Cliente
-      </div>
-      <div className="flex flex-col gap-2 w-full">
-        <div className="w-full">
-          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">
+    <div className="bg-[#ededee] border border-[#d1d1d4] rounded p-1 px-2 flex flex-col gap-1 shrink-0">
+      <div className="flex flex-wrap items-end gap-2 w-full">
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">
             Cliente
           </label>
           <SearchableSelect
@@ -54,56 +51,54 @@ export default function CustomerPanel({
             }}
             freeTextValue={draft.customerName}
             onFreeTextChange={onCustomerNameChange}
-            placeholder="Buscar cliente o escribir nombre para mostrador"
+            placeholder="Buscar..."
             theme="light"
-            inputClassName="bg-white border-[#cfcfd4] rounded-lg px-3 py-2 text-sm font-medium text-zinc-900 placeholder:text-zinc-500 focus:border-[#d97706]"
+            inputClassName="bg-white border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 placeholder:text-zinc-500 focus:border-[#d97706] w-full"
             dropdownClassName="bg-white border-[#cfcfd4]"
             optionClassName="border-[#ececf1]"
-            className={readOnly ? "pointer-events-none opacity-70" : ""}
+            className={readOnly ? "pointer-events-none opacity-70 flex-1 min-w-[200px]" : "flex-1 min-w-[200px]"}
             forceOpenSignal={customerForceOpenSignal}
           />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#d7d7db] mt-1">
-        <div className="flex gap-2">
-          <button
-            className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
-            onClick={onOpenCustomerSearch}
-            type="button"
-            disabled={readOnly}
-            title="Buscar cliente (F3)"
-          >
-            Buscar (F3)
-          </button>
-          <button
-            className="bg-[#f07c0f] hover:bg-[#df6f08] text-white border border-[#d86b07] rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
-            onClick={onOpenQuickClient}
-            type="button"
-            disabled={readOnly}
-          >
-            Registrar
-          </button>
-        </div>
-        <div
-          className="flex items-center h-[38px] px-3 gap-2 bg-white border border-[#cfcfd4] rounded-lg cursor-pointer select-none"
-          onClick={() => !readOnly && onToggleDelivery()}
+      <div className="flex gap-1">
+        <button
+          className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded px-2 h-[24px] flex items-center justify-center transition-colors text-[9px] font-black uppercase"
+          onClick={onOpenCustomerSearch}
+          type="button"
+          disabled={readOnly}
+          title="Buscar cliente (F3)"
         >
-          <span className="text-[10px] text-zinc-600 uppercase font-black tracking-wide">Es Envio</span>
-          <div className={`w-9 h-5 rounded-full p-0.5 transition-colors ${isDelivery ? "bg-[#f07c0f]" : "bg-zinc-400"}`}>
-            <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isDelivery ? "translate-x-4" : "translate-x-0"}`} />
-          </div>
+          Buscar (F3)
+        </button>
+        <button
+          className="bg-[#f07c0f] hover:bg-[#df6f08] text-white border border-[#d86b07] rounded px-2 h-[24px] flex items-center justify-center transition-colors text-[9px] font-black uppercase"
+          onClick={onOpenQuickClient}
+          type="button"
+          disabled={readOnly}
+        >
+          Nuevo
+        </button>
+      </div>
+      <div
+        className="flex items-center h-[24px] px-2 gap-1.5 bg-white border border-[#cfcfd4] rounded cursor-pointer select-none"
+        onClick={() => !readOnly && onToggleDelivery()}
+      >
+        <span className="text-[9px] text-zinc-600 uppercase font-black tracking-wide">Es Envio</span>
+        <div className={`w-7 h-4 rounded-full p-0.5 transition-colors ${isDelivery ? "bg-[#f07c0f]" : "bg-zinc-400"}`}>
+          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${isDelivery ? "translate-x-3" : "translate-x-0"}`} />
         </div>
       </div>
 
       {isDelivery ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-          <div>
-            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">
+        <div className="flex flex-wrap items-end gap-2 w-full border-t border-[#d7d7db] pt-1">
+          <div className="flex-1 min-w-[100px]">
+            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">
               Salida Est.
             </label>
             <select
-              className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-xs md:text-sm font-semibold text-zinc-800 outline-none focus:border-[#d97706]"
+              className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 text-xs font-semibold text-zinc-800 h-[24px] outline-none focus:border-[#d97706]"
               style={lightSelectStyle}
               value={draft.shift}
               onChange={(event) => onShiftChange(event.target.value)}
@@ -112,9 +107,9 @@ export default function CustomerPanel({
               {(shiftOptions.length
                 ? shiftOptions
                 : [
-                    { value: "MANIANA", label: "MA\u00d1ANA (11:00)" },
-                    { value: "TARDE", label: "TARDE (19:00)" },
-                  ]
+                  { value: "MANIANA", label: "MA\u00d1ANA (11:00)" },
+                  { value: "TARDE", label: "TARDE (19:00)" },
+                ]
               ).map((option) => (
                 <option key={option.value} value={option.value} style={lightOptionStyle}>
                   {option.label}
@@ -122,12 +117,12 @@ export default function CustomerPanel({
               ))}
             </select>
           </div>
-          <div>
-            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">
+          <div className="flex-1 min-w-[100px]">
+            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">
               Condicion
             </label>
             <select
-              className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-xs md:text-sm font-semibold text-zinc-800 outline-none focus:border-[#d97706]"
+              className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 text-xs font-semibold text-zinc-800 h-[24px] outline-none focus:border-[#d97706]"
               style={lightSelectStyle}
               value={draft.paymentCondition}
               onChange={(event) => onPaymentConditionChange(event.target.value)}
@@ -140,12 +135,12 @@ export default function CustomerPanel({
               ))}
             </select>
           </div>
-          <div className="col-span-1 sm:col-span-2">
-            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-1 block">
-              Direccion de Entrega
+          <div className="flex-1 min-w-[200px]">
+            <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">
+              Direccion
             </label>
             <input
-              className="w-full bg-white border border-[#cfcfd4] rounded-lg px-3 py-2 text-xs md:text-sm font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+              className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 text-xs font-medium text-zinc-900 h-[24px] outline-none focus:border-[#d97706]"
               placeholder="Direccion..."
               value={draft.deliveryAddress}
               onChange={(event) => onDeliveryAddressChange(event.target.value)}
