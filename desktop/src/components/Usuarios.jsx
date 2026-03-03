@@ -7,6 +7,8 @@ export default function Usuarios({ user, setToast }) {
   const [sellerAliasesByUser, setSellerAliasesByUser] = useState({});
   const [sellerAliasDrafts, setSellerAliasDrafts] = useState({});
   const [showModal, setShowModal] = useState(false);
+  const [passwordModalUser, setPasswordModalUser] = useState(null);
+  const [passwordDraft, setPasswordDraft] = useState("");
   const [confirmState, setConfirmState] = useState(null);
   const confirmResolverRef = useRef(null);
 
@@ -71,6 +73,16 @@ export default function Usuarios({ user, setToast }) {
     setShowModal(true);
   };
 
+  const openPasswordModal = (row) => {
+    setPasswordModalUser(row);
+    setPasswordDraft("");
+  };
+
+  const closePasswordModal = () => {
+    setPasswordModalUser(null);
+    setPasswordDraft("");
+  };
+
   const saveUser = async () => {
     try {
       if (!draft.username || !draft.fullName || !draft.password) {
@@ -110,6 +122,27 @@ export default function Usuarios({ user, setToast }) {
     } catch (err) {
       setToast?.({
         message: err.response?.data?.message || "No se pudo borrar el usuario",
+        type: "error",
+      });
+    }
+  };
+
+  const updatePassword = async () => {
+    const nextPassword = String(passwordDraft || "");
+    if (nextPassword.trim().length < 6) {
+      setToast?.({ message: "La contrasena debe tener al menos 6 caracteres", type: "warning" });
+      return;
+    }
+
+    try {
+      await api.put(`/users/${passwordModalUser.id}/password`, {
+        password: nextPassword,
+      });
+      setToast?.({ message: "Contrasena actualizada correctamente", type: "success" });
+      closePasswordModal();
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo actualizar la contrasena",
         type: "error",
       });
     }
@@ -173,6 +206,8 @@ export default function Usuarios({ user, setToast }) {
     return <div className="card rounded-lg p-6 bg-zinc-900 border-zinc-800">Solo ADMIN</div>;
   }
 
+  const visibleRows = rows.filter((row) => row.is_active);
+
   return (
     <div className="h-full flex flex-col space-y-4">
       <div className="flex justify-between items-end px-2">
@@ -201,14 +236,14 @@ export default function Usuarios({ user, setToast }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/50">
-              {rows.length === 0 ? (
+              {visibleRows.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="text-center py-10 text-zinc-600">
                     No hay usuarios registrados.
                   </td>
                 </tr>
               ) : (
-                rows.map((u) => (
+                visibleRows.map((u) => (
                   <Fragment key={u.id}>
                     <tr key={u.id} className="hover:bg-zinc-800/30 transition-colors">
                       <td className="px-5 py-3 font-bold text-white">{u.username}</td>
@@ -222,6 +257,13 @@ export default function Usuarios({ user, setToast }) {
                         {u.is_active ? "Si" : "No"}
                       </td>
                       <td className="px-5 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openPasswordModal(u)}
+                          className="mr-2 rounded-lg border border-amber-500/30 bg-amber-950/30 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-200 transition-colors hover:border-amber-400 hover:text-white"
+                        >
+                          Contrasena
+                        </button>
                         <button
                           type="button"
                           onClick={() => deleteUser(u)}
@@ -367,6 +409,58 @@ export default function Usuarios({ user, setToast }) {
           </div>
         </div>
       )}
+      {passwordModalUser ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-[#121212] border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
+            <div className="px-6 py-4 border-b border-zinc-800 flex justify-between items-center bg-[#1a1a1a] rounded-t-2xl">
+              <div>
+                <h3 className="text-lg font-black text-white uppercase tracking-wider">Cambiar contrasena</h3>
+                <div className="text-xs text-zinc-500 mt-1">{passwordModalUser.full_name || passwordModalUser.username}</div>
+              </div>
+              <button
+                onClick={closePasswordModal}
+                className="text-zinc-500 hover:text-white transition-colors"
+                type="button"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-1 block">Nueva contrasena *</label>
+                <input
+                  autoFocus
+                  type="password"
+                  className="w-full bg-[#1a1a1a] border border-zinc-800 rounded-lg p-2.5 text-sm text-white focus:border-[#e85d04] outline-none"
+                  value={passwordDraft}
+                  onChange={(e) => setPasswordDraft(e.target.value)}
+                  placeholder="Minimo 6 caracteres"
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-zinc-800 flex justify-end gap-3 bg-[#1a1a1a] rounded-b-2xl">
+              <button
+                className="px-6 py-2.5 rounded-lg text-sm font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                onClick={closePasswordModal}
+                type="button"
+              >
+                CANCELAR
+              </button>
+              <button
+                className="px-8 py-2.5 bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg text-sm font-bold shadow-lg transition-colors"
+                onClick={updatePassword}
+                type="button"
+              >
+                GUARDAR
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {confirmState ? (
         <ConfirmModal
           message={confirmState.message}

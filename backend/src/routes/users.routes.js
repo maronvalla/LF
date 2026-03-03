@@ -18,6 +18,9 @@ const createUserSchema = z.object({
 });
 
 const userIdSchema = z.string().uuid();
+const updatePasswordSchema = z.object({
+  password: z.string().min(6),
+});
 
 router.get(
   "/",
@@ -105,6 +108,49 @@ router.delete(
     });
 
     res.json({ ok: true, user: rows[0] });
+  })
+);
+
+router.put(
+  "/:id/password",
+  requirePermission("users.manage"),
+  asyncHandler(async (req, res) => {
+    const parsedId = userIdSchema.safeParse(req.params.id);
+    if (!parsedId.success) {
+      return res.status(400).json({ message: "Usuario invalido" });
+    }
+
+    const parsedBody = updatePasswordSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      return res.status(400).json({ message: "Datos invalidos" });
+    }
+
+    const beforeRes = await pool.query(
+      "SELECT id, username, role, full_name, is_active FROM users WHERE id = $1 LIMIT 1",
+      [parsedId.data]
+    );
+    const before = beforeRes.rows[0];
+    if (!before) {
+      return res.status(404).json({ message: "Usuario no encontrado" });
+    }
+
+    const nextHash = await bcrypt.hash(parsedBody.data.password, 10);
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [nextHash, parsedId.data]);
+
+    await logAudit({
+      actorUserId: req.user.id,
+      action: "USER_PASSWORD_UPDATE",
+      entity: "users",
+      entityId: parsedId.data,
+      metadata: {
+        username: before.username,
+        fullName: before.full_name,
+        role: before.role,
+        isActive: before.is_active,
+      },
+    });
+
+    res.json({ ok: true });
   })
 );
 
