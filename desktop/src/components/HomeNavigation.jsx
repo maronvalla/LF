@@ -293,28 +293,30 @@ export default function HomeNavigation({
                     Anular
                   </button>
                   {cancelConfirmId === order.id ? (
-                    <div className={`absolute inset-0 flex items-center justify-center gap-2 rounded-2xl ${
-                      isDark ? "bg-black/85" : "bg-white/92"
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-2xl ${
+                      isDark ? "bg-[#1a1a1a]" : "bg-white"
                     }`}>
                       <span className={`text-xs font-bold ${isDark ? "text-white" : "text-zinc-800"}`}>
                         ¿Anular esta orden?
                       </span>
+                      <div className="flex gap-2">
                       <button
                         type="button"
-                        className="text-[11px] font-black uppercase px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                        className="text-[11px] font-black uppercase px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white"
                         onClick={() => { onCancelPendingOrder?.(order.id); setCancelConfirmId(null); }}
                       >
                         Sí
                       </button>
                       <button
                         type="button"
-                        className={`text-[11px] font-black uppercase px-3 py-1 rounded-lg ${
-                          isDark ? "bg-zinc-700 hover:bg-zinc-600 text-white" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                        className={`text-[11px] font-black uppercase px-4 py-1.5 rounded-lg ${
+                          isDark ? "bg-zinc-700 hover:bg-zinc-600 text-white" : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300"
                         }`}
                         onClick={() => setCancelConfirmId(null)}
                       >
                         No
                       </button>
+                      </div>
                     </div>
                   ) : null}
                 </div>

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Geolocation } from '@capacitor/geolocation';
 import { io } from 'socket.io-client';
+import CustomerLocationModal from './drivers/CustomerLocationModal';
 
 import api, { socketOrigin } from '../api';
 
@@ -92,6 +94,9 @@ export default function DriverApp({ onLogout }) {
   const [submitStateByDelivery, setSubmitStateByDelivery] = useState({});
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
+  const [locationPrompt, setLocationPrompt] = useState(null);
+  // locationPrompt: null | { deliveryId: string, customerId: string }
+
   const fileInputRef = useRef(null);
   const pendingProofDeliveryIdRef = useRef(null);
   const socketRef = useRef(null);
@@ -129,55 +134,87 @@ export default function DriverApp({ onLogout }) {
       setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'API_DESCONECTADA'));
     });
 
-    if (!navigator.geolocation) {
-      setTrackingState('SIN_GEOLOCATION');
-      // Do not disconnect the socket here, so the API at least stays 'CONECTADO'
-      return () => {
-        socket.disconnect();
-      };
-    }
-
-    const emitPosition = (position) => {
-      const payload = {
-        lat: Number(position.coords.latitude),
-        lng: Number(position.coords.longitude),
+    const emitCoords = (lat, lng) => {
+      socket.emit('camion_ubicacion', {
+        lat: Number(lat),
+        lng: Number(lng),
         ts: new Date().toISOString(),
-      };
-      socket.emit('camion_ubicacion', payload);
+      });
     };
 
-    const onGeoError = (error) => {
-      if (Number(error?.code) === 1) {
-        setTrackingState('GPS_DENEGADO');
-        return;
-      }
-      setTrackingState('GPS_ERROR');
-    };
+    let cancelled = false;
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        emitPosition(position);
-        watchIdRef.current = navigator.geolocation.watchPosition(
-          emitPosition,
-          onGeoError,
-          {
-            enableHighAccuracy: true,
-            maximumAge: 10000,
-            timeout: 15000,
+    const startCapacitorWatch = async () => {
+      try {
+        // Request permissions explicitly (required on Android)
+        const perm = await Geolocation.requestPermissions({ permissions: ['location'] });
+        if (perm?.location === 'denied') {
+          if (!cancelled) setTrackingState('GPS_DENEGADO');
+          return;
+        }
+
+        // Emit first position immediately
+        try {
+          const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 15000 });
+          if (!cancelled) emitCoords(pos.coords.latitude, pos.coords.longitude);
+        } catch {
+          // Non-fatal — watch will still provide updates
+        }
+
+        // Start continuous watch
+        const watchId = await Geolocation.watchPosition(
+          { enableHighAccuracy: true },
+          (position, err) => {
+            if (cancelled) return;
+            if (err) {
+              setTrackingState('GPS_ERROR');
+              return;
+            }
+            if (position) {
+              emitCoords(position.coords.latitude, position.coords.longitude);
+            }
           }
         );
-      },
-      onGeoError,
-      {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 15000,
+        watchIdRef.current = watchId;
+      } catch (err) {
+        if (cancelled) return;
+        const code = Number(err?.code);
+        if (code === 1) {
+          setTrackingState('GPS_DENEGADO');
+        } else {
+          // Capacitor not available (desktop/web), fall back to browser API
+          if (!navigator.geolocation) {
+            setTrackingState('SIN_GEOLOCATION');
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              if (cancelled) return;
+              emitCoords(position.coords.latitude, position.coords.longitude);
+              watchIdRef.current = navigator.geolocation.watchPosition(
+                (pos) => { if (!cancelled) emitCoords(pos.coords.latitude, pos.coords.longitude); },
+                () => { if (!cancelled) setTrackingState('GPS_ERROR'); },
+                { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+              );
+            },
+            () => { if (!cancelled) setTrackingState('GPS_ERROR'); },
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+          );
+        }
       }
-    );
+    };
+
+    startCapacitorWatch();
 
     return () => {
+      cancelled = true;
       if (watchIdRef.current != null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
+        Geolocation.clearWatch({ id: watchIdRef.current }).catch(() => {
+          // If it was a browser watchId (number), try clearing via browser API too
+          if (navigator.geolocation) {
+            try { navigator.geolocation.clearWatch(watchIdRef.current); } catch { /* ignore */ }
+          }
+        });
       }
       socket.disconnect();
     };
@@ -185,6 +222,7 @@ export default function DriverApp({ onLogout }) {
 
   const normalizeDelivery = (row) => ({
     id: row.id,
+    customerId: row.customer_id || null,
     name: row.customer_name || row.sale_number || 'SIN CLIENTE',
     address: row.delivery_address || 'SIN DIRECCION',
     lat: Number(row.customer_latitude || 0),
@@ -344,19 +382,22 @@ export default function DriverApp({ onLogout }) {
     }
   }, [loadDriverBoard]);
 
-  const getCurrentCoords = () =>
-    new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve({ lat: null, lng: null });
-      navigator.geolocation.getCurrentPosition(
-        (position) =>
-          resolve({
-            lat: Number(position.coords.latitude),
-            lng: Number(position.coords.longitude),
-          }),
-        () => resolve({ lat: null, lng: null }),
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
-      );
-    });
+  const getCurrentCoords = async () => {
+    try {
+      const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+      return { lat: Number(pos.coords.latitude), lng: Number(pos.coords.longitude) };
+    } catch {
+      // Fallback to browser API (desktop/web)
+      if (!navigator.geolocation) return { lat: null, lng: null };
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => resolve({ lat: Number(position.coords.latitude), lng: Number(position.coords.longitude) }),
+          () => resolve({ lat: null, lng: null }),
+          { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+        );
+      });
+    }
+  };
 
   useEffect(() => {
     setPendingSyncCount(readOfflineQueue().length);
@@ -556,6 +597,17 @@ export default function DriverApp({ onLogout }) {
     return true;
   };
 
+  // Intercept "Marcar como Entregado": if customer has no coordinates, prompt to save location/photo first
+  const handleDeliverButtonClick = (deliveryId) => {
+    const delivery = deliveries.find((d) => d.id === deliveryId);
+    const hasCoords = delivery && (Number(delivery.lat) !== 0 || Number(delivery.lng) !== 0);
+    if (!hasCoords && delivery?.customerId) {
+      setLocationPrompt({ deliveryId, customerId: delivery.customerId });
+      return;
+    }
+    handleConfirmDelivered(deliveryId);
+  };
+
   const handleConfirmDelivered = async (deliveryId) => {
     const validationError = validateBeforeDeliver(deliveryId);
     if (validationError) {
@@ -698,6 +750,16 @@ export default function DriverApp({ onLogout }) {
 
   return (
     <div className="min-h-screen bg-black text-white pb-20 font-sans select-none">
+      {locationPrompt ? (
+        <CustomerLocationModal
+          customerId={locationPrompt.customerId}
+          onDone={() => {
+            const { deliveryId } = locationPrompt;
+            setLocationPrompt(null);
+            handleConfirmDelivered(deliveryId);
+          }}
+        />
+      ) : null}
       <input
         ref={fileInputRef}
         type="file"
@@ -906,7 +968,7 @@ export default function DriverApp({ onLogout }) {
                         Rechazado
                       </button>
                       <button
-                        onClick={() => handleConfirmDelivered(delivery.id)}
+                        onClick={() => handleDeliverButtonClick(delivery.id)}
                         disabled={!canMarkAsDelivered(delivery.id)}
                         className="flex-[2] h-16 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-900/40 disabled:text-zinc-400 disabled:cursor-not-allowed active:scale-[0.98] text-white rounded-2xl font-black uppercase text-lg flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition-all"
                       >

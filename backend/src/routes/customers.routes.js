@@ -236,7 +236,12 @@ router.get(
   "/",
   requirePermission("customers.manage"),
   asyncHandler(async (_req, res) => {
-    const { rows } = await pool.query("SELECT * FROM customers ORDER BY created_at DESC");
+    const { rows } = await pool.query(
+      `SELECT id, name, code, tax_id, phone, email, address, zone, iva_condition, notes,
+              preferred_price_list, latitude, longitude, enable_current_account, created_at,
+              (facade_photo_base64 IS NOT NULL) AS has_facade_photo
+       FROM customers ORDER BY created_at DESC`
+    );
     res.json(rows);
   })
 );
@@ -426,6 +431,75 @@ router.put(
       metadata: { before: before.rows[0], after: rows[0] },
     });
     res.json(rows[0]);
+  })
+);
+
+// Get facade photo for a specific customer (admin / cashier)
+router.get(
+  "/:id/facade-photo",
+  requirePermission("customers.manage"),
+  asyncHandler(async (req, res) => {
+    const { rows } = await pool.query(
+      "SELECT facade_photo_base64, facade_photo_mime_type FROM customers WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ message: "Cliente no encontrado" });
+    res.json({
+      base64: rows[0].facade_photo_base64 || null,
+      mimeType: rows[0].facade_photo_mime_type || null,
+    });
+  })
+);
+
+// Update customer coordinates from driver app
+router.patch(
+  "/:id/location",
+  requirePermission("deliveries.track"),
+  asyncHandler(async (req, res) => {
+    const lat = Number(req.body.latitude);
+    const lng = Number(req.body.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ message: "Coordenadas invalidas" });
+    }
+    const existing = await pool.query("SELECT id FROM customers WHERE id = $1", [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ message: "Cliente no encontrado" });
+    await pool.query(
+      "UPDATE customers SET latitude = $2, longitude = $3 WHERE id = $1",
+      [req.params.id, lat, lng]
+    );
+    await logAudit({
+      actorUserId: req.user.id,
+      action: "CUSTOMER_LOCATION_UPDATE",
+      entity: "customers",
+      entityId: req.params.id,
+      metadata: { latitude: lat, longitude: lng, source: "DRIVER_APP" },
+    });
+    res.json({ ok: true });
+  })
+);
+
+// Upload facade photo from driver app
+router.post(
+  "/:id/facade-photo",
+  requirePermission("deliveries.track"),
+  asyncHandler(async (req, res) => {
+    const base64 = String(req.body.base64 || "").trim();
+    const mimeType = String(req.body.mimeType || "image/jpeg").trim();
+    if (!base64) return res.status(400).json({ message: "Foto requerida" });
+    const existing = await pool.query("SELECT id FROM customers WHERE id = $1", [req.params.id]);
+    if (!existing.rows[0]) return res.status(404).json({ message: "Cliente no encontrado" });
+    await pool.query(
+      "UPDATE customers SET facade_photo_base64 = $2, facade_photo_mime_type = $3 WHERE id = $1",
+      [req.params.id, base64, mimeType]
+    );
+    await logAudit({
+      actorUserId: req.user.id,
+      action: "CUSTOMER_FACADE_PHOTO_UPDATE",
+      entity: "customers",
+      entityId: req.params.id,
+      metadata: { source: "DRIVER_APP" },
+    });
+    res.json({ ok: true });
   })
 );
 

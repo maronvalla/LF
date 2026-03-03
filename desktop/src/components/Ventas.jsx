@@ -326,11 +326,13 @@ export default function Ventas({
 
   const resetSaleState = () => {
     const nextDefaultList = getDefaultPriceListKey(priceListsConfig);
-    const sellerName = draft.sellerName || getUserDisplayName(user);
+    const persistedSeller = parseSellerSelectionKey(localStorage.getItem(VENDEDOR_LOCAL_KEY));
+    const sellerId = persistedSeller.sellerId || draft.sellerId || user?.id || "";
+    const sellerName = persistedSeller.sellerName || draft.sellerName || getUserDisplayName(user);
     setDraft(
       buildEmptySaleDraft(
         getSuggestedDeliverySchedule(deliveryShiftConfig),
-        draft.sellerId || user?.id || "",
+        sellerId,
         sellerName
       )
     );
@@ -749,20 +751,26 @@ export default function Ventas({
   }, [users]);
 
   const sellerOptions = useMemo(() => {
-    return vendedoresActivos.flatMap((seller) => {
-      const aliases = Array.isArray(sellerAliasesByUser?.[seller.id]) ? sellerAliasesByUser[seller.id] : [];
-      const labels = aliases.length ? aliases : [getUserDisplayName(seller)];
-      return labels.map((label) => {
-        const sellerName = String(label || "").trim() || getUserDisplayName(seller);
-        return {
-          key: buildSellerSelectionKey(seller.id, sellerName),
-          sellerId: seller.id,
-          sellerName,
-          label: sellerName,
-        };
-      });
+    const currentUserId = String(user?.id || "");
+    const currentUser =
+      vendedoresActivos.find((seller) => String(seller.id) === currentUserId) || user || null;
+    if (!currentUserId || !currentUser) return [];
+
+    const aliases = Array.isArray(sellerAliasesByUser?.[currentUserId])
+      ? sellerAliasesByUser[currentUserId]
+      : [];
+    const labels = aliases.length ? aliases : [getUserDisplayName(currentUser)];
+
+    return labels.map((label) => {
+      const sellerName = String(label || "").trim() || getUserDisplayName(currentUser);
+      return {
+        key: buildSellerSelectionKey(currentUserId, sellerName),
+        sellerId: currentUserId,
+        sellerName,
+        label: sellerName,
+      };
     });
-  }, [sellerAliasesByUser, vendedoresActivos]);
+  }, [sellerAliasesByUser, user, vendedoresActivos]);
 
   const setVendedorActual = (selectionKey) => {
     const { sellerId, sellerName } = parseSellerSelectionKey(selectionKey);
@@ -1137,7 +1145,6 @@ export default function Ventas({
   };
 
   const openPaymentFlow = () => {
-    if (readOnlyPendingOrder) return;
     if (!draft.items.length) {
       focusCodeSearch();
       return;

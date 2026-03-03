@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import api from "../api";
 import ConfirmModal from "./ventas/ConfirmModal";
 
 export default function Usuarios({ user, setToast }) {
   const [rows, setRows] = useState([]);
+  const [sellerAliasesByUser, setSellerAliasesByUser] = useState({});
+  const [sellerAliasDrafts, setSellerAliasDrafts] = useState({});
   const [showModal, setShowModal] = useState(false);
   const [confirmState, setConfirmState] = useState(null);
   const confirmResolverRef = useRef(null);
@@ -33,10 +35,15 @@ export default function Usuarios({ user, setToast }) {
   const fetchUsers = async () => {
     try {
       if (String(user?.role || "").toUpperCase() !== "ADMIN") return;
-      const r = await api.get("/users");
-      setRows(r.data || []);
+      const [usersRes, aliasesRes] = await Promise.all([
+        api.get("/users"),
+        api.get("/settings/seller-aliases"),
+      ]);
+      setRows(usersRes.data || []);
+      setSellerAliasesByUser(aliasesRes.data?.aliasesByUser || {});
     } catch {
       setRows([]);
+      setSellerAliasesByUser({});
       setToast?.({ message: "No se pudieron cargar usuarios", type: "error" });
     }
   };
@@ -44,6 +51,14 @@ export default function Usuarios({ user, setToast }) {
   useEffect(() => {
     fetchUsers();
   }, [user?.role, setToast]);
+
+  useEffect(() => {
+    const nextDrafts = {};
+    rows.forEach((row) => {
+      nextDrafts[row.id] = "";
+    });
+    setSellerAliasDrafts(nextDrafts);
+  }, [rows]);
 
   const openNew = () => {
     setDraft({
@@ -100,6 +115,60 @@ export default function Usuarios({ user, setToast }) {
     }
   };
 
+  const saveSellerAliases = async (nextAliasesByUser) => {
+    try {
+      const payload = { aliasesByUser: nextAliasesByUser };
+      const { data } = await api.put("/settings/seller-aliases", payload);
+      setSellerAliasesByUser(data?.aliasesByUser || {});
+      return true;
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudieron guardar los nombres operativos",
+        type: "error",
+      });
+      return false;
+    }
+  };
+
+  const addSellerAlias = async (row) => {
+    const value = String(sellerAliasDrafts[row.id] || "").trim();
+    if (!value) {
+      setToast?.({ message: "Escribe un nombre operativo", type: "warning" });
+      return;
+    }
+
+    const current = Array.isArray(sellerAliasesByUser[row.id]) ? sellerAliasesByUser[row.id] : [];
+    if (current.some((alias) => String(alias).trim().toUpperCase() === value.toUpperCase())) {
+      setToast?.({ message: "Ese nombre operativo ya existe", type: "warning" });
+      return;
+    }
+
+    const next = {
+      ...sellerAliasesByUser,
+      [row.id]: [...current, value],
+    };
+
+    const saved = await saveSellerAliases(next);
+    if (!saved) return;
+    setSellerAliasDrafts((prev) => ({ ...prev, [row.id]: "" }));
+    setToast?.({ message: "Nombre operativo guardado", type: "success" });
+  };
+
+  const removeSellerAlias = async (row, aliasToRemove) => {
+    const confirmed = await showConfirm(`¿Seguro que quieres borrar el nombre operativo ${aliasToRemove}?`);
+    if (!confirmed) return;
+
+    const current = Array.isArray(sellerAliasesByUser[row.id]) ? sellerAliasesByUser[row.id] : [];
+    const filtered = current.filter((alias) => alias !== aliasToRemove);
+    const next = { ...sellerAliasesByUser };
+    if (filtered.length) next[row.id] = filtered;
+    else delete next[row.id];
+
+    const saved = await saveSellerAliases(next);
+    if (!saved) return;
+    setToast?.({ message: "Nombre operativo borrado", type: "success" });
+  };
+
   if (String(user?.role || "").toUpperCase() !== "ADMIN") {
     return <div className="card rounded-lg p-6 bg-zinc-900 border-zinc-800">Solo ADMIN</div>;
   }
@@ -140,28 +209,75 @@ export default function Usuarios({ user, setToast }) {
                 </tr>
               ) : (
                 rows.map((u) => (
-                  <tr key={u.id} className="hover:bg-zinc-800/30 transition-colors">
-                    <td className="px-5 py-3 font-bold text-white">{u.username}</td>
-                    <td className="px-5 py-3 text-zinc-300">{u.full_name}</td>
-                    <td className="px-5 py-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 border border-zinc-700 text-zinc-300">
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-center text-zinc-400">
-                      {u.is_active ? "Si" : "No"}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => deleteUser(u)}
-                        disabled={!u.is_active || String(u.id) === String(user?.id || "")}
-                        className="rounded-lg border border-rose-500/30 bg-rose-950/30 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-rose-300 transition-colors hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Borrar
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={u.id}>
+                    <tr key={u.id} className="hover:bg-zinc-800/30 transition-colors">
+                      <td className="px-5 py-3 font-bold text-white">{u.username}</td>
+                      <td className="px-5 py-3 text-zinc-300">{u.full_name}</td>
+                      <td className="px-5 py-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-zinc-800 border border-zinc-700 text-zinc-300">
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-center text-zinc-400">
+                        {u.is_active ? "Si" : "No"}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => deleteUser(u)}
+                          disabled={!u.is_active || String(u.id) === String(user?.id || "")}
+                          className="rounded-lg border border-rose-500/30 bg-rose-950/30 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-rose-300 transition-colors hover:border-rose-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Borrar
+                        </button>
+                      </td>
+                    </tr>
+                    {String(u.role || "").toUpperCase() === "VENDEDOR" ? (
+                      <tr key={`${u.id}-aliases`} className="border-b border-zinc-800/50 bg-zinc-950/50">
+                        <td colSpan={5} className="px-5 pb-4 pt-1">
+                          <div className="rounded-xl border border-zinc-800 bg-[#181818] p-4">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                              Nombres operativos para esta cuenta
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {(sellerAliasesByUser[u.id] || []).length ? (
+                                sellerAliasesByUser[u.id].map((alias) => (
+                                  <button
+                                    key={`${u.id}-${alias}`}
+                                    type="button"
+                                    onClick={() => removeSellerAlias(u, alias)}
+                                    className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs font-bold text-zinc-200 transition-colors hover:border-rose-500 hover:text-rose-300"
+                                    title="Borrar nombre operativo"
+                                  >
+                                    {alias} ×
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="text-xs text-zinc-500">No hay nombres operativos cargados.</div>
+                              )}
+                            </div>
+                            <div className="mt-3 flex gap-2">
+                              <input
+                                className="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 text-sm text-white outline-none focus:border-[#e85d04]"
+                                value={sellerAliasDrafts[u.id] || ""}
+                                onChange={(e) =>
+                                  setSellerAliasDrafts((prev) => ({ ...prev, [u.id]: e.target.value }))
+                                }
+                                placeholder="Ej: JUAN / MOSTRADOR 1 / TURNO TARDE"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => addSellerAlias(u)}
+                                className="rounded-lg bg-[#e85d04] px-4 py-2 text-xs font-black uppercase tracking-wide text-white transition-colors hover:bg-[#d14f00]"
+                              >
+                                Agregar
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))
               )}
             </tbody>
