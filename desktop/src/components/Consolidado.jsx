@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
+import ConfirmModal from "./ventas/ConfirmModal";
 import {
   DEFAULT_TICKET_CONFIG,
   getTicketContentWidthMm,
@@ -156,6 +157,38 @@ export default function Consolidado({ user, setToast }) {
   const [selectedPrinter, setSelectedPrinter] = useState("");
   const [ticketConfig, setTicketConfig] = useState(DEFAULT_TICKET_CONFIG);
   const printPromptResolverRef = useRef(null);
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
+  };
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   const role = String(user?.role || "").toUpperCase();
   const canControl = role === "ADMIN" || role === "CAJERO";
@@ -750,8 +783,8 @@ export default function Consolidado({ user, setToast }) {
               className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white shadow-md"
               onClick={async () => {
                 if (hasSavedControlForShift) {
-                  const shouldCancel = window.confirm(
-                    "Ya se registro el consolidado para este turno. Desea anularlo?",
+                  const shouldCancel = await showConfirm(
+                    "Ya se registró el consolidado para este turno.\n¿Desea anularlo?",
                   );
                   if (!shouldCancel) return;
                   try {
@@ -1345,6 +1378,13 @@ export default function Consolidado({ user, setToast }) {
           ) : null
         }
       </div>
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
+import ConfirmModal from "./ventas/ConfirmModal";
 import ImportExportModal from "./ImportExportModal";
 import {
   DEFAULT_PRICE_LISTS,
@@ -122,6 +123,38 @@ export default function Productos({ user, setToast }) {
   const canImportExport = String(user?.role || "").toUpperCase() === "ADMIN";
 
   const [form, setForm] = useState(createFormState());
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
+  };
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   const calculateSalePrice = (costValue, marginValue, ivaValue) => {
     const cost = Number(costValue || 0);
@@ -735,7 +768,7 @@ export default function Productos({ user, setToast }) {
 
   const deleteProduct = async (product) => {
     if (!product?.id) return;
-    const confirmed = window.confirm(`Vas a borrar "${product.name}". El producto dejara de aparecer en el sistema. Deseas continuar?`);
+    const confirmed = await showConfirm(`Vas a borrar "${product.name}".\n¿El producto dejará de aparecer en el sistema. Deseas continuar?`);
     if (!confirmed) return;
 
     setDeletingProductId(product.id);
@@ -1661,6 +1694,13 @@ export default function Productos({ user, setToast }) {
           }}
         />
       )}
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
+      ) : null}
     </div>
   );
 }

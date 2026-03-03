@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
+import ConfirmModal from "./ventas/ConfirmModal";
 import ImportExportModal from "./ImportExportModal";
 import ClientBulkEditModal from "./clientes/ClientBulkEditModal";
 import ClientFormModal from "./clientes/ClientFormModal";
@@ -95,6 +96,38 @@ export default function Clientes({ setToast }) {
   const [bulkAddressRowId, setBulkAddressRowId] = useState(null);
   const [pendingAddressSelection, setPendingAddressSelection] = useState(null);
   const [draft, setDraft] = useState(buildEmptyDraft(DEFAULT_PRICE_LIST_KEY));
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
+  };
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   const updateDraft = (patch) => {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -539,7 +572,7 @@ export default function Clientes({ setToast }) {
     : filteredRows;
 
   const deleteClient = async (id) => {
-    if (!window.confirm("Seguro de eliminar este cliente?")) return;
+    if (!await showConfirm("¿Seguro de eliminar este cliente?")) return;
 
     try {
       await api.delete(`/customers/${id}`);
@@ -713,6 +746,13 @@ export default function Clientes({ setToast }) {
             </div>
           </div>
         </div>
+      ) : null}
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
       ) : null}
     </div>
   );

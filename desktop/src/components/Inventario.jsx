@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
+import ConfirmModal from "./ventas/ConfirmModal";
 import useStockControlStatus from "../hooks/useStockControlStatus";
 import { productMatchesSearch } from "../utils/productSearch";
 
@@ -42,6 +43,38 @@ export default function Inventario({ user, setToast }) {
   const [savingControlLocation, setSavingControlLocation] = useState(false);
   const [finalizingControl, setFinalizingControl] = useState(false);
   const [report, setReport] = useState(null);
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
+  };
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   const {
     stockControlState,
@@ -226,11 +259,11 @@ export default function Inventario({ user, setToast }) {
   const saveCurrentLocation = async () => {
     if (!activeLocationCode) return;
     const nextLocation = pendingLocations.find((locationCode) => locationCode !== activeLocationCode);
-    const stopAfterThis = nextLocation
-      ? !window.confirm(
-          `Se guardara ${activeLocationCode}. Quieres continuar luego con ${nextLocation}?\n\nAceptar = continuar\nCancelar = no continuar`
-        )
-      : false;
+    let stopAfterThis = false;
+    if (nextLocation) {
+      const continuar = await showConfirm(`Se guardará ${activeLocationCode}.\n¿Continuar luego con ${nextLocation}?`);
+      stopAfterThis = !continuar;
+    }
     setSavingControlLocation(true);
     try {
       await api.put("/inventory/stock-control/location", {
@@ -912,6 +945,13 @@ export default function Inventario({ user, setToast }) {
           )}
         </div>
       )}
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
+      ) : null}
     </div>
   );
 }

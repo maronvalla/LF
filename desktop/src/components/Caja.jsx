@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
+import ConfirmModal from "./ventas/ConfirmModal";
 import { loadCajaConfig } from "../utils/cajaConfig";
 
 const sanitizeDecimalInput = (value) => {
@@ -61,6 +62,38 @@ export default function Caja({ user, setToast }) {
   const [loanPaymentDrafts, setLoanPaymentDrafts] = useState({});
   const [savingLoan, setSavingLoan] = useState(false);
   const [savingLoanPaymentId, setSavingLoanPaymentId] = useState(null);
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
+  };
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   const role = String(user?.role || "").toUpperCase();
   const canAccess = role === "ADMIN" || role === "CAJERO";
@@ -204,7 +237,7 @@ export default function Caja({ user, setToast }) {
   };
 
   const handleDeleteMovement = async (id) => {
-    if (!window.confirm("Eliminar este movimiento?")) return;
+    if (!await showConfirm("¿Eliminar este movimiento?")) return;
     try {
       await api.delete(`/caja/movement/${id}`);
       loadToday();
@@ -301,8 +334,7 @@ export default function Caja({ user, setToast }) {
   };
 
   const handleStartClose = async () => {
-    // Preguntar si llegó el consolidado
-    const llegaConsolidado = window.confirm("Llego el consolidado del dia para sumarlo?");
+    const llegaConsolidado = await showConfirm("¿Llegó el consolidado del día para sumarlo?");
     setConsolidatedIncluded(llegaConsolidado);
     if (llegaConsolidado) {
       setConsolidatedAmount(lastConsolidatedAmount > 0 ? String(lastConsolidatedAmount) : "");
@@ -1030,6 +1062,13 @@ export default function Caja({ user, setToast }) {
           </div>
         </div>
       )}
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
+      ) : null}
     </div>
   );
 }

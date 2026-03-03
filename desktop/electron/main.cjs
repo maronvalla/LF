@@ -126,13 +126,15 @@ ipcMain.handle("ticket:print", async (_, payload) => {
 
   try {
     await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    win.webContents.setZoomFactor(1);
     await new Promise((resolve, reject) => {
       win.webContents.print(
         {
           silent: true,
           printBackground: true,
           deviceName: deviceName || undefined,
-          pageSize: { width: Math.round(paperWidthMm * 1000), height: 200000 },
+          pageSize: { width: Math.round(paperWidthMm * 1000), height: 1000000 },
+          margins: { marginType: "none" },
         },
         (success, failureReason) => {
           if (!success) {

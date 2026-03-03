@@ -1,9 +1,42 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../api";
+import ConfirmModal from "./ventas/ConfirmModal";
 
 export default function Usuarios({ user, setToast }) {
   const [rows, setRows] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
+  };
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   const [draft, setDraft] = useState({
     username: "",
@@ -68,7 +101,7 @@ export default function Usuarios({ user, setToast }) {
 
   const deleteUser = async (row) => {
     const label = row.full_name || row.username || "este usuario";
-    const confirmed = window.confirm(`Seguro que quieres borrar a ${label}?`);
+    const confirmed = await showConfirm(`¿Seguro que quieres borrar a ${label}?`);
     if (!confirmed) return;
 
     try {
@@ -234,6 +267,13 @@ export default function Usuarios({ user, setToast }) {
           </div>
         </div>
       )}
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
+        />
+      ) : null}
     </div>
   );
 }

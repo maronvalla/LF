@@ -5,6 +5,7 @@ import ProductSearchModal from "./ProductSearchModal";
 import CustomerPanel from "./ventas/CustomerPanel";
 import ItemsPanel from "./ventas/ItemsPanel";
 import PrintPromptModal from "./ventas/PrintPromptModal";
+import ConfirmModal from "./ventas/ConfirmModal";
 import QtyEditModal from "./ventas/QtyEditModal";
 import QuickClientModal from "./ventas/QuickClientModal";
 import SalesMetaBar from "./ventas/SalesMetaBar";
@@ -150,6 +151,9 @@ export default function Ventas({
     ["ADMIN", "CAJERO"].includes(role)
   );
 
+  const [confirmState, setConfirmState] = useState(null);
+  const confirmResolverRef = useRef(null);
+
   const customerSelectRef = useRef(null);
   const codeInputRef = useRef(null);
   const printPromptResolverRef = useRef(null);
@@ -176,7 +180,8 @@ export default function Ventas({
     showQtyEditModal ||
     showPriceEditModal ||
     showPrintPrompt ||
-    showProductModal;
+    showProductModal ||
+    Boolean(confirmState);
 
   useEffect(() => {
     const load = async () => {
@@ -377,14 +382,24 @@ export default function Ventas({
     setShowPriceEditModal(true);
   };
 
-  const confirmRemoveSelectedItem = () => {
-    if (readOnlyPendingOrder) return false;
-    if (!draft.items.length) return false;
-    return window.confirm("Seguro que quieres borrar el producto seleccionado?");
+  const showConfirm = (message) =>
+    new Promise((resolve) => {
+      confirmResolverRef.current = resolve;
+      setConfirmState({ message });
+    });
+
+  const resolveConfirm = (value) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmState(null);
+    if (typeof resolver === "function") resolver(Boolean(value));
   };
 
-  const removeSelectedItem = () => {
-    if (!confirmRemoveSelectedItem()) return;
+  const removeSelectedItem = async () => {
+    if (readOnlyPendingOrder) return;
+    if (!draft.items.length) return;
+    const confirmed = await showConfirm("¿Seguro que quieres borrar el producto seleccionado?");
+    if (!confirmed) return;
     clearPendingOrderContext();
     const nextLength = draft.items.length - 1;
     setDraft((prev) => ({
@@ -511,14 +526,14 @@ export default function Ventas({
   ]);
 
   useEffect(() => {
-    const onEscape = (event) => {
+    const onEscape = async (event) => {
       if (event.key !== "Escape") return;
       if (hasVentasModalOpen) return;
       if (!draft.items.length) return;
       if (isTypingTarget(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
-      const confirmed = window.confirm("Hay productos cargados. Seguro que quieres salir?");
+      const confirmed = await showConfirm("Hay productos cargados.\n¿Seguro que quieres salir?");
       if (confirmed) {
         window.dispatchEvent(new CustomEvent("app:navigate-dashboard"));
       }
@@ -527,6 +542,23 @@ export default function Ventas({
     window.addEventListener("keydown", onEscape, true);
     return () => window.removeEventListener("keydown", onEscape, true);
   }, [draft.items.length, hasVentasModalOpen]);
+
+  useEffect(() => {
+    if (!confirmState) return;
+    const onKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        resolveConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [confirmState]);
 
   useEffect(() => {
     if (!pendingOrderId || !canChargeOrders) return;
@@ -1054,10 +1086,10 @@ export default function Ventas({
 
   const persistCustomerPriceListChange = async () => {
     if (!draft.customerId || !cambioManualLista || listaActiva === listaClienteOriginal) return;
-    const confirmarGuardar = window.confirm(
-      `Cambio la lista a ${getPriceListLabel(priceLists, listaActiva)}. Desea guardar esta lista como predeterminada para futuras compras de ${draft.customerName}?`
+    const confirmed = await showConfirm(
+      `Lista cambiada a ${getPriceListLabel(priceLists, listaActiva)}.\n¿Guardar como predeterminada para ${draft.customerName}?`
     );
-    if (confirmarGuardar) {
+    if (confirmed) {
       await actualizarPerfilCliente(draft.customerId, listaActiva);
     }
   };
@@ -1082,7 +1114,7 @@ export default function Ventas({
   };
 
   const confirmAndSubmitOrderOnly = async () => {
-    const confirmed = window.confirm("Seguro que desea enviar la orden?");
+    const confirmed = await showConfirm("¿Seguro que desea enviar la orden?");
     if (!confirmed) return;
     await submitOrderOnly();
   };
@@ -1610,6 +1642,13 @@ export default function Ventas({
           label="Nuevo precio transaccional"
           min="0"
           step="0.01"
+        />
+      ) : null}
+      {confirmState ? (
+        <ConfirmModal
+          message={confirmState.message}
+          onCancel={() => resolveConfirm(false)}
+          onConfirm={() => resolveConfirm(true)}
         />
       ) : null}
     </div>
