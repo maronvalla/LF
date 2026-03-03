@@ -112,6 +112,7 @@ export default function Ventas({
   const [search, setSearch] = useState("");
   const [qty, setQty] = useState(1);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [customerSearchOpenSignal, setCustomerSearchOpenSignal] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [loadingPendingOrder, setLoadingPendingOrder] = useState(false);
   const [showQuickClientModal, setShowQuickClientModal] = useState(false);
@@ -337,10 +338,53 @@ export default function Ventas({
     onPendingOrderHandled?.();
   };
 
+  const openCustomerSearch = () => {
+    if (hasVentasModalOpen) return;
+    customerSelectRef.current?.focus();
+    setCustomerSearchOpenSignal((prev) => prev + 1);
+  };
+
+  const focusCodeSearch = () => {
+    if (hasVentasModalOpen) return;
+    codeInputRef.current?.focus();
+  };
+
+  const openProductSearch = () => {
+    if (hasVentasModalOpen || readOnlyPendingOrder) return;
+    setShowProductModal(true);
+  };
+
+  const openQtyEditorForSelection = () => {
+    if (hasVentasModalOpen || readOnlyPendingOrder) return;
+    const currentItem = draft.items[selectedIdx];
+    if (!currentItem) return;
+    setQtyEditValue(String(currentItem.qty || 1));
+    setShowQtyEditModal(true);
+  };
+
+  const openPriceEditorForSelection = () => {
+    if (hasVentasModalOpen || readOnlyPendingOrder || !canOverrideLinePrice) return;
+    const currentItem = draft.items[selectedIdx];
+    if (!currentItem) return;
+    setPriceEditValue(String(currentItem.unitPrice || 0));
+    setShowPriceEditModal(true);
+  };
+
   const confirmRemoveSelectedItem = () => {
     if (readOnlyPendingOrder) return false;
     if (!draft.items.length) return false;
     return window.confirm("Seguro que quieres borrar el producto seleccionado?");
+  };
+
+  const removeSelectedItem = () => {
+    if (!confirmRemoveSelectedItem()) return;
+    clearPendingOrderContext();
+    const nextLength = draft.items.length - 1;
+    setDraft((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, index) => index !== selectedIdx),
+    }));
+    setSelectedIdx((index) => Math.max(0, Math.min(index - 1, Math.max(0, nextLength - 1))));
   };
 
   const loadPendingOrder = async (orderId) => {
@@ -426,52 +470,38 @@ export default function Ventas({
 
       if (focusSearchShortcut && !typing) {
         e.preventDefault();
-        codeInputRef.current?.focus();
+        focusCodeSearch();
       }
       if (customerShortcut) {
         e.preventDefault();
-        customerSelectRef.current?.focus();
+        openCustomerSearch();
       }
       if (productShortcut) {
         e.preventDefault();
-        if (readOnlyPendingOrder) return;
-        setShowProductModal(true);
+        openProductSearch();
       }
       if (removeShortcut) {
         e.preventDefault();
-        if (!confirmRemoveSelectedItem()) return;
-        setDraft((prev) => ({
-          ...prev,
-          items: prev.items.filter((_, index) => index !== selectedIdx),
-        }));
-        setSelectedIdx((index) => Math.max(0, index - 1));
+        removeSelectedItem();
       }
       if (qtyShortcut) {
         e.preventDefault();
-        if (readOnlyPendingOrder) return;
-        if (!draft.items.length) return;
-        const currentIdx = selectedIdx;
-        if (currentIdx >= 0 && currentIdx < draft.items.length) {
-          const currentItem = draft.items[currentIdx];
-          setQtyEditValue(String(currentItem.qty || 1));
-          setShowQtyEditModal(true);
-        }
+        openQtyEditorForSelection();
       }
       if (priceShortcut && canOverrideLinePrice) {
         e.preventDefault();
-        if (readOnlyPendingOrder) return;
-        if (!draft.items.length) return;
-        const currentIdx = selectedIdx;
-        if (currentIdx >= 0 && currentIdx < draft.items.length) {
-          const currentItem = draft.items[currentIdx];
-          setPriceEditValue(String(currentItem.unitPrice || 0));
-          setShowPriceEditModal(true);
-        }
+        openPriceEditorForSelection();
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [canOverrideLinePrice, draft.items, hasVentasModalOpen, readOnlyPendingOrder, selectedIdx]);
+  }, [
+    canOverrideLinePrice,
+    draft.items,
+    hasVentasModalOpen,
+    readOnlyPendingOrder,
+    selectedIdx,
+  ]);
 
   useEffect(() => {
     const onEscape = (event) => {
@@ -1028,6 +1058,23 @@ export default function Ventas({
     await submitOrderOnly();
   };
 
+  const openPaymentFlow = () => {
+    if (readOnlyPendingOrder) return;
+    if (!draft.items.length) {
+      focusCodeSearch();
+      return;
+    }
+    setShowPaymentModal(true);
+  };
+
+  const triggerPrimarySalesAction = () => {
+    if (isSellerOnly) {
+      return confirmAndSubmitOrderOnly();
+    }
+    openPaymentFlow();
+    return undefined;
+  };
+
   const submit = async (paymentData) => {
     try {
       const payload = buildSalePayload();
@@ -1230,15 +1277,7 @@ export default function Ventas({
   const handleSearchEnter = () => {
     if (readOnlyPendingOrder) return;
     if (!search.trim()) {
-      if (!draft.items.length) {
-        codeInputRef.current?.focus();
-        return;
-      }
-      if (isSellerOnly) {
-        confirmAndSubmitOrderOnly();
-      } else {
-        setShowPaymentModal(true);
-      }
+      triggerPrimarySalesAction();
       return;
     }
 
@@ -1259,13 +1298,6 @@ export default function Ventas({
     } else {
       setToast?.({ message: "Articulo no encontrado", type: "error" });
     }
-  };
-
-  const removeSelectedItem = () => {
-    clearPendingOrderContext();
-    if (!confirmRemoveSelectedItem()) return;
-    setDraft((prev) => ({ ...prev, items: prev.items.filter((_, index) => index !== selectedIdx) }));
-    setSelectedIdx((index) => Math.max(0, index - 1));
   };
 
   const applyQuickClientAddressOption = (option) => {
@@ -1392,12 +1424,14 @@ export default function Ventas({
       {/* Row 2: Customer */}
       <CustomerPanel
         customerSelectRef={customerSelectRef}
+        customerForceOpenSignal={customerSearchOpenSignal}
         customers={customers}
         draft={draft}
         isDelivery={isDelivery}
         deliveryConditions={deliveryConditions}
         onCustomerChange={handleCustomerChange}
         onToggleDelivery={handleToggleDelivery}
+        onOpenCustomerSearch={openCustomerSearch}
         onOpenQuickClient={() => setShowQuickClientModal(true)}
         onCustomerNameChange={(value) => {
           if (readOnlyPendingOrder) return;
@@ -1431,7 +1465,7 @@ export default function Ventas({
         listaActiva={listaActiva}
         onSearchChange={setSearch}
         onSearchEnter={handleSearchEnter}
-        onOpenProductModal={() => setShowProductModal(true)}
+        onOpenProductModal={openProductSearch}
         onQtyChange={setQty}
         onSelectSuggestion={addItem}
         onSelectItem={setSelectedIdx}
@@ -1447,13 +1481,7 @@ export default function Ventas({
         hasItems={draft.items.length > 0}
         onRemoveSelected={removeSelectedItem}
         onSubmitBudget={submitBudget}
-        onPrimaryAction={() => {
-          if (isSellerOnly) {
-            confirmAndSubmitOrderOnly();
-            return;
-          }
-          setShowPaymentModal(true);
-        }}
+        onPrimaryAction={triggerPrimarySalesAction}
         primaryLabel={isSellerOnly ? "Enviar orden" : activeOrderId ? "Cobrar orden" : "Registrar venta"}
         disableRemove={readOnlyPendingOrder}
         disableBudget={readOnlyPendingOrder}
@@ -1485,12 +1513,12 @@ export default function Ventas({
           products={products}
           onClose={() => {
             setShowProductModal(false);
-            setTimeout(() => codeInputRef.current?.focus(), 50);
+            setTimeout(() => focusCodeSearch(), 50);
           }}
           onSelect={(product) => {
             addItem(product);
             setShowProductModal(false);
-            setTimeout(() => codeInputRef.current?.focus(), 50);
+            setTimeout(() => focusCodeSearch(), 50);
           }}
         />
       )}

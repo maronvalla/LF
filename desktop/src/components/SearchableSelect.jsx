@@ -13,6 +13,7 @@ export default function SearchableSelect({
     freeTextValue = "",
     onFreeTextChange = null,
     theme = "dark",
+    forceOpenSignal = 0,
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
@@ -68,6 +69,14 @@ export default function SearchableSelect({
         const highlightedNode = dropdownRef.current.querySelector(`[data-option-index="${highlightedIndex}"]`);
         highlightedNode?.scrollIntoView({ block: "nearest" });
     }, [highlightedIndex, open]);
+
+    useEffect(() => {
+        if (!forceOpenSignal) return;
+        inputRef?.current?.focus();
+        setOpen(true);
+        setQuery("");
+        setHighlightedIndex(0);
+    }, [forceOpenSignal, inputRef]);
 
     const handleKeyDown = (e) => {
         if (!open) {

@@ -11,12 +11,14 @@ export default function CustomerPanel({
   onCustomerChange,
   onToggleDelivery,
   onOpenQuickClient,
+  onOpenCustomerSearch,
   onCustomerNameChange,
   shiftOptions = [],
   onShiftChange,
   onPaymentConditionChange,
   onDeliveryAddressChange,
   readOnly = false,
+  customerForceOpenSignal = 0,
 }) {
   const lightSelectStyle = { colorScheme: "light" };
   const lightOptionStyle = { color: "#18181b", backgroundColor: "#ffffff" };
@@ -58,6 +60,7 @@ export default function CustomerPanel({
             dropdownClassName="bg-white border-[#cfcfd4]"
             optionClassName="border-[#ececf1]"
             className={readOnly ? "pointer-events-none opacity-70" : ""}
+            forceOpenSignal={customerForceOpenSignal}
           />
         </div>
       </div>
@@ -66,7 +69,7 @@ export default function CustomerPanel({
         <div className="flex gap-2">
           <button
             className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded-lg px-4 h-[38px] flex items-center justify-center transition-colors text-[11px] font-black uppercase"
-            onClick={() => customerSelectRef.current?.focus()}
+            onClick={onOpenCustomerSearch}
             type="button"
             disabled={readOnly}
             title="Buscar cliente (F3)"
