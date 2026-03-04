@@ -1,8 +1,10 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import api, { SESSION_EXPIRED_EVENT, hydrateToken, isAndroidApk, setToken } from "./api";
+import { io } from "socket.io-client";
+import api, { SESSION_EXPIRED_EVENT, hydrateToken, isAndroidApk, setToken, socketOrigin } from "./api";
 import AppToast from "./components/AppToast";
 import HomeNavigation from "./components/HomeNavigation";
 import LoginView from "./components/LoginView";
+import NotificationBell from "./components/NotificationBell";
 import { ROLE_TABS, SHORTCUTS } from "./config/navigation";
 
 function isTypingTarget(target) {
@@ -12,7 +14,7 @@ function isTypingTarget(target) {
 
 const ConsultarVentas = lazy(() => import("./components/ConsultarVentas"));
 const DriverApp = lazy(() => import("./components/DriverApp"));
-const AdminTrackingMap = lazy(() => import("./components/AdminTrackingMap"));
+const RepartoPanel = lazy(() => import("./components/RepartoPanel"));
 const Productos = lazy(() => import("./components/Productos"));
 const Clientes = lazy(() => import("./components/Clientes"));
 const Compras = lazy(() => import("./components/Compras"));
@@ -53,6 +55,7 @@ export default function App() {
   const [pendingCashOrders, setPendingCashOrders] = useState([]);
   const [pendingOrderToOpen, setPendingOrderToOpen] = useState("");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
     if (!hydrateToken()) return;
@@ -80,6 +83,7 @@ export default function App() {
       setToast(null);
       setPendingCashOrders([]);
       setPendingOrderToOpen("");
+      setNotifications([]);
       setError("Sesion expirada. Inicia sesion nuevamente.");
     };
 
@@ -135,6 +139,69 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeTab, allowedTabs]);
 
+  // Socket listener for driver route completion — admin/cajero only
+  useEffect(() => {
+    if (!user || role === "REPARTIDOR") return;
+
+    // Request browser notification permission once
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const socket = io(socketOrigin, {
+      transports: ["websocket", "polling"],
+      reconnectionDelay: 2000,
+      reconnectionAttempts: Infinity,
+    });
+
+    socket.on("ruta_finalizada", (data) => {
+      const title = "Recorrido finalizado";
+      const body = data?.message || `${data?.driverName || "El repartidor"} finalizó su recorrido`;
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification(title, { body, icon: "/favicon.ico" });
+      }
+      setToast({ message: body, type: "success" });
+    });
+
+    socket.on("driver_offline_alert", (data) => {
+      const alert = {
+        id: Date.now() + Math.random(),
+        type: data?.type || "disconnect",
+        driverName: data?.driverName || "Repartidor",
+        message: data?.message || "El repartidor se desconectó",
+        time: data?.ts
+          ? new Date(data.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+          : new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      };
+      setNotifications((prev) => [alert, ...prev]);
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification("Alerta de repartidor", { body: alert.message, icon: "/favicon.ico" });
+      }
+    });
+
+    if (role === "ADMIN") {
+      socket.on("admin_security_alert", (data) => {
+        const alert = {
+          id: Date.now() + Math.random(),
+          type: data?.type || "security",
+          driverName: data?.driverName || "Chofer",
+          message: data?.message || "Solicitud de autorizacion",
+          time: data?.ts
+            ? new Date(data.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
+            : new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+        };
+        setNotifications((prev) => [alert, ...prev]);
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("PIN de cierre de chofer", { body: alert.message, icon: "/favicon.ico" });
+        }
+      });
+    }
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user, role]);
+
   useEffect(() => {
     if (!user || !canManageCashOrders) {
       setPendingCashOrders([]);
@@ -183,9 +250,13 @@ export default function App() {
   const handleLogout = () => {
     setToken(null);
     setUser(null);
+    setNotifications([]);
     setPendingCashOrders([]);
     setPendingOrderToOpen("");
   };
+
+  const dismissAlert = (id) => setNotifications((prev) => prev.filter((a) => a.id !== id));
+  const dismissAllAlerts = () => setNotifications([]);
 
   const renderActiveTab = () => {
     switch (activeTab) {
@@ -212,7 +283,11 @@ export default function App() {
       case "📝 ConsultarVentas":
         return <ConsultarVentas />;
       case "🛵 Reparto":
-        return role === "REPARTIDOR" ? <DriverApp onLogout={handleLogout} /> : <AdminTrackingMap user={user} />;
+        return role === "REPARTIDOR" ? (
+          <DriverApp onLogout={handleLogout} />
+        ) : (
+          <RepartoPanel user={user} setToast={setToast} />
+        );
       case "📊 Consolidado":
         return <Consolidado user={user} setToast={setToast} />;
       case "Informes":
@@ -243,7 +318,7 @@ export default function App() {
   if (role === "REPARTIDOR") {
     return (
       <Suspense fallback={<AppSectionLoader isDark={false} />}>
-        <DriverApp onLogout={handleLogout} />
+        <DriverApp onLogout={handleLogout} user={user} />
       </Suspense>
     );
   }
@@ -331,6 +406,15 @@ export default function App() {
           </div>
         </main>
       )}
+
+      <div className="absolute top-4 right-4 z-50">
+        <NotificationBell
+          alerts={notifications}
+          onDismiss={dismissAlert}
+          onDismissAll={dismissAllAlerts}
+          isDark={isDark}
+        />
+      </div>
 
       {toast ? <AppToast {...toast} onClose={() => setToast(null)} /> : null}
     </div>

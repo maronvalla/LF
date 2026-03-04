@@ -36,8 +36,13 @@ public class TrackingPlugin extends Plugin implements TrackingService.LocationLi
 
     @PluginMethod
     public void startTracking(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        String authToken = call.getString("authToken", "");
+
         Context ctx = getContext();
         Intent intent = new Intent(ctx, TrackingService.class);
+        intent.putExtra("serverUrl", serverUrl);
+        intent.putExtra("authToken", authToken);
         ctx.startService(intent);
         ctx.bindService(intent, connection, Context.BIND_AUTO_CREATE);
         call.resolve();

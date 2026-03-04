@@ -94,12 +94,7 @@ const buildReprintLines = (sale: ReprintSaleDetail, config: TicketConfig): strin
     return `${repeat(" ", left)}${t}`;
   };
   const leftRight = (left: string, right: string) => {
-    const l = String(left || "");
-    const r = String(right || "");
-    const avail = Math.max(1, MAX - r.length);
-    const trimmed = l.length > avail ? `${l.slice(0, avail - 1)}.` : l;
-    const spaces = Math.max(1, MAX - trimmed.length - r.length);
-    return `${trimmed}${repeat(" ", spaces)}${r}`;
+    return `${String(left || "")}\x1e${String(right || "")}`;
   };
   const fmt = (v: number) => `$${Number(v || 0).toFixed(2)}`;
 
@@ -169,6 +164,7 @@ const sendToPrinter = async (
   const fontSize = Math.min(32, Math.max(9, Number(config.fontSize || 15)));
   const paperWidthMm = getTicketPaperWidthMm(config);
   const logoDataUrl = String(config.logoDataUrl || "");
+  const marginLeftMm = Math.min(10, Math.max(0, Number((config as any).marginLeftMm ?? 3) || 0));
 
   const canUseElectron =
     typeof window !== "undefined" &&
@@ -178,7 +174,7 @@ const sendToPrinter = async (
   if (canUseElectron) {
     try {
       await (window as any).desktopEnv.printTicket({
-        ticket: { lines, logoDataUrl, fontSize, paperWidthMm },
+        ticket: { lines, logoDataUrl, fontSize, paperWidthMm, marginLeftMm },
         deviceName,
       });
       return;
@@ -192,11 +188,21 @@ const sendToPrinter = async (
   w.document.write(`<html><head><title>Ticket</title><style>
     @page{size:${paperWidthMm}mm auto;margin:0}
     html,body{margin:0;padding:0;width:${paperWidthMm}mm;background:#fff;color:#000;box-sizing:border-box;overflow:hidden}
-    body{font-family:'Segoe UI',Arial,sans-serif;font-size:${fontSize}px;line-height:1.18;font-weight:600;padding:2mm 4mm 2mm 6mm;box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;font-size:${fontSize}px;line-height:1.18;font-weight:600;padding:1.6mm ${marginLeftMm}mm 2mm ${marginLeftMm}mm;box-sizing:border-box}
     .line{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;margin:0 0 0.55mm}
+    .line.lr{display:flex;justify-content:space-between;gap:1mm;white-space:nowrap;overflow:hidden}
     </style></head><body>
     ${logoDataUrl ? `<div style="text-align:center;margin-bottom:1.8mm"><img style="max-width:24mm;max-height:12mm;filter:grayscale(1) contrast(1.35)" src="${logoDataUrl}" alt="" /></div>` : ""}
-    ${lines.map((l) => `<div class="line">${String(l).replace(/</g, "&lt;").trim() || "&nbsp;"}</div>`).join("")}
+    ${lines.map((l) => {
+      const raw = String(l);
+      const sepIdx = raw.indexOf("\x1e");
+      if (sepIdx >= 0) {
+        const left = raw.slice(0, sepIdx).replace(/</g, "&lt;");
+        const right = raw.slice(sepIdx + 1).replace(/</g, "&lt;");
+        return `<div class="line lr"><span>${left}</span><span>${right}</span></div>`;
+      }
+      return `<div class="line">${raw.replace(/</g, "&lt;").trim() || "&nbsp;"}</div>`;
+    }).join("")}
     </body></html>`);
   w.document.close();
   w.focus();

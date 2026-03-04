@@ -4,7 +4,7 @@ const { pool } = require("../db");
 const { requirePermission, isAdmin } = require("../middleware/rbac");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
-const { getIO } = require("../realtime");
+const { getIO, getConnectedDriverUserIds } = require("../realtime");
 
 const router = express.Router();
 
@@ -86,6 +86,35 @@ function emitDeliveryStatusChanged(row) {
     delivery_slot: row.delivery_slot || null,
     updated_at: row.delivery_status_updated_at || row.updated_at || new Date().toISOString(),
   });
+}
+
+async function checkAndEmitRouteComplete(scheduledDate, deliverySlot, driverName) {
+  if (!scheduledDate || !deliverySlot) return;
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM sales
+       WHERE (is_delivery = true OR sale_type = 'ENVIO')
+         AND scheduled_date = $1
+         AND delivery_slot = $2
+         AND status <> 'ANULADO'
+         AND COALESCE(UPPER(TRIM(delivery_status)), 'PENDIENTE') NOT IN ('ENTREGADO', 'RECHAZADO', 'NO_ESTABA')`,
+      [scheduledDate, deliverySlot]
+    );
+    if (Number(result.rows[0]?.cnt || 0) === 0) {
+      const io = getIO();
+      if (io) {
+        const slotLabel = String(deliverySlot) === "19" ? "19:00" : "11:00";
+        io.emit("ruta_finalizada", {
+          driverName,
+          slot: deliverySlot,
+          date: scheduledDate,
+          message: `${driverName} finalizó el recorrido del turno ${slotLabel}`,
+        });
+      }
+    }
+  } catch {
+    // Non-fatal — don't break the main response
+  }
 }
 
 async function getOrCreateDelivery(client, userId, deliveryDate, shift) {
@@ -638,6 +667,21 @@ router.post(
       }
 
       await client.query("COMMIT");
+
+      if (markedLoaded.rowCount > 0) {
+        const io = getIO();
+        if (io) {
+          const slotLabel = d.slot === "19" ? "19:00" : "11:00";
+          io.emit("pedidos_cargados", {
+            slot: d.slot,
+            date: d.date,
+            count: markedLoaded.rowCount,
+            driverName: d.driverName,
+            message: `Turno ${slotLabel} — ${markedLoaded.rowCount} pedido${markedLoaded.rowCount !== 1 ? "s" : ""} listos para cargar`,
+          });
+        }
+      }
+
       res.json({ ...upsert.rows[0], autoMarkedLoaded: markedLoaded.rowCount });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -766,6 +810,20 @@ router.post(
         affected: updated.rowCount,
       },
     });
+
+    if (updated.rowCount > 0) {
+      const io = getIO();
+      if (io) {
+        const slotLabel = parsed.data.slot === "19" ? "19:00" : "11:00";
+        io.emit("pedidos_cargados", {
+          slot: parsed.data.slot,
+          date: parsed.data.date,
+          count: updated.rowCount,
+          message: `Turno ${slotLabel} — ${updated.rowCount} pedido${updated.rowCount !== 1 ? "s" : ""} listos para cargar`,
+        });
+      }
+    }
+
     res.json({ updated: updated.rowCount, orders: updated.rows });
   })
 );
@@ -842,6 +900,10 @@ router.post(
       await client.query("COMMIT");
       const updatedSale = updated.rows[0];
       emitDeliveryStatusChanged(updatedSale);
+      if (["RECHAZADO", "NO_ESTABA"].includes(String(status || "").toUpperCase())) {
+        const driverName = req.user.fullName || req.user.username || "Repartidor";
+        checkAndEmitRouteComplete(updatedSale.scheduled_date, updatedSale.delivery_slot, driverName);
+      }
       res.json(updatedSale);
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1010,6 +1072,8 @@ router.post(
       await client.query("COMMIT");
       const updatedSale = updated.rows[0];
       emitDeliveryStatusChanged(updatedSale);
+      const driverName = req.user.fullName || req.user.username || "Repartidor";
+      checkAndEmitRouteComplete(updatedSale.scheduled_date, updatedSale.delivery_slot, driverName);
       res.json(updatedSale);
     } catch (err) {
       await client.query("ROLLBACK");
@@ -1199,6 +1263,128 @@ router.post(
     } finally {
       client.release();
     }
+  })
+);
+
+// GET /route-history — GPS track points for a driver on a given date/slot
+router.get(
+  "/route-history",
+  asyncHandler(async (req, res) => {
+    const date = String(req.query.date || "").slice(0, 10);
+    const slot = String(req.query.slot || "all");
+    const userId = req.query.userId || null;
+
+    if (!date) return res.status(400).json({ message: "date requerido" });
+
+    // Hour ranges in local Argentina time (UTC-3)
+    let startHour = 0;
+    let endHour = 23;
+    if (slot === "11") { startHour = 8; endHour = 17; }
+    else if (slot === "19") { startHour = 17; endHour = 23; }
+
+    const params = [date, startHour, endHour];
+    let userFilter = "";
+    if (userId) {
+      params.push(userId);
+      userFilter = `AND user_id = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT latitude AS lat, longitude AS lng, created_at AS ts, user_id
+       FROM delivery_tracking
+       WHERE event_type = 'POSICION_CAMION'
+         AND (created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date = $1::date
+         AND EXTRACT(HOUR FROM created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')
+             BETWEEN $2 AND $3
+         ${userFilter}
+       ORDER BY created_at ASC`,
+      params
+    );
+
+    res.json(rows.map((r) => ({
+      lat: Number(r.lat),
+      lng: Number(r.lng),
+      ts: r.ts,
+      userId: r.user_id,
+    })));
+  })
+);
+
+// GET /drivers-status — list of all REPARTIDOR users with their online status
+router.get(
+  "/drivers-status",
+  asyncHandler(async (_req, res) => {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, username FROM users
+       WHERE role = 'REPARTIDOR' AND is_active = true
+       ORDER BY full_name ASC`
+    );
+    const onlineIds = new Set(getConnectedDriverUserIds());
+    res.json(
+      rows.map((u) => ({
+        id: u.id,
+        name: u.full_name || u.username,
+        online: onlineIds.has(String(u.id)),
+      }))
+    );
+  })
+);
+
+// GET /driver-last-location — most recent position recorded in DB (polling fallback for admin map)
+router.get(
+  "/driver-last-location",
+  asyncHandler(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT latitude, longitude, created_at, user_id
+       FROM delivery_tracking
+       WHERE event_type = 'POSICION_CAMION'
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    if (!rows.length) return res.json({ found: false });
+    res.json({
+      found: true,
+      lat: Number(rows[0].latitude),
+      lng: Number(rows[0].longitude),
+      ts: rows[0].created_at,
+      userId: rows[0].user_id,
+    });
+  })
+);
+
+// POST /driver-location — called directly from the Android foreground service (native HTTP)
+// so that location keeps reporting even when the WebView is paused (screen locked).
+router.post(
+  "/driver-location",
+  requirePermission("deliveries.track"),
+  asyncHandler(async (req, res) => {
+    const lat = Number(req.body?.lat);
+    const lng = Number(req.body?.lng);
+    const isValid =
+      Number.isFinite(lat) && Number.isFinite(lng) &&
+      lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    if (!isValid) return res.status(400).json({ message: "Coordenadas invalidas" });
+
+    const outbound = {
+      lat,
+      lng,
+      user_id: req.user?.id || null,
+      ts: new Date().toISOString(),
+    };
+
+    const io = getIO();
+    if (io) io.emit("update_mapa", outbound);
+
+    try {
+      await pool.query(
+        `INSERT INTO delivery_tracking(sale_id, user_id, event_type, latitude, longitude, payload)
+         VALUES ($1, $2, 'POSICION_CAMION', $3, $4, $5::jsonb)`,
+        [null, outbound.user_id, lat, lng, JSON.stringify(outbound)]
+      );
+    } catch {
+      // Non-fatal — location already broadcast
+    }
+
+    res.json({ ok: true });
   })
 );
 

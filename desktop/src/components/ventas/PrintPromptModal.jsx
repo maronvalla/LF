@@ -40,11 +40,23 @@ export default function PrintPromptModal({
         </div>
         <div className="border border-zinc-800 rounded-lg bg-white text-black p-3 max-h-80 overflow-auto">
           <div className="mx-auto w-[58mm] font-['Segoe_UI',Arial,sans-serif] text-[11px] leading-[1.18] font-semibold">
-            {lines.map((line, idx) => (
-              <div key={`${line}-${idx}`} className={`whitespace-pre-wrap break-words ${classifyLine(line)}`}>
-                {String(line || "").trim() || " "}
-              </div>
-            ))}
+            {lines.map((line, idx) => {
+              const raw = String(line ?? "");
+              const sepIdx = raw.indexOf("\x1e");
+              if (sepIdx >= 0) {
+                return (
+                  <div key={`${raw}-${idx}`} className="flex justify-between w-full gap-1">
+                    <span className="overflow-hidden text-ellipsis min-w-0">{raw.slice(0, sepIdx)}</span>
+                    <span className="shrink-0">{raw.slice(sepIdx + 1)}</span>
+                  </div>
+                );
+              }
+              return (
+                <div key={`${raw}-${idx}`} className={`whitespace-pre-wrap break-words ${classifyLine(line)}`}>
+                  {raw.trim() || " "}
+                </div>
+              );
+            })}
           </div>
         </div>
         <div className="text-xs text-zinc-500">

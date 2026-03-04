@@ -49,6 +49,7 @@
     "@capacitor/cli": "^8.1.0",
     "@capacitor/core": "^8.1.0",
     "@capacitor/geolocation": "^8.1.0",
+    "@capacitor/local-notifications": "^8.0.1",
     "@radix-ui/react-icons": "^1.3.2",
     "axios": "^1.13.5",
     "file-saver": "^2.0.5",

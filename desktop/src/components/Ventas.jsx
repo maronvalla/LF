@@ -117,7 +117,7 @@ export default function Ventas({
     defaultKey: defaultPriceListKey,
   });
   const [search, setSearch] = useState("");
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState("1");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [customerSearchOpenSignal, setCustomerSearchOpenSignal] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -341,7 +341,7 @@ export default function Ventas({
     setCambioManualLista(false);
     setIsDelivery(false);
     setSearch("");
-    setQty(1);
+    setQty("1");
     setSelectedIdx(0);
     setActiveOrderId("");
     onPendingOrderHandled?.();
@@ -838,7 +838,7 @@ export default function Ventas({
   const addItem = (product) => {
     if (readOnlyPendingOrder) return;
     clearPendingOrderContext();
-    const qtyToAdd = Number(qty || 1);
+    const qtyToAdd = Number(String(qty || "1").replace(",", ".")) || 1;
     const availableStock = getProductLocalStock(product);
     const existingQty = Number(
       draft.items.find((item) => item.productId === product.id)?.qty || 0
@@ -874,7 +874,7 @@ export default function Ventas({
       };
     });
     setSearch("");
-    setQty(1);
+    setQty("1");
   };
 
   const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
@@ -899,12 +899,7 @@ export default function Ventas({
       return `${repeat(" ", left)}${t}`;
     };
     const leftRight = (left, right) => {
-      const l = String(left || "");
-      const r = String(right || "");
-      const avail = Math.max(1, MAX - r.length);
-      const trimmedLeft = l.length > avail ? `${l.slice(0, avail - 1)}.` : l;
-      const spaces = Math.max(1, MAX - trimmedLeft.length - r.length);
-      return `${trimmedLeft}${repeat(" ", spaces)}${r}`;
+      return `${String(left || "")}\x1e${String(right || "")}`;
     };
 
     const now = new Date();
@@ -959,7 +954,8 @@ export default function Ventas({
     const totalQty = draft.items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
 
     draft.items.forEach((item, index) => {
-      const qtyLabel = Number(item.qty || 0).toString();
+      const qtyNum = Number(item.qty || 0);
+      const qtyLabel = Number.isInteger(qtyNum) ? String(qtyNum) : qtyNum.toFixed(3).replace(/\.?0+$/, "");
       const unitPrice = Number(item.unitPrice || 0);
       const lineTotal = Number(item.qty || 0) * unitPrice;
       const itemName = String(item.name || "").toUpperCase();
@@ -974,7 +970,8 @@ export default function Ventas({
 
     lines.push(repeat("-", separatorLength));
     lines.push(`Total: ${formatMoney(subtotal)}`);
-    lines.push(`Cantidad total: ${totalQty}`);
+    const totalQtyLabel = Number.isInteger(totalQty) ? String(totalQty) : totalQty.toFixed(3).replace(/\.?0+$/, "");
+    lines.push(`Cantidad total: ${totalQtyLabel}`);
     if (ticketConfig.includePaymentDetail && includePayment) {
       lines.push(leftRight("Pago", paymentMethod));
       if (paymentMethod === "MIXTO") {
@@ -1010,6 +1007,8 @@ export default function Ventas({
       logoDataUrl: ticketConfig.logoDataUrl || "",
       fontSize: Number(ticketConfig.fontSize || 15),
       paperWidthMm: getTicketPaperWidthMm(ticketConfig),
+      contentWidthMm: getTicketContentWidthMm(ticketConfig),
+      marginLeftMm: Number(ticketConfig.marginLeftMm ?? 3) || 3,
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -1034,8 +1033,8 @@ export default function Ventas({
       <html><head><title>Ticket</title><style>
       @page { size: ${getTicketPaperWidthMm(ticketConfig)}mm auto; margin: 0; }
       html, body { margin: 0; padding: 0; width: ${getTicketPaperWidthMm(ticketConfig)}mm; background: #fff; color: #000; box-sizing: border-box; overflow: hidden; }
-      body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.18; font-weight: 600; padding: 2mm 4mm 2mm 6mm; box-sizing: border-box; }
-      .ticket { width: 100%; padding: 0.8mm 0; }
+      body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.18; font-weight: 600; padding: 1.6mm 0 2mm 1.6mm; box-sizing: border-box; }
+      .ticket { width: ${getTicketContentWidthMm(ticketConfig)}mm; max-width: ${getTicketContentWidthMm(ticketConfig)}mm; padding: 0.8mm 0 0.4mm; box-sizing: border-box; }
       .logo-wrap { text-align: center; margin-bottom: 1.8mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
       .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0 0 0.55mm; }
@@ -1548,7 +1547,6 @@ export default function Ventas({
       <ItemsPanel
         codeInputRef={codeInputRef}
         search={search}
-        qty={qty}
         filteredProducts={filteredProducts}
         draftItems={draft.items}
         selectedIdx={selectedIdx}
@@ -1556,7 +1554,6 @@ export default function Ventas({
         onSearchChange={setSearch}
         onSearchEnter={handleSearchEnter}
         onOpenProductModal={openProductSearch}
-        onQtyChange={setQty}
         onSelectSuggestion={addItem}
         onSelectItem={setSelectedIdx}
         getProductPrice={obtenerPrecioPorLista}
@@ -1664,6 +1661,8 @@ export default function Ventas({
           onChange={setQtyEditValue}
           onCancel={() => setShowQtyEditModal(false)}
           onApply={applyQtyEdit}
+          min="0.001"
+          step="0.001"
         />
       ) : null}
       {showPriceEditModal ? (

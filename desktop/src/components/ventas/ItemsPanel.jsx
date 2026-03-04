@@ -10,7 +10,6 @@ export default function ItemsPanel({
   onSearchChange,
   onSearchEnter,
   onOpenProductModal,
-  onQtyChange,
   onSelectSuggestion,
   onSelectItem,
   getProductPrice,
@@ -121,7 +120,7 @@ export default function ItemsPanel({
           </div>
 
           <button
-            className="w-full xl:w-auto bg-[#f07c0f] hover:bg-[#df6f08] text-white font-black rounded px-3 h-[26px] transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-[#f07c0f] hover:bg-[#df6f08] text-white font-black rounded px-3 h-[26px] transition-colors text-xs disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             onClick={onAddCurrent}
             type="button"
             disabled={disabled}
@@ -130,12 +129,12 @@ export default function ItemsPanel({
           </button>
 
           <button
-            className="w-full xl:w-auto bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded px-3 h-[26px] transition-colors text-[10px] md:text-xs font-black uppercase disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-white hover:bg-zinc-50 text-[#b26a1e] border border-[#caa57f] rounded px-2 h-[26px] transition-colors text-[10px] font-black uppercase disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             onClick={onOpenProductModal}
             type="button"
             disabled={disabled}
           >
-            Buscar Producto
+            Buscar
           </button>
         </div>
       </div>

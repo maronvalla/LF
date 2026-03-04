@@ -25,6 +25,7 @@ const settingsRoutes = require("./routes/settings.routes");
 const cajaRoutes = require("./routes/caja.routes");
 const currentAccountRoutes = require("./routes/current-account.routes");
 const reportsRoutes = require("./routes/reports.routes");
+const telegramOrderBotRoutes = require("./routes/telegram-order-bot.routes");
 
 const app = express();
 const jsonLimit = process.env.API_JSON_LIMIT || "12mb";
@@ -44,6 +45,7 @@ app.use(cookieParser());
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+app.use("/api/telegram-order-bot", telegramOrderBotRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", authRequired, usersRoutes);
 app.use("/api/customers", authRequired, customersRoutes);

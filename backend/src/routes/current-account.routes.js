@@ -13,6 +13,38 @@ const paymentSchema = z.object({
   paymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "OTRO"]).optional().default("EFECTIVO"),
 });
 
+async function getOpenCashRegisterSession(client) {
+  const today = new Date().toISOString().slice(0, 10);
+  const sessionRes = await client.query(
+    `SELECT * FROM cash_register_sessions
+     WHERE date = $1 AND status = 'ABIERTA'
+     ORDER BY opened_at DESC
+     LIMIT 1`,
+    [today]
+  );
+  return sessionRes.rows[0] || null;
+}
+
+async function registerSupplierCurrentAccountCashPayment(client, { supplierName, amount, actorUserId }) {
+  const session = await getOpenCashRegisterSession(client);
+  if (!session) {
+    throw new Error("No hay caja abierta para registrar el pago en efectivo al proveedor");
+  }
+
+  await client.query(
+    `INSERT INTO cash_register_movements (session_id, movement_type, amount, concept, created_by)
+     VALUES ($1, 'PAGO_PROVEEDOR', $2, $3, $4)`,
+    [
+      session.id,
+      amount,
+      `Pago cuenta corriente proveedor ${supplierName || "SIN NOMBRE"}`,
+      actorUserId,
+    ]
+  );
+
+  return session;
+}
+
 function computeBalance(rows, typeField = "entry_type", amountField = "amount") {
   return (rows || []).reduce((acc, row) => {
     const amount = Number(row?.[amountField] || 0);
@@ -182,37 +214,57 @@ router.post(
     const supplier = supplierRes.rows[0];
     if (!supplier) return res.status(404).json({ message: "Proveedor no encontrado" });
 
-    const { rows } = await pool.query(
-      `
-        INSERT INTO supplier_current_account_entries(
-          supplier_id,
-          entry_type,
-          amount,
-          payment_method,
-          description,
-          created_by
-        )
-        VALUES ($1, 'PAGO', $2, $3, $4, $5)
-        RETURNING *
-      `,
-      [
-        req.params.id,
-        parsed.data.amount,
-        parsed.data.paymentMethod,
-        parsed.data.description || "Pago a proveedor",
-        req.user.id,
-      ]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    await logAudit({
-      actorUserId: req.user.id,
-      action: "SUPPLIER_CURRENT_ACCOUNT_PAYMENT",
-      entity: "supplier_current_account_entries",
-      entityId: rows[0].id,
-      metadata: { after: rows[0] },
-    });
+      const { rows } = await client.query(
+        `
+          INSERT INTO supplier_current_account_entries(
+            supplier_id,
+            entry_type,
+            amount,
+            payment_method,
+            description,
+            created_by
+          )
+          VALUES ($1, 'PAGO', $2, $3, $4, $5)
+          RETURNING *
+        `,
+        [
+          req.params.id,
+          parsed.data.amount,
+          parsed.data.paymentMethod,
+          parsed.data.description || "Pago a proveedor",
+          req.user.id,
+        ]
+      );
 
-    res.status(201).json(rows[0]);
+      if (parsed.data.paymentMethod === "EFECTIVO") {
+        await registerSupplierCurrentAccountCashPayment(client, {
+          supplierName: supplier.name,
+          amount: parsed.data.amount,
+          actorUserId: req.user.id,
+        });
+      }
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "SUPPLIER_CURRENT_ACCOUNT_PAYMENT",
+        entity: "supplier_current_account_entries",
+        entityId: rows[0].id,
+        metadata: { after: rows[0] },
+        client,
+      });
+
+      await client.query("COMMIT");
+      res.status(201).json(rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   })
 );
 

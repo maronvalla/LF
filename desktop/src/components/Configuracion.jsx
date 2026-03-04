@@ -440,6 +440,69 @@ export default function Configuracion({ user, setToast }) {
     setToast?.({ message: "Ticket restaurado a valores por defecto", type: "success" });
   };
 
+  const printTestTicket = async () => {
+    const cfg = ticketConfig;
+    const maxChars = getTicketMaxChars(cfg);
+    const sep = "-".repeat(maxChars);
+    const lr = (l, r) => `${l}\x1e${r}`;
+    const center = (t) => {
+      const s = String(t || "").slice(0, maxChars);
+      const pad = Math.max(0, Math.floor((maxChars - s.length) / 2));
+      return `${" ".repeat(pad)}${s}`;
+    };
+    const customLines = String(cfg.customLinesText ?? (cfg.customLines || []).join("\n"))
+      .split("\n").map((l) => l.trim()).filter(Boolean);
+
+    const lines = [];
+    if (cfg.businessName) lines.push(center(cfg.businessName));
+    if (cfg.addressLine) lines.push(center(cfg.addressLine));
+    if (cfg.cityLine) lines.push(center(cfg.cityLine));
+    lines.push(sep);
+    if (cfg.includeComprobante) lines.push(lr("Comprobante", "Factura B"));
+    if (cfg.includeTicketNumber) lines.push(lr("Ticket", "T-000123"));
+    if (cfg.includeDate) lines.push(lr("Fecha", "01/03/2026"));
+    if (cfg.includeTime) lines.push(lr("Hora", "13:20"));
+    if (cfg.includeSeller) lines.push(lr("Vendedor", "ADMIN"));
+    lines.push(sep);
+    if (cfg.includeClient) { lines.push("Cliente: CONSUMIDOR FINAL"); lines.push(sep); }
+    lines.push(lr("2 x $2.250,00", "$4.500,00"));
+    lines.push("GASEOSA COLA");
+    if (cfg.includeItemSeparators) lines.push(".".repeat(Math.min(maxChars, 20)));
+    lines.push(lr("1 x $3.450,00", "$3.450,00"));
+    lines.push("AGUA MINERAL");
+    lines.push(sep);
+    lines.push(`TOTAL: $12.450,00`);
+    if (cfg.includePaymentDetail) lines.push(lr("Pago", "EFECTIVO"));
+    if (customLines.length) { lines.push(sep); customLines.forEach((l) => lines.push(l)); }
+    if (cfg.footerText) { lines.push(sep); lines.push(center(cfg.footerText)); }
+    lines.push(""); lines.push("");
+
+    const ticket = {
+      lines,
+      logoDataUrl: cfg.logoDataUrl || "",
+      fontSize: Number(cfg.fontSize || 15),
+      paperWidthMm: getTicketPaperWidthMm(cfg),
+      contentWidthMm: getTicketContentWidthMm(cfg),
+      marginLeftMm: Number(cfg.marginLeftMm ?? 3) || 3,
+    };
+
+    const canUseElectron =
+      typeof window !== "undefined" &&
+      window.desktopEnv &&
+      typeof window.desktopEnv.printTicket === "function";
+
+    if (canUseElectron) {
+      try {
+        await window.desktopEnv.printTicket({ ticket });
+        setToast?.({ message: "Ticket de prueba enviado a la impresora", type: "success" });
+      } catch (err) {
+        setToast?.({ message: `Error al imprimir: ${err?.message || err}`, type: "error" });
+      }
+    } else {
+      setToast?.({ message: "Impresion directa solo disponible en la app de escritorio", type: "error" });
+    }
+  };
+
   const addDeliveryCondition = () => {
     setDeliveryConditions((prev) => [...prev, { value: "", label: "" }]);
   };
@@ -1243,6 +1306,19 @@ export default function Configuracion({ user, setToast }) {
               disabled={!canEdit}
             />
           </div>
+          <div>
+            <label className={sectionLabelClass}>Margen izquierdo (mm)</label>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              step="0.5"
+              className={`${panelInputClass} mt-1`}
+              value={ticketConfig.marginLeftMm ?? 3}
+              onChange={(e) => setTicketField("marginLeftMm", e.target.value)}
+              disabled={!canEdit}
+            />
+          </div>
         </div>
 
         <div className="rounded-xl border border-zinc-800 bg-[#0f1115] p-4">
@@ -1348,9 +1424,15 @@ export default function Configuracion({ user, setToast }) {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button className={secondaryButtonClass} onClick={resetTicketSettings} disabled={!canEdit}>
             Restaurar ticket
+          </button>
+          <button
+            className="rounded-lg border border-zinc-600 bg-zinc-800 px-4 py-2 text-xs font-black uppercase tracking-wider text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-40"
+            onClick={printTestTicket}
+          >
+            Imprimir prueba
           </button>
           <button className={primaryButtonClass} onClick={saveTicketSettings} disabled={!canEdit}>
             Guardar ticket

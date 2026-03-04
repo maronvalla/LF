@@ -2,10 +2,15 @@ const http = require("http");
 const { Server } = require("socket.io");
 const { app } = require("./app");
 const { pool } = require("./db");
-const { setIO } = require("./realtime");
+const { setIO, registerDriver, unregisterDriver } = require("./realtime");
 
 const port = process.env.PORT || 4000;
 const server = http.createServer(app);
+
+function isDeliveryHour() {
+  const hour = new Date().getHours();
+  return hour >= 8 && hour < 22;
+}
 
 function isAllowedSocketOrigin(origin) {
   // Permitir cualquier origen para desarrollo y uso móvil local
@@ -66,8 +71,29 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("driver_register", (payload = {}) => {
+    const userId = payload.userId || null;
+    const userName = String(payload.userName || "Repartidor desconocido");
+    const role = String(payload.role || "").toUpperCase();
+    if (role === "REPARTIDOR") {
+      registerDriver(socket.id, userId, userName);
+      console.log(`🚚 Repartidor registrado en socket: ${userName} (${socket.id})`);
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("🔴 Dispositivo desconectado:", socket.id);
+    const driver = unregisterDriver(socket.id);
+    if (driver && isDeliveryHour()) {
+      console.log(`⚠️  Repartidor desconectado en horario de recorrido: ${driver.userName}`);
+      io.emit("driver_offline_alert", {
+        type: "disconnect",
+        driverName: driver.userName,
+        userId: driver.userId,
+        message: `${driver.userName} se desconectó o cerró la aplicación`,
+        ts: new Date().toISOString(),
+      });
+    }
   });
 });
 

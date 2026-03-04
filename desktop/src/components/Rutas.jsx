@@ -82,6 +82,7 @@ export default function Rutas({ setToast }) {
   const [metrics, setMetrics] = useState(null);
   const [skippedOrders, setSkippedOrders] = useState([]);
   const [origin, setOrigin] = useState(fallbackOrigin);
+  const [driversStatus, setDriversStatus] = useState([]);
 
   useEffect(() => {
     const loadOrigin = async () => {
@@ -102,6 +103,21 @@ export default function Rutas({ setToast }) {
       setOrigin(fallbackOrigin);
     };
     loadOrigin();
+  }, []);
+
+  // Poll driver online status every 15 s
+  useEffect(() => {
+    const fetchDriversStatus = async () => {
+      try {
+        const { data } = await api.get("/deliveries/drivers-status");
+        setDriversStatus(Array.isArray(data) ? data : []);
+      } catch {
+        // Non-fatal
+      }
+    };
+    fetchDriversStatus();
+    const timer = setInterval(fetchDriversStatus, 15000);
+    return () => clearInterval(timer);
   }, []);
 
   // Fetch orders for selected date and slot
@@ -225,7 +241,7 @@ export default function Rutas({ setToast }) {
   return (
     <div className="h-full flex flex-col space-y-4">
       {/* Header */}
-      <div className="flex justify-between items-end px-2">
+      <div className="flex justify-between items-start px-2">
         <div>
           <h1 className="text-3xl font-bold leading-none text-white tracking-tight">
             Rutas de Reparto
@@ -234,6 +250,34 @@ export default function Rutas({ setToast }) {
             Optimizacion de rutas para envios
           </p>
         </div>
+
+        {/* Driver online status */}
+        {driversStatus.length > 0 && (
+          <div className="flex flex-col gap-1.5 items-end">
+            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">
+              Repartidores
+            </span>
+            <div className="flex flex-wrap gap-2 justify-end">
+              {driversStatus.map((d) => (
+                <div
+                  key={d.id}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-bold ${
+                    d.online
+                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                      : "bg-zinc-800/60 border-zinc-700 text-zinc-500"
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      d.online ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"
+                    }`}
+                  />
+                  {d.name}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Controls */}

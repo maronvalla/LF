@@ -35,6 +35,38 @@ const attachReceiptSchema = z.object({
     receiptImageName: z.string().max(255).optional().nullable(),
 });
 
+async function getOpenCashRegisterSession(client) {
+    const today = new Date().toISOString().slice(0, 10);
+    const sessionRes = await client.query(
+        `SELECT * FROM cash_register_sessions
+         WHERE date = $1 AND status = 'ABIERTA'
+         ORDER BY opened_at DESC
+         LIMIT 1`,
+        [today]
+    );
+    return sessionRes.rows[0] || null;
+}
+
+async function registerPurchaseCashMovement(client, { purchaseId, invoiceNumber, totalAmount, actorUserId }) {
+    const session = await getOpenCashRegisterSession(client);
+    if (!session) {
+        throw new Error("No hay caja abierta para registrar esta compra pagada en efectivo");
+    }
+
+    await client.query(
+        `INSERT INTO cash_register_movements (session_id, movement_type, amount, concept, created_by)
+         VALUES ($1, 'PAGO_PROVEEDOR', $2, $3, $4)`,
+        [
+            session.id,
+            totalAmount,
+            `Compra ${invoiceNumber || purchaseId}`,
+            actorUserId,
+        ]
+    );
+
+    return session;
+}
+
 async function getLocationId(client, code) {
     const { rows } = await client.query("SELECT id FROM locations WHERE code = $1 LIMIT 1", [code]);
     if (!rows[0]) throw new Error(`Location ${code} no inicializada`);
@@ -211,18 +243,13 @@ router.post(
                 );
             }
 
-            if (data.updateCashbox && data.paymentMethod !== "CUENTA_CORRIENTE") {
-                // Get general wallet for the user or a system wallet
-                const { rows: wallets } = await client.query("SELECT id FROM wallets WHERE is_active = true LIMIT 1");
-                if (wallets[0]) {
-                    await client.query(
-                        `
-            INSERT INTO wallet_movements(wallet_id, amount, type, reason, ref_type, ref_id, created_by)
-            VALUES ($1, $2, 'EGRESO', $3, 'purchase', $4, $5)
-          `,
-                        [wallets[0].id, -totalAmount, `Compra Nro ${data.invoiceNumber || 'S/N'}`, purchase.rows[0].id, req.user.id]
-                    );
-                }
+            if (data.paymentMethod === "EFECTIVO") {
+                await registerPurchaseCashMovement(client, {
+                    purchaseId: purchase.rows[0].id,
+                    invoiceNumber: data.invoiceNumber || null,
+                    totalAmount,
+                    actorUserId: req.user.id,
+                });
             }
 
             await logAudit({

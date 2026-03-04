@@ -800,7 +800,7 @@ export default function Productos({ user, setToast }) {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-zinc-100">
       <div className="card p-4 rounded-lg bg-zinc-900 border-zinc-800">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-black text-[#e85d04] uppercase">Productos</h2>

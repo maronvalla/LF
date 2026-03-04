@@ -515,6 +515,8 @@ export default function Consolidado({ user, setToast }) {
       logoDataUrl: ticketConfig.logoDataUrl || "",
       fontSize: Number(ticketConfig.fontSize || 15),
       paperWidthMm: getTicketPaperWidthMm(ticketConfig),
+      contentWidthMm: getTicketContentWidthMm(ticketConfig),
+      marginLeftMm: Number(ticketConfig.marginLeftMm ?? 3) || 3,
     };
     const canUseElectronPrinter =
       typeof window !== "undefined" &&
@@ -538,11 +540,12 @@ export default function Consolidado({ user, setToast }) {
       <html><head><title>Boleta consolidado</title><style>
       @page { size: ${getTicketPaperWidthMm(ticketConfig)}mm auto; margin: 0; }
       html, body { margin: 0; padding: 0; width: ${getTicketPaperWidthMm(ticketConfig)}mm; background: #fff; color: #000; box-sizing: border-box; overflow: hidden; }
-      body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.18; font-weight: 600; padding: 2mm 4mm 2mm 6mm; box-sizing: border-box; }
-      .ticket { width: 100%; padding: 0.8mm 0; }
+      body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15))}px; line-height: 1.18; font-weight: 600; padding: 1.6mm ${Number(ticketConfig.marginLeftMm ?? 3) || 3}mm 2mm ${Number(ticketConfig.marginLeftMm ?? 3) || 3}mm; box-sizing: border-box; }
+      .ticket { width: ${getTicketContentWidthMm(ticketConfig)}mm; max-width: ${getTicketContentWidthMm(ticketConfig)}mm; padding: 0.8mm 0 0.4mm; box-sizing: border-box; overflow: hidden; }
       .logo-wrap { text-align: center; margin-bottom: 1.8mm; }
       .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
       .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0 0 0.55mm; }
+      .line.lr { display:flex; justify-content:space-between; gap:1mm; white-space:nowrap; overflow:hidden; }
       .line.center { text-align: center; }
       .line.title { font-weight: 900; font-size: 1.15em; text-align: center; margin-bottom: 0.5mm; }
       </style></head><body>
@@ -550,6 +553,12 @@ export default function Consolidado({ user, setToast }) {
       ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
       ${ticket.lines.map((line) => {
       const raw = String(line || "");
+      const sepIdx = raw.indexOf("\x1e");
+      if (sepIdx >= 0) {
+        const left = raw.slice(0, sepIdx).replace(/</g, "&lt;");
+        const right = raw.slice(sepIdx + 1).replace(/</g, "&lt;");
+        return `<div class="line lr"><span>${left}</span><span>${right}</span></div>`;
+      }
       const isCenter = raw.match(/^\s+/) !== null;
       const text = raw.replace(/</g, "&lt;").trim() || "&nbsp;";
       let cls = "line";
@@ -575,12 +584,7 @@ export default function Consolidado({ user, setToast }) {
       return `${repeat(" ", left)}${t}`;
     };
     const leftRight = (left, right) => {
-      const l = String(left || "");
-      const r = String(right || "");
-      const avail = Math.max(1, MAX - r.length);
-      const trimmedLeft = l.length > avail ? `${l.slice(0, avail - 1)}.` : l;
-      const spaces = Math.max(1, MAX - trimmedLeft.length - r.length);
-      return `${trimmedLeft}${repeat(" ", spaces)}${r}`;
+      return `${String(left || "")}\x1e${String(right || "")}`;
     };
     const now = new Date();
     const shiftLabel = slot === "19" ? "TARDE 19:00" : "MANANA 11:00";
@@ -1322,12 +1326,20 @@ export default function Consolidado({ user, setToast }) {
                   </select>
                 </div>
                 <div className={`border rounded-xl p-4 max-h-80 overflow-auto shadow-inner ${isDark ? 'bg-white text-black border-zinc-800' : 'bg-zinc-50 text-zinc-800 border-zinc-200'}`}>
-                  <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight flex flex-col items-center">
-                    {printPreviewLines.map((line, idx) => (
-                      <div key={`${line}-${idx}`} className="whitespace-pre">
-                        {line}
-                      </div>
-                    ))}
+                  <div className="mx-auto w-[58mm] font-mono text-[11px] leading-tight">
+                    {printPreviewLines.map((line, idx) => {
+                      const raw = String(line || "");
+                      const sepIdx = raw.indexOf("\x1e");
+                      if (sepIdx >= 0) {
+                        return (
+                          <div key={`${raw}-${idx}`} className="flex justify-between whitespace-pre">
+                            <span>{raw.slice(0, sepIdx)}</span>
+                            <span>{raw.slice(sepIdx + 1)}</span>
+                          </div>
+                        );
+                      }
+                      return <div key={`${raw}-${idx}`} className="whitespace-pre">{raw || " "}</div>;
+                    })}
                   </div>
                 </div>
                 <div className={`text-xs font-medium px-3 py-2 rounded-lg border flex items-center gap-2 ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-50 text-zinc-500 border-zinc-100'}`}>

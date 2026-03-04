@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { Geolocation } from '@capacitor/geolocation';
 import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { io } from 'socket.io-client';
 import CustomerLocationModal from './drivers/CustomerLocationModal';
 import TrackingPlugin from '../plugins/TrackingPlugin';
 
-import api, { socketOrigin } from '../api';
+import api, { socketOrigin, apiOrigin } from '../api';
 
 const DEFAULT_FINAL_PAYMENT = {
   method: 'EFECTIVO',
@@ -72,7 +73,7 @@ const fileToBase64 = (file) =>
     reader.readAsDataURL(file);
   });
 
-export default function DriverApp({ onLogout }) {
+export default function DriverApp({ onLogout, user }) {
   const [deliveries, setDeliveries] = useState([]);
   const [activeShift, setActiveShift] = useState('11');
   const [routeDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -95,6 +96,12 @@ export default function DriverApp({ onLogout }) {
   const [proofPreviewByDelivery, setProofPreviewByDelivery] = useState({});
   const [submitStateByDelivery, setSubmitStateByDelivery] = useState({});
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [logoutPinModalOpen, setLogoutPinModalOpen] = useState(false);
+  const [logoutPinValue, setLogoutPinValue] = useState('');
+  const [logoutPinRequestedAt, setLogoutPinRequestedAt] = useState('');
+  const [logoutPinExpiresAt, setLogoutPinExpiresAt] = useState('');
+  const [logoutPinLoading, setLogoutPinLoading] = useState(false);
+  const [logoutPinError, setLogoutPinError] = useState('');
 
   const [locationPrompt, setLocationPrompt] = useState(null);
   // locationPrompt: null | { deliveryId: string, customerId: string }
@@ -106,6 +113,39 @@ export default function DriverApp({ onLogout }) {
   const syncingQueueRef = useRef(false);
 
   const activeShiftLabel = activeShift === '19' ? 'SALIDA 19:00' : 'SALIDA 11:00';
+
+  const requestDriverLogoutPin = async () => {
+    setLogoutPinLoading(true);
+    setLogoutPinError('');
+    try {
+      const { data } = await api.post('/auth/driver-logout/request-pin');
+      setLogoutPinRequestedAt(new Date().toISOString());
+      setLogoutPinExpiresAt(String(data?.expiresAt || ''));
+      setLogoutPinModalOpen(true);
+    } catch (err) {
+      setLogoutPinError(err.response?.data?.message || 'No se pudo solicitar el PIN.');
+      setLogoutPinModalOpen(true);
+    } finally {
+      setLogoutPinLoading(false);
+    }
+  };
+
+  const confirmDriverLogout = async () => {
+    if (!/^\d{6}$/.test(String(logoutPinValue || '').trim())) {
+      setLogoutPinError('Ingresa un PIN valido de 6 digitos.');
+      return;
+    }
+    setLogoutPinLoading(true);
+    setLogoutPinError('');
+    try {
+      await api.post('/auth/driver-logout/confirm', { pin: String(logoutPinValue || '').trim() });
+      onLogout?.();
+    } catch (err) {
+      setLogoutPinError(err.response?.data?.message || 'No se pudo cerrar la sesion.');
+    } finally {
+      setLogoutPinLoading(false);
+    }
+  };
 
   useEffect(() => {
     setTrackingState('INICIANDO');
@@ -123,6 +163,11 @@ export default function DriverApp({ onLogout }) {
       console.log('[DriverApp] Socket connected');
       setTrackingError('');
       setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'CONECTADO'));
+      socket.emit('driver_register', {
+        userId: user?.id || null,
+        userName: user?.fullName || user?.username || 'Repartidor',
+        role: 'REPARTIDOR',
+      });
     });
 
     socket.on('disconnect', () => {
@@ -136,10 +181,27 @@ export default function DriverApp({ onLogout }) {
       setTrackingState((prev) => (prev === 'GPS_DENEGADO' || prev === 'SIN_GEOLOCATION' ? prev : 'API_DESCONECTADA'));
     });
 
+    socket.on('pedidos_cargados', (data) => {
+      const notifId = Math.floor(Math.random() * 100000) + 2000;
+      const title = 'Pedidos listos para cargar';
+      const body = data?.message || `Turno ${data?.slot === '19' ? '19:00' : '11:00'} — pedidos cargados`;
+      if (Capacitor.isNativePlatform()) {
+        LocalNotifications.schedule({
+          notifications: [{ id: notifId, title, body, schedule: { at: new Date(Date.now() + 300) } }],
+        }).catch(() => {});
+      } else {
+        // Web fallback — browser Notification API
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification(title, { body });
+        }
+      }
+    });
+
     const emitCoords = (lat, lng) => {
       socket.emit('camion_ubicacion', {
         lat: Number(lat),
         lng: Number(lng),
+        user_id: user?.id || null,
         ts: new Date().toISOString(),
       });
     };
@@ -149,6 +211,13 @@ export default function DriverApp({ onLogout }) {
 
     const startTracking = async () => {
       if (Capacitor.isNativePlatform()) {
+        // Request notification permission (Android 13+)
+        try {
+          await LocalNotifications.requestPermissions();
+        } catch {
+          // Non-fatal
+        }
+
         // Android: use foreground service so GPS keeps running when screen locks
         try {
           const perm = await Geolocation.requestPermissions({ permissions: ['location'] });
@@ -164,7 +233,8 @@ export default function DriverApp({ onLogout }) {
           listenerHandle = await TrackingPlugin.addListener('location', (data) => {
             if (!cancelled) emitCoords(data.lat, data.lng);
           });
-          await TrackingPlugin.startTracking();
+          const authToken = localStorage.getItem('lf_token') || '';
+          await TrackingPlugin.startTracking({ serverUrl: apiOrigin, authToken });
         } catch (err) {
           if (!cancelled) {
             setTrackingState('GPS_ERROR');
@@ -802,11 +872,72 @@ export default function DriverApp({ onLogout }) {
             <span className="text-zinc-700">|</span>
             <span>Pendientes: {financialSummary.pendingCount}</span>
           </div>
-          <button className="bg-zinc-800 p-2 rounded-lg w-full mt-2" onClick={onLogout}>
+          <button className="bg-zinc-800 p-2 rounded-lg w-full mt-2" onClick={requestDriverLogoutPin} type="button">
             <span className="text-xs font-bold uppercase text-zinc-400">Salir</span>
           </button>
         </div>
       </div>
+
+      {logoutPinModalOpen ? (
+        <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-[#0c0d11] shadow-2xl p-5">
+            <div className="text-lg font-black uppercase tracking-tight text-burnt-500">Cerrar sesion del chofer</div>
+            <p className="mt-2 text-sm text-zinc-300">
+              Se envio una notificacion al administrador con el PIN de autorizacion.
+            </p>
+            {logoutPinExpiresAt ? (
+              <p className="mt-1 text-[11px] uppercase font-bold tracking-widest text-zinc-500">
+                Vence: {new Date(logoutPinExpiresAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            ) : null}
+            <label className="block mt-4 text-[11px] font-black uppercase tracking-widest text-zinc-500">
+              PIN de administrador
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={logoutPinValue}
+              onChange={(e) => setLogoutPinValue(String(e.target.value || '').replace(/\D+/g, '').slice(0, 6))}
+              className="mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-white text-lg font-black tracking-[0.35em] text-center outline-none focus:border-burnt-500"
+              placeholder="000000"
+            />
+            {logoutPinError ? (
+              <div className="mt-3 text-sm text-rose-400 font-bold">{logoutPinError}</div>
+            ) : null}
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLogoutPinModalOpen(false);
+                  setLogoutPinError('');
+                  setLogoutPinValue('');
+                }}
+                className="col-span-1 rounded-xl bg-zinc-800 px-3 py-3 text-xs font-black uppercase tracking-widest text-zinc-300"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={requestDriverLogoutPin}
+                disabled={logoutPinLoading}
+                className="col-span-1 rounded-xl bg-zinc-700 px-3 py-3 text-xs font-black uppercase tracking-widest text-white disabled:opacity-60"
+              >
+                Reenviar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDriverLogout}
+                disabled={logoutPinLoading}
+                className="col-span-1 rounded-xl bg-burnt-500 px-3 py-3 text-xs font-black uppercase tracking-widest text-white disabled:opacity-60"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* List */}
       <div className="p-4 space-y-6">

@@ -489,15 +489,19 @@ export default function Compras({ user, setToast }) {
             value={draft.supplierId}
             onChange={(id) => {
               const supplier = suppliers.find((x) => x.id === id);
+              const supplierCurrentAccountEnabled = Boolean(
+                supplier?.enable_current_account ?? supplier?.enableCurrentAccount
+              );
               setDraft((prev) => ({
                 ...prev,
                 supplierId: id,
                 supplierName: supplier?.businessName || supplier?.name || "",
                 paymentMethod:
-                  prev.paymentMethod === "CUENTA_CORRIENTE" &&
-                    !(supplier?.enable_current_account ?? supplier?.enableCurrentAccount)
+                  prev.paymentMethod === "CUENTA_CORRIENTE" && !supplierCurrentAccountEnabled
                     ? "EFECTIVO"
-                    : prev.paymentMethod,
+                    : !prev.supplierId && supplierCurrentAccountEnabled
+                      ? "CUENTA_CORRIENTE"
+                      : prev.paymentMethod,
               }));
             }}
             placeholder="Buscar proveedor..."

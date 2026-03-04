@@ -312,7 +312,7 @@ export default function CuentaCorriente({ setToast }) {
             <div className="mt-8 pt-6 border-t border-white/5 relative z-10">
               <div className="flex items-center justify-between mb-4">
                 <div className="text-xs font-black uppercase tracking-[0.2em] text-[#e85d04]">
-                  Registrar Nuevo Pago
+                  {activeType === "customers" ? "Registrar Nuevo Cobro" : "Registrar Pago a Proveedor"}
                 </div>
               </div>
 
@@ -349,7 +349,7 @@ export default function CuentaCorriente({ setToast }) {
                   className="flex-shrink-0 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#e85d04] to-[#f77f00] px-8 py-3.5 text-sm font-black uppercase tracking-wider text-white shadow-[0_0_20px_rgba(232,93,4,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_0_25px_rgba(232,93,4,0.5)] active:scale-[0.98]"
                   onClick={registerPayment}
                 >
-                  <span>Guardar Ingreso</span>
+                  <span>{activeType === "customers" ? "Guardar cobro" : "Guardar pago"}</span>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                   </svg>
