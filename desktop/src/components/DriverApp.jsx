@@ -19,6 +19,17 @@ const DEFAULT_FINAL_PAYMENT = {
 };
 
 const requiresProof = (method) => method === 'TRANSFERENCIA' || method === 'MIXTO';
+const isPrepaidDeliveryPayment = (deliveryPayment) => {
+  const normalized = String(deliveryPayment || '').toUpperCase();
+  return normalized === 'PAGADO_LOCAL' || normalized === 'TRANSFER_PREVIA';
+};
+
+const getPaymentMethodLabel = (method) => {
+  const normalized = String(method || '').toUpperCase();
+  if (normalized === 'TRANSFERENCIA') return 'Transferencia';
+  if (normalized === 'MIXTO') return 'Mixto';
+  return 'Efectivo';
+};
 
 const toPositiveNumber = (value) => {
   const parsed = Number(value);
@@ -612,6 +623,9 @@ export default function DriverApp({ onLogout, user }) {
     const finalPayment = getFinalPayment(deliveryId);
     const method = finalPayment.method || 'EFECTIVO';
     const delivery = deliveries.find((d) => d.id === deliveryId);
+    if (delivery && isPrepaidDeliveryPayment(delivery.deliveryPayment)) {
+      return '';
+    }
     const saleTotal = Number(delivery?.saleTotal || 0);
 
     if (method === 'MIXTO') {
@@ -637,6 +651,9 @@ export default function DriverApp({ onLogout, user }) {
     const finalPayment = getFinalPayment(deliveryId);
     const submitState = submitStateByDelivery[deliveryId] || {};
     const delivery = deliveries.find((d) => d.id === deliveryId);
+    if (delivery && isPrepaidDeliveryPayment(delivery.deliveryPayment)) {
+      return !submitState.loading;
+    }
     const saleTotal = Number(delivery?.saleTotal || 0);
     if (submitState.loading) return false;
 
@@ -958,6 +975,10 @@ export default function DriverApp({ onLogout, user }) {
           const proofPreview = proofPreviewByDelivery[delivery.id];
           const submitState = submitStateByDelivery[delivery.id] || { loading: false, error: '' };
           const returnablesForOrder = getDeliveryReturnables(delivery);
+          const prepaid = isPrepaidDeliveryPayment(delivery.deliveryPayment);
+          const prepaidMethodLabel = getPaymentMethodLabel(
+            delivery.deliveryPaymentMethod || finalPayment.method
+          );
 
           return (
             <div
@@ -1016,63 +1037,81 @@ export default function DriverApp({ onLogout, user }) {
                 ) : (
                   <div className="space-y-3">
                     <div className="rounded-2xl border border-zinc-700 bg-zinc-950 p-3 space-y-3">
-                      <label className="text-[11px] uppercase tracking-wider font-bold text-zinc-400 block">
-                        Metodo de pago final
-                      </label>
-                      <select
-                        value={finalPayment.method}
-                        onChange={(e) => handlePaymentMethodChange(delivery.id, e.target.value)}
-                        className="w-full h-11 rounded-xl bg-zinc-900 border border-zinc-700 px-3 text-sm font-semibold"
-                      >
-                        <option value="EFECTIVO">Efectivo</option>
-                        <option value="TRANSFERENCIA">Transferencia</option>
-                        <option value="MIXTO">Mixto</option>
-                      </select>
-
-                      {finalPayment.method === 'MIXTO' && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={finalPayment.cashAmount}
-                            onChange={(e) => handleMixedAmountChange(delivery.id, 'cashAmount', e.target.value)}
-                            placeholder="Monto efectivo"
-                            className="h-11 rounded-xl bg-zinc-900 border border-zinc-700 px-3 text-sm"
-                          />
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={finalPayment.transferAmount}
-                            onChange={(e) => handleMixedAmountChange(delivery.id, 'transferAmount', e.target.value)}
-                            placeholder="Monto transferencia"
-                            className="h-11 rounded-xl bg-zinc-900 border border-zinc-700 px-3 text-sm"
-                          />
-                        </div>
-                      )}
-
-                      {requiresProof(finalPayment.method) && (
+                      {prepaid ? (
                         <div className="space-y-2">
-                          <button
-                            onClick={() => handleCaptureProof(delivery.id)}
-                            type="button"
-                            className="w-full h-11 bg-cyan-700 hover:bg-cyan-600 active:scale-[0.98] rounded-xl font-black uppercase text-xs tracking-wide transition-all"
-                          >
-                            Fotografiar Comprobante
-                          </button>
-                          {proofPreview ? (
-                            <img
-                              src={proofPreview}
-                              alt="Comprobante"
-                              className="w-full h-32 object-cover rounded-xl border border-zinc-700"
-                            />
-                          ) : (
-                            <p className="text-xs text-zinc-500">Aun no hay comprobante capturado.</p>
-                          )}
+                          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-3">
+                            <p className="text-[11px] uppercase tracking-wider font-bold text-emerald-300">
+                              Ya esta pagado
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-white">
+                              Metodo registrado: {prepaidMethodLabel}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-400">
+                              El chofer solo debe confirmar la entrega.
+                            </p>
+                          </div>
                         </div>
+                      ) : (
+                        <>
+                          <label className="text-[11px] uppercase tracking-wider font-bold text-zinc-400 block">
+                            Metodo de pago final
+                          </label>
+                          <select
+                            value={finalPayment.method}
+                            onChange={(e) => handlePaymentMethodChange(delivery.id, e.target.value)}
+                            className="w-full h-11 rounded-xl bg-zinc-900 border border-zinc-700 px-3 text-sm font-semibold"
+                          >
+                            <option value="EFECTIVO">Efectivo</option>
+                            <option value="TRANSFERENCIA">Transferencia</option>
+                            <option value="MIXTO">Mixto</option>
+                          </select>
+
+                          {finalPayment.method === 'MIXTO' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                value={finalPayment.cashAmount}
+                                onChange={(e) => handleMixedAmountChange(delivery.id, 'cashAmount', e.target.value)}
+                                placeholder="Monto efectivo"
+                                className="h-11 rounded-xl bg-zinc-900 border border-zinc-700 px-3 text-sm"
+                              />
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                value={finalPayment.transferAmount}
+                                onChange={(e) => handleMixedAmountChange(delivery.id, 'transferAmount', e.target.value)}
+                                placeholder="Monto transferencia"
+                                className="h-11 rounded-xl bg-zinc-900 border border-zinc-700 px-3 text-sm"
+                              />
+                            </div>
+                          )}
+
+                          {requiresProof(finalPayment.method) && (
+                            <div className="space-y-2">
+                              <button
+                                onClick={() => handleCaptureProof(delivery.id)}
+                                type="button"
+                                className="w-full h-11 bg-cyan-700 hover:bg-cyan-600 active:scale-[0.98] rounded-xl font-black uppercase text-xs tracking-wide transition-all"
+                              >
+                                Fotografiar Comprobante
+                              </button>
+                              {proofPreview ? (
+                                <img
+                                  src={proofPreview}
+                                  alt="Comprobante"
+                                  className="w-full h-32 object-cover rounded-xl border border-zinc-700"
+                                />
+                              ) : (
+                                <p className="text-xs text-zinc-500">Aun no hay comprobante capturado.</p>
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
 
                       {submitState.error ? <p className="text-xs text-rose-400">{submitState.error}</p> : null}

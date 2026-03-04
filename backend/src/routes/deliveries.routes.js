@@ -222,8 +222,8 @@ function resolveCashToRender(order) {
   if (finalMethod === "EFECTIVO") return finalCash > 0 ? finalCash : saleTotal;
   if (finalMethod === "TRANSFERENCIA") return 0;
 
-  // Fallback legacy: if delivery was recorded as local cash and no final breakdown exists.
-  if (configuredPayment === "PAGADO_LOCAL" && configuredMethod === "EFECTIVO") {
+  // Fallback legacy: if delivery was collected in cash on delivery and no final breakdown exists.
+  if (configuredPayment === "COBRAR_EN_ENTREGA" && configuredMethod === "EFECTIVO") {
     return saleTotal;
   }
   return 0;
@@ -923,19 +923,6 @@ router.post(
       return res.status(400).json({ message: "Datos invalidos para marcar entrega" });
     }
     const { finalPayment } = parsed.data;
-    const needsProof = finalPayment.method === "TRANSFERENCIA" || finalPayment.method === "MIXTO";
-    if (needsProof && !finalPayment.proofImageBase64) {
-      return res.status(400).json({ message: "Debe adjuntar foto del comprobante" });
-    }
-    if (!finalPayment.proofImageMimeType && needsProof) {
-      return res.status(400).json({ message: "Debe informar tipo MIME del comprobante" });
-    }
-    if (
-      finalPayment.method === "MIXTO" &&
-      (finalPayment.cashAmount <= 0 || finalPayment.transferAmount <= 0)
-    ) {
-      return res.status(400).json({ message: "En pago mixto debe informar montos de efectivo y transferencia" });
-    }
 
     const client = await pool.connect();
     try {
@@ -999,57 +986,95 @@ router.post(
       }
 
       const saleTotal = Number(sale.sale_total || 0);
+      const configuredPayment = String(sale.delivery_payment || "").toUpperCase();
+      const configuredMethod = String(sale.delivery_payment_method || "").toUpperCase();
+      const isPrepaid =
+        configuredPayment === "PAGADO_LOCAL" || configuredPayment === "TRANSFER_PREVIA";
       const closeEnough = (a, b) => Math.abs(Number(a) - Number(b)) <= 0.01;
       let cashAmount = 0;
       let transferAmount = 0;
 
-      if (finalPayment.method === "EFECTIVO") {
-        cashAmount = Number(finalPayment.cashAmount || 0);
-        if (cashAmount <= 0) cashAmount = saleTotal;
-      } else if (finalPayment.method === "TRANSFERENCIA") {
-        transferAmount = Number(finalPayment.transferAmount || 0);
-        if (transferAmount <= 0) transferAmount = saleTotal;
-      } else if (finalPayment.method === "MIXTO") {
-        cashAmount = Number(finalPayment.cashAmount || 0);
-        transferAmount = Number(finalPayment.transferAmount || 0);
-        if (!closeEnough(cashAmount + transferAmount, saleTotal)) {
+      if (!isPrepaid) {
+        const needsProof = finalPayment.method === "TRANSFERENCIA" || finalPayment.method === "MIXTO";
+        if (needsProof && !finalPayment.proofImageBase64) {
           await client.query("ROLLBACK");
-          return res.status(400).json({
-            message: `En pago mixto la suma debe coincidir con el total del pedido ($${saleTotal.toFixed(2)}).`,
-          });
+          return res.status(400).json({ message: "Debe adjuntar foto del comprobante" });
+        }
+        if (!finalPayment.proofImageMimeType && needsProof) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "Debe informar tipo MIME del comprobante" });
+        }
+        if (
+          finalPayment.method === "MIXTO" &&
+          (finalPayment.cashAmount <= 0 || finalPayment.transferAmount <= 0)
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "En pago mixto debe informar montos de efectivo y transferencia" });
+        }
+
+        if (finalPayment.method === "EFECTIVO") {
+          cashAmount = Number(finalPayment.cashAmount || 0);
+          if (cashAmount <= 0) cashAmount = saleTotal;
+        } else if (finalPayment.method === "TRANSFERENCIA") {
+          transferAmount = Number(finalPayment.transferAmount || 0);
+          if (transferAmount <= 0) transferAmount = saleTotal;
+        } else if (finalPayment.method === "MIXTO") {
+          cashAmount = Number(finalPayment.cashAmount || 0);
+          transferAmount = Number(finalPayment.transferAmount || 0);
+          if (!closeEnough(cashAmount + transferAmount, saleTotal)) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              message: `En pago mixto la suma debe coincidir con el total del pedido ($${saleTotal.toFixed(2)}).`,
+            });
+          }
         }
       }
 
-      const updated = await client.query(
-        `
-          UPDATE sales
-          SET
-            delivery_status = 'ENTREGADO',
-            delivery_payment = COALESCE(delivery_payment, 'COBRAR_EN_ENTREGA'),
-            delivery_payment_method = $2,
-            delivery_final_payment_method = $2,
-            delivery_final_cash_amount = $3,
-            delivery_final_transfer_amount = $4,
-            delivery_transfer_proof_base64 = CASE WHEN $5 <> '' THEN $5 ELSE NULL END,
-            delivery_transfer_proof_mime_type = CASE WHEN $6 <> '' THEN $6 ELSE NULL END,
-            delivery_transfer_proof_name = CASE WHEN $7 <> '' THEN $7 ELSE NULL END,
-            delivery_paid_at = now(),
-            delivery_paid_by = $8,
-            updated_at = now()
-          WHERE id = $1
-          RETURNING *
-        `,
-        [
-          req.params.id,
-          finalPayment.method,
-          cashAmount,
-          transferAmount,
-          String(finalPayment.proofImageBase64 || ""),
-          String(finalPayment.proofImageMimeType || ""),
-          String(finalPayment.proofImageName || ""),
-          req.user.id,
-        ]
-      );
+      let updated;
+      if (isPrepaid) {
+        updated = await client.query(
+          `
+            UPDATE sales
+            SET
+              delivery_status = 'ENTREGADO',
+              updated_at = now()
+            WHERE id = $1
+            RETURNING *
+          `,
+          [req.params.id]
+        );
+      } else {
+        updated = await client.query(
+          `
+            UPDATE sales
+            SET
+              delivery_status = 'ENTREGADO',
+              delivery_payment = COALESCE(delivery_payment, 'COBRAR_EN_ENTREGA'),
+              delivery_payment_method = $2,
+              delivery_final_payment_method = $2,
+              delivery_final_cash_amount = $3,
+              delivery_final_transfer_amount = $4,
+              delivery_transfer_proof_base64 = CASE WHEN $5 <> '' THEN $5 ELSE NULL END,
+              delivery_transfer_proof_mime_type = CASE WHEN $6 <> '' THEN $6 ELSE NULL END,
+              delivery_transfer_proof_name = CASE WHEN $7 <> '' THEN $7 ELSE NULL END,
+              delivery_paid_at = now(),
+              delivery_paid_by = $8,
+              updated_at = now()
+            WHERE id = $1
+            RETURNING *
+          `,
+          [
+            req.params.id,
+            finalPayment.method,
+            cashAmount,
+            transferAmount,
+            String(finalPayment.proofImageBase64 || ""),
+            String(finalPayment.proofImageMimeType || ""),
+            String(finalPayment.proofImageName || ""),
+            req.user.id,
+          ]
+        );
+      }
       await logAudit({
         actorUserId: req.user.id,
         action: "DELIVERY_MARK_DELIVERED",
@@ -1059,12 +1084,13 @@ router.post(
           before: sale,
           after: updated.rows[0],
           finalPayment: {
-            method: finalPayment.method,
+            method: isPrepaid ? configuredMethod || null : finalPayment.method,
             cashAmount,
             transferAmount,
-            proofAttached: Boolean(finalPayment.proofImageBase64),
-            proofMimeType: finalPayment.proofImageMimeType || null,
-            proofImageName: finalPayment.proofImageName || null,
+            proofAttached: isPrepaid ? false : Boolean(finalPayment.proofImageBase64),
+            proofMimeType: isPrepaid ? null : finalPayment.proofImageMimeType || null,
+            proofImageName: isPrepaid ? null : finalPayment.proofImageName || null,
+            prepaid: isPrepaid,
           },
         },
         client,
