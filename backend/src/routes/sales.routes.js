@@ -232,8 +232,9 @@ function canChargeSales(user) {
   return role === "ADMIN" || role === "CAJERO";
 }
 
-async function findItemsWithoutStock(client, items) {
+async function findItemsWithoutStock(client, items, options = {}) {
   const localId = await getLocalId(client);
+  const excludeSaleId = options.excludeSaleId ? String(options.excludeSaleId) : null;
   const requestedByProduct = new Map();
 
   for (const item of items || []) {
@@ -251,19 +252,32 @@ async function findItemsWithoutStock(client, items) {
       SELECT
         p.id,
         p.name,
-        COALESCE(b.quantity, 0) AS quantity
+        COALESCE(b.quantity, 0) AS quantity,
+        COALESCE(reserved.reserved_qty, 0) AS reserved_qty
       FROM products p
       LEFT JOIN inventory_balances b
         ON b.product_id = p.id
        AND b.location_id = $2
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(si.qty), 0) AS reserved_qty
+        FROM sale_items si
+        JOIN sales s ON s.id = si.sale_id
+        WHERE si.product_id = p.id
+          AND s.status = 'PENDIENTE'
+          AND s.status <> 'ANULADO'
+          AND ($3::uuid IS NULL OR s.id <> $3::uuid)
+      ) reserved ON true
       WHERE p.id = ANY($1::uuid[])
     `,
-    [productIds, localId]
+    [productIds, localId, excludeSaleId]
   );
 
   return rows
     .map((row) => {
-      const available = Number(row.quantity || 0);
+      const available = Math.max(
+        0,
+        Number(row.quantity || 0) - Number(row.reserved_qty || 0)
+      );
       const requested = Number(requestedByProduct.get(String(row.id)) || 0);
       if (available >= requested) return null;
       return {
@@ -271,6 +285,7 @@ async function findItemsWithoutStock(client, items) {
         productName: row.name,
         available,
         requested,
+        reserved: Number(row.reserved_qty || 0),
       };
     })
     .filter(Boolean);
@@ -747,7 +762,8 @@ router.post(
         itemsRes.rows.map((item) => ({
           productId: item.product_id,
           qty: Number(item.qty || 0),
-        }))
+        })),
+        { excludeSaleId: sale.id }
       );
       if (insufficientItems.length) {
         await client.query("ROLLBACK");
