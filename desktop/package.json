@@ -20,12 +20,15 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "build-resources/**/*",
       "package.json"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "win": {
+      "icon": "icon.ico",
       "signAndEditExecutable": false,
       "target": [
         {
@@ -40,6 +43,9 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "shortcutName": "Distribuidora La Familia"
     }
   },

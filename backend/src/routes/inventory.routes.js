@@ -41,8 +41,8 @@ const saveLocationCountsSchema = z.object({
   counts: z
     .array(
       z.object({
-        productId: z.string().uuid(),
-        actualQty: z.number().int().nonnegative(),
+        productId: z.string().trim().min(1).max(120),
+        actualQty: z.coerce.number().int().nonnegative(),
       })
     )
     .min(1),
@@ -70,8 +70,12 @@ async function ensureBalanceRow(client, productId, locationId) {
   );
 }
 
-function validationError(res) {
-  return res.status(400).json({ ok: false, message: "Datos invalidos" });
+function validationError(res, parsed) {
+  return res.status(400).json({
+    ok: false,
+    message: "Datos invalidos",
+    errors: parsed?.error?.issues || [],
+  });
 }
 
 router.get(
@@ -139,7 +143,7 @@ router.post(
   requirePermission("inventory.view"),
   asyncHandler(async (req, res) => {
     const parsed = startStockControlSchema.safeParse(req.body || {});
-    if (!parsed.success) return validationError(res);
+    if (!parsed.success) return validationError(res, parsed);
 
     const canManage = await userCanManageStockControl(req.user);
     if (!canManage) {
@@ -177,7 +181,7 @@ router.put(
   requirePermission("inventory.view"),
   asyncHandler(async (req, res) => {
     const parsed = saveLocationCountsSchema.safeParse(req.body || {});
-    if (!parsed.success) return validationError(res);
+    if (!parsed.success) return validationError(res, parsed);
 
     const canManage = await userCanManageStockControl(req.user);
     if (!canManage) {

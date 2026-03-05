@@ -19,6 +19,8 @@ interface Venta {
   metodoPago: "EFECTIVO" | "TRANSFERENCIA" | "MIXTO";
   estado: "COMPLETADO" | "ANULADO" | "PENDIENTE" | "PREPARADO" | "CARGADO" | "ENTREGADO" | "RECHAZADO" | "NO_ESTABA";
   comprobanteUrl?: string;
+  isDelivery?: boolean;
+  deliveryStatus?: string;
 }
 
 type ApiSale = Record<string, any>;
@@ -52,6 +54,8 @@ const resolveEstado = (row: ApiSale): Venta["estado"] => {
   if (deliveryRaw === "ENTREGADO") return "ENTREGADO";
   if (deliveryRaw === "RECHAZADO") return "RECHAZADO";
   if (deliveryRaw === "NO_ESTABA") return "NO_ESTABA";
+  if (deliveryRaw === "CARGADO") return "CARGADO";
+  if (deliveryRaw === "PREPARADO") return "PREPARADO";
   if (raw === "PENDIENTE") return "PENDIENTE";
   if (raw === "PREPARADO") return "PREPARADO";
   if (raw === "CARGADO") return "CARGADO";
@@ -73,11 +77,17 @@ const mapSale = (row: ApiSale): Venta => {
     total: Number(row.total_amount || 0),
     metodoPago: resolveMetodoPago(row),
     estado: resolveEstado(row),
+    isDelivery: Boolean(row.is_delivery) || String(row.sale_type || "").toUpperCase() === "ENVIO",
+    deliveryStatus: String(row.delivery_status || "").toUpperCase(),
     comprobanteUrl: hasProof ? `data:${mimeType};base64,${proofData}` : "",
   };
 };
 
-const buildReprintLines = (sale: ReprintSaleDetail, config: TicketConfig): string[] => {
+const buildReprintLines = (
+  sale: ReprintSaleDetail,
+  config: TicketConfig,
+  options?: { includeReprintLabel?: boolean }
+): string[] => {
   const MAX = getTicketMaxChars(config);
   const size = Number(config.fontSize || 15);
   const separatorLength =
@@ -109,9 +119,11 @@ const buildReprintLines = (sale: ReprintSaleDetail, config: TicketConfig): strin
   if (config.businessName) lines.push(center(config.businessName));
   if (config.addressLine) lines.push(center(config.addressLine));
   if (config.cityLine) lines.push(center(config.cityLine));
-  lines.push(repeat("-", separatorLength));
-  lines.push(center("** REIMPRESION **"));
-  lines.push(repeat("-", separatorLength));
+  if (options?.includeReprintLabel !== false) {
+    lines.push(repeat("-", separatorLength));
+    lines.push(center("** REIMPRESION **"));
+    lines.push(repeat("-", separatorLength));
+  }
   if (config.includeComprobante) lines.push(leftRight("Comprobante", docLabel));
   if (config.includeTicketNumber) lines.push(leftRight("Ticket", String(sale.saleNumber)));
   if (config.includeDate) lines.push(leftRight("Fecha", dateStr));
@@ -532,7 +544,7 @@ export default function ConsultarVentas() {
                         )}
 
                         {/* Reimprimir boleta */}
-                        {venta.estado !== "ANULADO" && venta.estado !== "PENDIENTE" ? (
+                        {venta.estado !== "ANULADO" && (venta.estado !== "PENDIENTE" || venta.isDelivery) ? (
                           <button
                             title="Reimprimir boleta"
                             disabled={reprintLoading}

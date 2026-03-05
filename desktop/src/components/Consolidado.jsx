@@ -153,6 +153,7 @@ export default function Consolidado({ user, setToast }) {
   const [controlStep, setControlStep] = useState("checklist");
   const [showPrintPrompt, setShowPrintPrompt] = useState(false);
   const [printPreviewLines, setPrintPreviewLines] = useState([]);
+  const [printPromptTitle, setPrintPromptTitle] = useState("Imprimir boleta consolidado");
   const [availablePrinters, setAvailablePrinters] = useState([]);
   const [selectedPrinter, setSelectedPrinter] = useState("");
   const [ticketConfig, setTicketConfig] = useState(DEFAULT_TICKET_CONFIG);
@@ -448,10 +449,13 @@ export default function Consolidado({ user, setToast }) {
 
   const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
 
-  const askPrintConfirmation = (lines) =>
+  const askPrintConfirmation = ({ lines, title }) =>
     new Promise(async (resolve) => {
       printPromptResolverRef.current = resolve;
       setPrintPreviewLines(Array.isArray(lines) ? lines : []);
+      setPrintPromptTitle(
+        String(title || "").trim() || "Imprimir boleta consolidado",
+      );
       try {
         const printerApi = window?.desktopEnv?.listPrinters;
         if (typeof printerApi === "function") {
@@ -658,7 +662,10 @@ export default function Consolidado({ user, setToast }) {
 
   const printConsolidated = async () => {
     const lines = buildConsolidatedTicketLines();
-    const decision = await askPrintConfirmation(lines);
+    const decision = await askPrintConfirmation({
+      lines,
+      title: "Imprimir boleta consolidado",
+    });
     if (!decision?.shouldPrint) return;
     try {
       await printReceipt({ lines, deviceName: decision?.deviceName });
@@ -779,7 +786,10 @@ export default function Consolidado({ user, setToast }) {
 
     try {
       const firstLines = buildOrderTicketLines(printableOrders[0]);
-      const decision = await askPrintConfirmation(firstLines);
+      const decision = await askPrintConfirmation({
+        lines: firstLines,
+        title: `Reimprimir ordenes (${printableOrders.length})`,
+      });
       if (!decision?.shouldPrint) return;
 
       const combinedLines = printableOrders.flatMap((order, idx) => {
@@ -1446,7 +1456,7 @@ export default function Consolidado({ user, setToast }) {
             <div className="fixed inset-0 bg-zinc-900/60 dark:bg-black/70 backdrop-blur-sm z-[210] flex items-center justify-center p-4">
               <div className={`w-full max-w-xl rounded-2xl border shadow-xl p-6 space-y-5 ${isDark ? 'bg-[#121212] border-zinc-800' : 'bg-white border-zinc-200'}`}>
                 <div className="text-lg font-black uppercase tracking-tight text-[#e85d04]">
-                  Imprimir boleta consolidado
+                  {printPromptTitle}
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-zinc-500 mb-1.5 block">

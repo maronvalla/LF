@@ -250,13 +250,26 @@ export default function Inventario({ user, setToast }) {
     }
     setSavingControlLocation(true);
     try {
+      const countsPayload = currentLocationRows
+        .map((row) => {
+          const rawQty = Number(controlDrafts?.[activeLocationCode]?.[row.id] ?? row.expectedQty);
+          const safeQty = Number.isFinite(rawQty) ? Math.max(0, Math.trunc(rawQty)) : 0;
+          return {
+            productId: String(row.id || "").trim(),
+            actualQty: safeQty,
+          };
+        })
+        .filter((row) => row.productId.length > 0);
+
+      if (!countsPayload.length) {
+        setToast?.({ message: "No hay productos validos para guardar en este conteo", type: "error" });
+        return;
+      }
+
       await api.put("/inventory/stock-control/location", {
-        locationCode: activeLocationCode,
+        locationCode: String(activeLocationCode || "").toUpperCase(),
         stopAfterThis,
-        counts: currentLocationRows.map((row) => ({
-          productId: row.id,
-          actualQty: Number(controlDrafts?.[activeLocationCode]?.[row.id] ?? row.expectedQty),
-        })),
+        counts: countsPayload,
       });
       await loadStockControlStatus();
       if (nextLocation && !stopAfterThis) {
@@ -276,8 +289,15 @@ export default function Inventario({ user, setToast }) {
         });
       }
     } catch (err) {
+      const firstIssue = err?.response?.data?.errors?.[0];
+      const issueMsg = firstIssue
+        ? `${firstIssue.path?.join?.(".") || "payload"}: ${firstIssue.message || "invalido"}`
+        : "";
       setToast?.({
-        message: err.response?.data?.message || "No se pudo guardar el conteo",
+        message:
+          err.response?.data?.message ||
+          issueMsg ||
+          "No se pudo guardar el conteo",
         type: "error",
       });
     } finally {

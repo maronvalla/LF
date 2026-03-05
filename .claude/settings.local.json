@@ -3,7 +3,23 @@
     "allow": [
       "Bash(ls:*)",
       "Bash(npm install:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(curl:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx cap sync:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(cd \"C:/Users/exequ/Desktop/LF/desktop\" && npm run dist:win 2>&1)",
+      "Bash(node:*)",
+      "Bash(cd \"C:\\\\Users\\\\exequ\\\\Desktop\\\\LF\\\\desktop\" && npm run dist:win 2>&1)",
+      "Bash(cd \"C:/Users/exequ/Desktop/LF/desktop/android\" && ./gradlew assembleDebug 2>&1)",
+      "Bash(tail:*)",
+      "Bash(echo Could not parse jsonl:*)",
+      "Bash(python3:*)"
     ]
   }
 }
