@@ -788,19 +788,18 @@ export default function Consolidado({ user, setToast }) {
       const firstLines = buildOrderTicketLines(printableOrders[0]);
       const decision = await askPrintConfirmation({
         lines: firstLines,
-        title: `Reimprimir ordenes (${printableOrders.length})`,
+        title: `Reimprimir ${printableOrders.length} orden${printableOrders.length !== 1 ? "es" : ""}`,
       });
       if (!decision?.shouldPrint) return;
 
-      const combinedLines = printableOrders.flatMap((order, idx) => {
-        const orderLines = buildOrderTicketLines(order);
-        if (idx === printableOrders.length - 1) return orderLines;
-        return [...orderLines, "", "", "----------------", "", ""];
-      });
-
-      await printReceipt({ lines: combinedLines, deviceName: decision?.deviceName });
+      let printed = 0;
+      for (const order of printableOrders) {
+        const lines = buildOrderTicketLines(order);
+        await printReceipt({ lines, deviceName: decision?.deviceName });
+        printed += 1;
+      }
       setToast?.({
-        message: `Ordenes de envio reimpresas: ${printableOrders.length}`,
+        message: `Ordenes de envio reimpresas: ${printed}`,
         type: "success",
       });
     } catch (err) {
