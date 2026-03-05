@@ -68,6 +68,10 @@ const TABS_BY_PERMISSION = [
   { permission: "reports.view", tabs: ["Informes"] },
 ];
 
+const REQUIRED_PERMISSIONS_BY_ROLE = {
+  CAJERO: ["sales.checkout"],
+};
+
 function normalizeRoleKey(value) {
   return String(value || "")
     .trim()
@@ -81,6 +85,13 @@ function normalizePermissions(permissions) {
   return Array.from(new Set((permissions || []).map((item) => String(item || "").trim())))
     .filter((item) => allowed.has(item))
     .sort();
+}
+
+function ensureRequiredPermissions(roleKey, permissions) {
+  const normalizedRole = normalizeRoleKey(roleKey);
+  const required = REQUIRED_PERMISSIONS_BY_ROLE[normalizedRole] || [];
+  if (!required.length) return normalizePermissions(permissions);
+  return normalizePermissions([...(permissions || []), ...required]);
 }
 
 function normalizeRoleDefinitions(input) {
@@ -101,7 +112,7 @@ function normalizeRoleDefinitions(input) {
     next.set(key, {
       key,
       label,
-      permissions: normalizePermissions(role.permissions),
+      permissions: ensureRequiredPermissions(key, role.permissions),
     });
   }
 
@@ -137,7 +148,7 @@ async function getPermissionsForRole(roleKey, client = pool) {
   const normalizedRole = normalizeRoleKey(roleKey);
   const roles = await loadRoleDefinitions(client);
   const role = roles.find((item) => item.key === normalizedRole);
-  const permissions = role ? role.permissions : [];
+  const permissions = ensureRequiredPermissions(normalizedRole, role ? role.permissions : []);
   if (normalizedRole === "CAJERO") {
     return permissions.filter((permission) => permission !== "reports.view");
   }
