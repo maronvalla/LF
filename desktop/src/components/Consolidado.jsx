@@ -762,14 +762,35 @@ export default function Consolidado({ user, setToast }) {
       if (!decision?.shouldPrint) return;
 
       let printed = 0;
+      let failed = 0;
       for (const order of printableOrders) {
-        const lines = buildOrderTicketLines(order);
-        await printReceipt({ lines, deviceName: decision?.deviceName });
-        printed += 1;
+        try {
+          const lines = buildOrderTicketLines(order);
+          await printReceipt({ lines, deviceName: decision?.deviceName });
+          printed += 1;
+          // Give thermal printers a short gap between jobs to avoid dropped tickets.
+          await new Promise((resolve) => setTimeout(resolve, 280));
+        } catch {
+          failed += 1;
+        }
+      }
+      if (printed > 0 && failed === 0) {
+        setToast?.({
+          message: `Ordenes de envio reimpresas: ${printed}`,
+          type: "success",
+        });
+        return;
+      }
+      if (printed > 0 && failed > 0) {
+        setToast?.({
+          message: `Reimpresion parcial. Impresas: ${printed}. Fallidas: ${failed}.`,
+          type: "error",
+        });
+        return;
       }
       setToast?.({
-        message: `Ordenes de envio reimpresas: ${printed}`,
-        type: "success",
+        message: "No se pudo imprimir ninguna orden del lote",
+        type: "error",
       });
     } catch (err) {
       setToast?.({
