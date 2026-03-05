@@ -102,6 +102,19 @@ export default function App() {
   const canManageCashOrders = role === "ADMIN" || role === "CAJERO";
 
   useEffect(() => {
+    const blockReloadShortcuts = (event) => {
+      const key = String(event.key || "").toLowerCase();
+      const isReloadCombo = (event.ctrlKey || event.metaKey) && key === "r";
+      if (!isReloadCombo) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener("keydown", blockReloadShortcuts, { capture: true });
+    return () => window.removeEventListener("keydown", blockReloadShortcuts, { capture: true });
+  }, []);
+
+  useEffect(() => {
     if (!user || role === "REPARTIDOR") return;
     if (activeTab !== "Dashboard" && !allowedTabs.includes(activeTab)) {
       setActiveTab("Dashboard");

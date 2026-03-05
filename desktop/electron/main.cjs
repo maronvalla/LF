@@ -2,17 +2,33 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 
 const isDev = process.env.ELECTRON_DEV === "1";
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.lafamilia.desktop");
+}
 
 function createWindow() {
+  const windowIcon =
+    process.platform === "win32"
+      ? path.join(__dirname, "..", "build-resources", "icon.ico")
+      : path.join(__dirname, "..", "build-resources", "icon.png");
   const win = new BrowserWindow({
     width: 1366,
     height: 860,
     backgroundColor: "#111315",
+    icon: windowIcon,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  win.webContents.on("before-input-event", (event, input) => {
+    const key = String(input?.key || "").toLowerCase();
+    const isReloadCombo = (input?.control || input?.meta) && key === "r";
+    if (isReloadCombo) {
+      event.preventDefault();
+    }
   });
 
   if (isDev) {
