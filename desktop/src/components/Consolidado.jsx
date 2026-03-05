@@ -666,6 +666,119 @@ export default function Consolidado({ user, setToast }) {
     }
   };
 
+  const buildOrderTicketLines = (sale) => {
+    const MAX = getTicketMaxChars(ticketConfig);
+    const size = Number(ticketConfig.fontSize || 15);
+    const separatorLength =
+      size >= 30 ? Math.min(MAX, 12)
+      : size >= 26 ? Math.min(MAX, 14)
+      : size >= 22 ? Math.min(MAX, 18)
+      : size >= 18 ? Math.min(MAX, 24)
+      : MAX;
+    const repeat = (char, len) => new Array(Math.max(0, len) + 1).join(char);
+    const center = (text) => {
+      const t = String(text || "").slice(0, MAX);
+      const left = Math.max(0, Math.floor((MAX - t.length) / 2));
+      return `${repeat(" ", left)}${t}`;
+    };
+    const leftRight = (left, right) => `${String(left || "")}\x1e${String(right || "")}`;
+    const fmt = (v) => `$${Number(v || 0).toFixed(2)}`;
+
+    const d = new Date(String(sale.created_at || sale.scheduled_date || new Date().toISOString()));
+    const dateStr = d.toLocaleDateString("es-AR");
+    const timeStr = d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    const sellerLabel = String(
+      sale.created_by_name || sale.created_by_username || "N/A",
+    ).toUpperCase();
+    const paymentLabel = String(
+      sale.delivery_final_payment_method ||
+        sale.payment_method ||
+        sale.delivery_payment_method ||
+        "EFECTIVO",
+    ).toUpperCase();
+    const docLabel = String(sale.invoice_type || "Factura B");
+    const items = Array.isArray(sale.items) ? sale.items : [];
+
+    const lines = [];
+    if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
+    if (ticketConfig.addressLine) lines.push(center(ticketConfig.addressLine));
+    if (ticketConfig.cityLine) lines.push(center(ticketConfig.cityLine));
+    lines.push(repeat("-", separatorLength));
+    if (ticketConfig.includeComprobante) lines.push(leftRight("Comprobante", docLabel));
+    if (ticketConfig.includeTicketNumber) lines.push(leftRight("Ticket", String(sale.sale_number || "")));
+    if (ticketConfig.includeDate) lines.push(leftRight("Fecha", dateStr));
+    if (ticketConfig.includeTime) lines.push(leftRight("Hora", timeStr));
+    if (ticketConfig.includeSeller) lines.push(leftRight("Vendedor", sellerLabel.slice(0, 16)));
+    lines.push(repeat("-", separatorLength));
+    if (ticketConfig.includeClient) {
+      lines.push(`Cliente: ${String(sale.customer_name || "CONSUMIDOR FINAL").slice(0, MAX - 9)}`);
+      lines.push(repeat("-", separatorLength));
+    }
+
+    const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
+    items.forEach((item, idx) => {
+      const qty = Number(item.qty || 0);
+      const unitPrice = Number(item.unit_price || item.unitPrice || 0);
+      lines.push(String(item.product_name || item.productName || "").toUpperCase());
+      lines.push(leftRight(`${qty} x ${fmt(unitPrice)}`, fmt(qty * unitPrice)));
+      if (ticketConfig.includeItemSeparators && idx < items.length - 1) {
+        lines.push(repeat(".", Math.min(MAX, 20)));
+      }
+    });
+
+    lines.push(repeat("-", separatorLength));
+    lines.push(`Total: ${fmt(Number(sale.total_amount || sale.sale_total || 0))}`);
+    lines.push(`Cantidad total: ${totalQty}`);
+    if (ticketConfig.includePaymentDetail) lines.push(leftRight("Pago", paymentLabel));
+
+    const customLines = Array.isArray(ticketConfig.customLines) ? ticketConfig.customLines : [];
+    if (customLines.length) {
+      lines.push(repeat("-", separatorLength));
+      customLines.forEach((line) => {
+        const rendered = String(line || "").slice(0, MAX);
+        if (rendered) lines.push(rendered);
+      });
+    }
+
+    lines.push(repeat("-", separatorLength));
+    if (ticketConfig.footerText) lines.push(center(ticketConfig.footerText));
+    lines.push("");
+    lines.push("");
+    return lines;
+  };
+
+  const printAllDeliveryOrders = async () => {
+    const printableOrders = pedidosEnvio.filter(
+      (o) => String(o.delivery_status || "").toUpperCase() !== "ANULADO",
+    );
+    if (!printableOrders.length) {
+      setToast?.({ message: "No hay ordenes de envio para reimprimir", type: "error" });
+      return;
+    }
+
+    try {
+      const firstLines = buildOrderTicketLines(printableOrders[0]);
+      const decision = await askPrintConfirmation(firstLines);
+      if (!decision?.shouldPrint) return;
+
+      let printed = 0;
+      for (const order of printableOrders) {
+        const lines = buildOrderTicketLines(order);
+        await printReceipt({ lines, deviceName: decision?.deviceName });
+        printed += 1;
+      }
+      setToast?.({
+        message: `Ordenes de envio reimpresas: ${printed}`,
+        type: "success",
+      });
+    } catch (err) {
+      setToast?.({
+        message: err?.response?.data?.message || "No se pudieron reimprimir las ordenes",
+        type: "error",
+      });
+    }
+  };
+
   const printPurchaseSuggestionPdf = () => {
     if (!purchaseSuggestionItems.length) {
       setToast?.({ message: "No hay sugerencias de pedido para imprimir", type: "error" });
@@ -764,6 +877,13 @@ export default function Consolidado({ user, setToast }) {
             onClick={printConsolidated}
           >
             Imprimir
+          </button>
+          <button
+            type="button"
+            className={`btn ${isDark ? 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700' : 'btn-muted'}`}
+            onClick={printAllDeliveryOrders}
+          >
+            Reimprimir ordenes
           </button>
           {canControl ? (
             <button
