@@ -766,88 +766,16 @@ export default function Consolidado({ user, setToast }) {
       const decision = await askPrintConfirmation(firstLines);
       if (!decision?.shouldPrint) return;
 
-      const canUseElectronPrinter =
-        typeof window !== "undefined" &&
-        window.desktopEnv &&
-        typeof window.desktopEnv.printTicket === "function";
+      const combinedLines = printableOrders.flatMap((order, idx) => {
+        const orderLines = buildOrderTicketLines(order);
+        if (idx === printableOrders.length - 1) return orderLines;
+        return [...orderLines, "", "", "----------------", "", ""];
+      });
 
-      if (!canUseElectronPrinter) {
-        const printable = window.open("", "_blank", "width=480,height=920");
-        if (!printable) throw new Error("No se pudo abrir ventana de impresion");
-        const paperWidth = getTicketPaperWidthMm(ticketConfig);
-        const contentWidth = getTicketContentWidthMm(ticketConfig);
-        const fontSize = Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15));
-        const marginLeft = Number(ticketConfig.marginLeftMm ?? 3) || 3;
-        const ticketsHtml = printableOrders
-          .map((order, idx) => {
-            const lines = buildOrderTicketLines(order);
-            return `
-              <div class="ticket-wrap ${idx < printableOrders.length - 1 ? "ticket-break" : ""}">
-                <div class="ticket">
-                  ${ticketConfig.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticketConfig.logoDataUrl}" alt="Logo" /></div>` : ""}
-                  ${renderTicketLinesHtml(lines)}
-                </div>
-              </div>
-            `;
-          })
-          .join("");
-        printable.document.write(`
-          <html><head><title>Reimpresion de ordenes</title><style>
-            @page { size: ${paperWidth}mm auto; margin: 0; }
-            html, body { margin: 0; padding: 0; background: #fff; color: #000; }
-            body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${fontSize}px; line-height: 1.18; font-weight: 600; }
-            .ticket-wrap { width: ${paperWidth}mm; padding: 1.6mm ${marginLeft}mm 2mm ${marginLeft}mm; box-sizing: border-box; }
-            .ticket { width: ${contentWidth}mm; max-width: ${contentWidth}mm; box-sizing: border-box; overflow: hidden; }
-            .ticket-break { page-break-after: always; }
-            .logo-wrap { text-align: center; margin-bottom: 1.8mm; }
-            .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
-            .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0 0 0.55mm; }
-            .line.lr { display:flex; justify-content:space-between; gap:1mm; white-space:nowrap; overflow:hidden; }
-            .line.center { text-align: center; }
-            .line.title { font-weight: 900; font-size: 1.15em; text-align: center; margin-bottom: 0.5mm; }
-          </style></head><body>${ticketsHtml}</body></html>
-        `);
-        printable.document.close();
-        printable.focus();
-        printable.print();
-        printable.close();
-        setToast?.({
-          message: `Ordenes de envio reimpresas: ${printableOrders.length}`,
-          type: "success",
-        });
-        return;
-      }
-
-      let printed = 0;
-      let failed = 0;
-      for (const order of printableOrders) {
-        try {
-          const lines = buildOrderTicketLines(order);
-          await printReceipt({ lines, deviceName: decision?.deviceName });
-          printed += 1;
-          // Give thermal printers a short gap between jobs to avoid dropped tickets.
-          await new Promise((resolve) => setTimeout(resolve, 280));
-        } catch {
-          failed += 1;
-        }
-      }
-      if (printed > 0 && failed === 0) {
-        setToast?.({
-          message: `Ordenes de envio reimpresas: ${printed}`,
-          type: "success",
-        });
-        return;
-      }
-      if (printed > 0 && failed > 0) {
-        setToast?.({
-          message: `Reimpresion parcial. Impresas: ${printed}. Fallidas: ${failed}.`,
-          type: "error",
-        });
-        return;
-      }
+      await printReceipt({ lines: combinedLines, deviceName: decision?.deviceName });
       setToast?.({
-        message: "No se pudo imprimir ninguna orden del lote",
-        type: "error",
+        message: `Ordenes de envio reimpresas: ${printableOrders.length}`,
+        type: "success",
       });
     } catch (err) {
       setToast?.({
