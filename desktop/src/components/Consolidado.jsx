@@ -710,22 +710,6 @@ export default function Consolidado({ user, setToast }) {
     ).toUpperCase();
     const docLabel = String(sale.invoice_type || "Factura B");
     const items = Array.isArray(sale.items) ? sale.items : [];
-    const computedItemsTotal = items.reduce((sum, item) => {
-      const explicitLineTotal = Number(item.line_total ?? item.lineTotal);
-      if (Number.isFinite(explicitLineTotal) && explicitLineTotal > 0) {
-        return sum + explicitLineTotal;
-      }
-      const qty = Number(item.qty || 0);
-      const unitPrice = Number(item.unit_price || item.unitPrice || 0);
-      return sum + qty * unitPrice;
-    }, 0);
-    const fallbackSaleTotal = Number(sale.sale_total ?? sale.total_amount ?? 0);
-    const resolvedTotal =
-      Number.isFinite(computedItemsTotal) && computedItemsTotal > 0
-        ? computedItemsTotal
-        : Number.isFinite(fallbackSaleTotal)
-          ? fallbackSaleTotal
-          : 0;
 
     const lines = [];
     if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
@@ -743,19 +727,26 @@ export default function Consolidado({ user, setToast }) {
       lines.push(repeat("-", separatorLength));
     }
 
-    const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
+    let totalQty = 0;
+    let totalAmount = 0;
     items.forEach((item, idx) => {
       const qty = Number(item.qty || 0);
       const unitPrice = Number(item.unit_price || item.unitPrice || 0);
+      const lineTotal = qty * unitPrice;
+      totalQty += qty;
+      totalAmount += lineTotal;
       lines.push(String(item.product_name || item.productName || "").toUpperCase());
-      lines.push(leftRight(`${qty} x ${fmt(unitPrice)}`, fmt(qty * unitPrice)));
+      lines.push(leftRight(`${qty} x ${fmt(unitPrice)}`, fmt(lineTotal)));
       if (ticketConfig.includeItemSeparators && idx < items.length - 1) {
         lines.push(repeat(".", Math.min(MAX, 20)));
       }
     });
+    if (totalAmount === 0) {
+      totalAmount = Number(sale.total_amount || sale.sale_total || 0);
+    }
 
     lines.push(repeat("-", separatorLength));
-    lines.push(`Total: ${fmt(resolvedTotal)}`);
+    lines.push(`Total: ${fmt(totalAmount)}`);
     lines.push(`Cantidad total: ${totalQty}`);
     if (ticketConfig.includePaymentDetail) lines.push(leftRight("Pago", paymentLabel));
 
