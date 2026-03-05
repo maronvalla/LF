@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../api";
-import ConfirmModal from "./ventas/ConfirmModal";
 import useStockControlStatus from "../hooks/useStockControlStatus";
 import { productMatchesSearch } from "../utils/productSearch";
 
@@ -43,23 +42,6 @@ export default function Inventario({ user, setToast }) {
   const [savingControlLocation, setSavingControlLocation] = useState(false);
   const [finalizingControl, setFinalizingControl] = useState(false);
   const [report, setReport] = useState(null);
-  const [confirmState, setConfirmState] = useState(null);
-  const confirmResolverRef = useRef(null);
-
-  const showConfirm = (message) =>
-    new Promise((resolve) => {
-      confirmResolverRef.current = resolve;
-      setConfirmState({ message });
-    });
-
-  const resolveConfirm = (value) => {
-    const resolver = confirmResolverRef.current;
-    confirmResolverRef.current = null;
-    setConfirmState(null);
-    if (typeof resolver === "function") resolver(Boolean(value));
-  };
-
-
   const {
     stockControlState,
     canManageStockControl,
@@ -240,14 +222,17 @@ export default function Inventario({ user, setToast }) {
     }));
   };
 
-  const saveCurrentLocation = async () => {
-    if (!activeLocationCode) return;
-    const nextLocation = pendingLocations.find((locationCode) => locationCode !== activeLocationCode);
-    let stopAfterThis = false;
-    if (nextLocation) {
-      const continuar = await showConfirm(`Se guardará ${activeLocationCode}.\n¿Continuar luego con ${nextLocation}?`);
-      stopAfterThis = !continuar;
+  const saveCurrentLocation = async (forcedStopAfterThis = null) => {
+    if (!activeLocationCode) {
+      setToast?.({
+        message: "No hay una ubicacion activa para guardar",
+        type: "error",
+      });
+      return;
     }
+    const nextLocation = pendingLocations.find((locationCode) => locationCode !== activeLocationCode);
+    const stopAfterThis =
+      typeof forcedStopAfterThis === "boolean" ? forcedStopAfterThis : false;
     setSavingControlLocation(true);
     try {
       const countsPayload = currentLocationRows
@@ -931,31 +916,33 @@ export default function Inventario({ user, setToast }) {
               <div className="text-sm text-zinc-500 font-medium">
                 Revisa cuidadosamente las diferencias antes de continuar a la siguiente ubicación.
               </div>
-              <button
-                className="w-full sm:w-auto rounded-xl bg-[#e85d04] hover:bg-[#d14f00] transition-all px-8 py-3.5 text-base font-black text-white shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-wide"
-                onClick={saveCurrentLocation}
-                disabled={savingControlLocation}
-              >
-                {savingControlLocation ? (
-                  <>Guardando...</>
-                ) : (
-                  <>
-                    Continuar
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                  </>
-                )}
-              </button>
+              <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                <button
+                  className="w-full sm:w-auto rounded-xl border border-zinc-300 bg-white hover:bg-zinc-100 transition-all px-6 py-3.5 text-sm font-black text-zinc-700 shadow-sm disabled:opacity-50 uppercase tracking-wide"
+                  onClick={() => saveCurrentLocation(true)}
+                  disabled={savingControlLocation}
+                >
+                  Guardar y salir
+                </button>
+                <button
+                  className="w-full sm:w-auto rounded-xl bg-[#e85d04] hover:bg-[#d14f00] transition-all px-8 py-3.5 text-base font-black text-white shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-wide"
+                  onClick={() => saveCurrentLocation(false)}
+                  disabled={savingControlLocation}
+                >
+                  {savingControlLocation ? (
+                    <>Guardando...</>
+                  ) : (
+                    <>
+                      Continuar
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
         </div>
       )}
-      {confirmState ? (
-        <ConfirmModal
-          message={confirmState.message}
-          onCancel={() => resolveConfirm(false)}
-          onConfirm={() => resolveConfirm(true)}
-        />
-      ) : null}
     </div>
   );
 }
