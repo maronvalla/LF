@@ -703,6 +703,22 @@ export default function Consolidado({ user, setToast }) {
     ).toUpperCase();
     const docLabel = String(sale.invoice_type || "Factura B");
     const items = Array.isArray(sale.items) ? sale.items : [];
+    const computedItemsTotal = items.reduce((sum, item) => {
+      const explicitLineTotal = Number(item.line_total ?? item.lineTotal);
+      if (Number.isFinite(explicitLineTotal) && explicitLineTotal > 0) {
+        return sum + explicitLineTotal;
+      }
+      const qty = Number(item.qty || 0);
+      const unitPrice = Number(item.unit_price || item.unitPrice || 0);
+      return sum + qty * unitPrice;
+    }, 0);
+    const fallbackSaleTotal = Number(sale.sale_total ?? sale.total_amount ?? 0);
+    const resolvedTotal =
+      Number.isFinite(computedItemsTotal) && computedItemsTotal > 0
+        ? computedItemsTotal
+        : Number.isFinite(fallbackSaleTotal)
+          ? fallbackSaleTotal
+          : 0;
 
     const lines = [];
     if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
@@ -732,7 +748,7 @@ export default function Consolidado({ user, setToast }) {
     });
 
     lines.push(repeat("-", separatorLength));
-    lines.push(`Total: ${fmt(Number(sale.total_amount || sale.sale_total || 0))}`);
+    lines.push(`Total: ${fmt(resolvedTotal)}`);
     lines.push(`Cantidad total: ${totalQty}`);
     if (ticketConfig.includePaymentDetail) lines.push(leftRight("Pago", paymentLabel));
 
