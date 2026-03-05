@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const { pool } = require("../db");
-const { requirePermission, isAdmin } = require("../middleware/rbac");
+const { requirePermission, requireAnyPermission, isAdmin } = require("../middleware/rbac");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
 const { getIO, getConnectedDriverUserIds } = require("../realtime");
@@ -307,7 +307,7 @@ function buildDriverSummary(orders) {
 
 router.get(
   "/",
-  requirePermission("deliveries.manage"),
+  requireAnyPermission("deliveries.manage", "sales.checkout"),
   asyncHandler(async (req, res) => {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     const slot = req.query.slot;
@@ -350,7 +350,7 @@ router.get(
 
 router.get(
   "/consolidated",
-  requirePermission("deliveries.manage"),
+  requireAnyPermission("deliveries.manage", "sales.checkout"),
   asyncHandler(async (req, res) => {
     const parsed = deliveryQuerySchema.safeParse({
       date: req.query.date,
@@ -427,7 +427,7 @@ router.get(
 
 router.get(
   "/purchase-suggestion",
-  requirePermission("deliveries.manage"),
+  requireAnyPermission("deliveries.manage", "sales.checkout"),
   asyncHandler(async (req, res) => {
     const parsed = deliveryQuerySchema.safeParse({
       date: req.query.date,
@@ -518,7 +518,7 @@ router.get(
 
 router.get(
   "/consolidated-control",
-  requirePermission("sales.manage"),
+  requireAnyPermission("sales.manage", "sales.checkout"),
   asyncHandler(async (req, res) => {
     const blocked = requireConsolidatedControlRole(req, res);
     if (blocked) return;
@@ -562,7 +562,7 @@ router.get(
 
 router.post(
   "/consolidated-control",
-  requirePermission("sales.manage"),
+  requireAnyPermission("sales.manage", "sales.checkout"),
   asyncHandler(async (req, res) => {
     const blocked = requireConsolidatedControlRole(req, res);
     if (blocked) return;
@@ -694,7 +694,7 @@ router.post(
 
 router.post(
   "/consolidated-control/cancel",
-  requirePermission("sales.manage"),
+  requireAnyPermission("sales.manage", "sales.checkout"),
   asyncHandler(async (req, res) => {
     const blocked = requireConsolidatedControlRole(req, res);
     if (blocked) return;
