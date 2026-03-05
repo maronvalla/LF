@@ -785,9 +785,14 @@ export default function Consolidado({ user, setToast }) {
     }
 
     try {
-      const firstLines = buildOrderTicketLines(printableOrders[0]);
+      const previewLines = printableOrders.flatMap((order, idx) => {
+        const orderLines = buildOrderTicketLines(order);
+        return idx < printableOrders.length - 1
+          ? [...orderLines, "", "- - - - - - - - - - - - - -", ""]
+          : orderLines;
+      });
       const decision = await askPrintConfirmation({
-        lines: firstLines,
+        lines: previewLines,
         title: `Reimprimir ${printableOrders.length} orden${printableOrders.length !== 1 ? "es" : ""}`,
       });
       if (!decision?.shouldPrint) return;
