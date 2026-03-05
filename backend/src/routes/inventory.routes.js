@@ -132,7 +132,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const [state, canManage] = await Promise.all([
       loadStockControlState(),
-      userCanManageStockControl(req.user),
+      userCanManageStockControl(req.user, undefined, req.userPermissions),
     ]);
     res.json({ ok: true, state, canManage });
   })
@@ -145,7 +145,7 @@ router.post(
     const parsed = startStockControlSchema.safeParse(req.body || {});
     if (!parsed.success) return validationError(res, parsed);
 
-    const canManage = await userCanManageStockControl(req.user);
+    const canManage = await userCanManageStockControl(req.user, undefined, req.userPermissions);
     if (!canManage) {
       return res.status(403).json({ ok: false, message: "Sin permisos para iniciar control de stock" });
     }
@@ -183,7 +183,7 @@ router.put(
     const parsed = saveLocationCountsSchema.safeParse(req.body || {});
     if (!parsed.success) return validationError(res, parsed);
 
-    const canManage = await userCanManageStockControl(req.user);
+    const canManage = await userCanManageStockControl(req.user, undefined, req.userPermissions);
     if (!canManage) {
       return res.status(403).json({ ok: false, message: "Sin permisos para editar el control de stock" });
     }
@@ -225,7 +225,7 @@ router.post(
   "/stock-control/finalize",
   requirePermission("inventory.view"),
   asyncHandler(async (req, res) => {
-    const canManage = await userCanManageStockControl(req.user);
+    const canManage = await userCanManageStockControl(req.user, undefined, req.userPermissions);
     if (!canManage) {
       return res.status(403).json({ ok: false, message: "Sin permisos para finalizar el control de stock" });
     }

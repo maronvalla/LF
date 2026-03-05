@@ -133,7 +133,8 @@ async function saveStockControlState(state, client = pool) {
   return payload;
 }
 
-async function userCanManageStockControl(user, client = pool) {
+async function userCanManageStockControl(user, client = pool, userPermissions = null) {
+  if (Array.isArray(userPermissions) && userPermissions.includes("inventory.transfer")) return true;
   const permissions = await loadStockControlPermissions(client);
   return permissions.userIds.includes(String(user?.id || ""));
 }
