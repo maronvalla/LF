@@ -509,6 +509,25 @@ export default function Consolidado({ user, setToast }) {
     };
   }, []);
 
+  const renderTicketLinesHtml = (lines = []) =>
+    (Array.isArray(lines) ? lines : [])
+      .map((line) => {
+        const raw = String(line || "");
+        const sepIdx = raw.indexOf("\x1e");
+        if (sepIdx >= 0) {
+          const left = raw.slice(0, sepIdx).replace(/</g, "&lt;");
+          const right = raw.slice(sepIdx + 1).replace(/</g, "&lt;");
+          return `<div class="line lr"><span>${left}</span><span>${right}</span></div>`;
+        }
+        const isCenter = raw.match(/^\s+/) !== null;
+        const text = raw.replace(/</g, "&lt;").trim() || "&nbsp;";
+        let cls = "line";
+        if (text === "DISTRIBUIDORA LA FAMILIA" || text === "BOLETA DE CONSOLIDADO") cls += " title";
+        else if (isCenter) cls += " center";
+        return `<div class="${cls}">${text}</div>`;
+      })
+      .join("");
+
   const printReceipt = async ({ lines, deviceName }) => {
     const ticket = {
       lines: Array.isArray(lines) ? lines : [],
@@ -551,21 +570,7 @@ export default function Consolidado({ user, setToast }) {
       </style></head><body>
       <div class="ticket">
       ${ticket.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticket.logoDataUrl}" alt="Logo" /></div>` : ""}
-      ${ticket.lines.map((line) => {
-      const raw = String(line || "");
-      const sepIdx = raw.indexOf("\x1e");
-      if (sepIdx >= 0) {
-        const left = raw.slice(0, sepIdx).replace(/</g, "&lt;");
-        const right = raw.slice(sepIdx + 1).replace(/</g, "&lt;");
-        return `<div class="line lr"><span>${left}</span><span>${right}</span></div>`;
-      }
-      const isCenter = raw.match(/^\s+/) !== null;
-      const text = raw.replace(/</g, "&lt;").trim() || "&nbsp;";
-      let cls = "line";
-      if (text === "DISTRIBUIDORA LA FAMILIA" || text === "BOLETA DE CONSOLIDADO") cls += " title";
-      else if (isCenter) cls += " center";
-      return `<div class="${cls}">${text}</div>`;
-    }).join("")}
+      ${renderTicketLinesHtml(ticket.lines)}
       </div>
       </body></html>
     `);
@@ -760,6 +765,58 @@ export default function Consolidado({ user, setToast }) {
       const firstLines = buildOrderTicketLines(printableOrders[0]);
       const decision = await askPrintConfirmation(firstLines);
       if (!decision?.shouldPrint) return;
+
+      const canUseElectronPrinter =
+        typeof window !== "undefined" &&
+        window.desktopEnv &&
+        typeof window.desktopEnv.printTicket === "function";
+
+      if (!canUseElectronPrinter) {
+        const printable = window.open("", "_blank", "width=480,height=920");
+        if (!printable) throw new Error("No se pudo abrir ventana de impresion");
+        const paperWidth = getTicketPaperWidthMm(ticketConfig);
+        const contentWidth = getTicketContentWidthMm(ticketConfig);
+        const fontSize = Math.min(32, Math.max(9, Number(ticketConfig.fontSize || 15) || 15));
+        const marginLeft = Number(ticketConfig.marginLeftMm ?? 3) || 3;
+        const ticketsHtml = printableOrders
+          .map((order, idx) => {
+            const lines = buildOrderTicketLines(order);
+            return `
+              <div class="ticket-wrap ${idx < printableOrders.length - 1 ? "ticket-break" : ""}">
+                <div class="ticket">
+                  ${ticketConfig.logoDataUrl ? `<div class="logo-wrap"><img class="logo" src="${ticketConfig.logoDataUrl}" alt="Logo" /></div>` : ""}
+                  ${renderTicketLinesHtml(lines)}
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+        printable.document.write(`
+          <html><head><title>Reimpresion de ordenes</title><style>
+            @page { size: ${paperWidth}mm auto; margin: 0; }
+            html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; font-size: ${fontSize}px; line-height: 1.18; font-weight: 600; }
+            .ticket-wrap { width: ${paperWidth}mm; padding: 1.6mm ${marginLeft}mm 2mm ${marginLeft}mm; box-sizing: border-box; }
+            .ticket { width: ${contentWidth}mm; max-width: ${contentWidth}mm; box-sizing: border-box; overflow: hidden; }
+            .ticket-break { page-break-after: always; }
+            .logo-wrap { text-align: center; margin-bottom: 1.8mm; }
+            .logo { max-width: 24mm; max-height: 12mm; width: auto; height: auto; filter: grayscale(1) contrast(1.35); }
+            .line { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0 0 0.55mm; }
+            .line.lr { display:flex; justify-content:space-between; gap:1mm; white-space:nowrap; overflow:hidden; }
+            .line.center { text-align: center; }
+            .line.title { font-weight: 900; font-size: 1.15em; text-align: center; margin-bottom: 0.5mm; }
+          </style></head><body>${ticketsHtml}</body></html>
+        `);
+        printable.document.close();
+        printable.focus();
+        printable.print();
+        printable.close();
+        setToast?.({
+          message: `Ordenes de envio reimpresas: ${printableOrders.length}`,
+          type: "success",
+        });
+        return;
+      }
 
       let printed = 0;
       let failed = 0;
