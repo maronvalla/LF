@@ -1,39 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import io from 'socket.io-client';
-import api, { socketOrigin } from '../api';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import io from "socket.io-client";
+import api, { socketOrigin } from "../api";
 
 const SOCKET_URL = socketOrigin;
 const AGUILARES_COORDS = [-27.4333, -65.6167];
 const POLL_INTERVAL_MS = 20000;
 const SOCKET_STALE_MS = 25000;
+const MAX_DISTANCE_FROM_AGUILARES_KM = 120;
 
 const truckIcon = L.divIcon({
   html: '<div style="font-size: 24px;">🚚</div>',
-  className: 'truck-marker',
+  className: "truck-marker",
   iconSize: [30, 30],
   iconAnchor: [15, 15],
 });
 
 const startIcon = L.divIcon({
   html: '<div style="background:#10b981;color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)">S</div>',
-  className: '',
+  className: "",
   iconSize: [26, 26],
   iconAnchor: [13, 13],
 });
 
 const endIcon = L.divIcon({
   html: '<div style="background:#ef4444;color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)">F</div>',
-  className: '',
+  className: "",
   iconSize: [26, 26],
   iconAnchor: [13, 13],
 });
 
-const createInitialIcon = (initial = 'C', color = '#f97316') =>
+const createInitialIcon = (initial = "C", color = "#f97316") =>
   L.divIcon({
-    className: 'custom-div-icon',
+    className: "custom-div-icon",
     html: `<div style="
       background-color: ${color};
       color: white;
@@ -48,7 +49,7 @@ const createInitialIcon = (initial = 'C', color = '#f97316') =>
       border: 2px solid white;
       box-shadow: 0 2px 6px rgba(0,0,0,0.28);
       text-transform: uppercase;
-    ">${String(initial || 'C').slice(0, 1)}</div>`,
+    ">${String(initial || "C").slice(0, 1)}</div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   });
@@ -66,32 +67,56 @@ function FitBounds({ positions }) {
 function MapRecenter({ lat, lng }) {
   const map = useMap();
   useEffect(() => {
-    if (lat && lng) map.flyTo([lat, lng], 15);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      map.flyTo([lat, lng], 15);
+    }
   }, [lat, lng, map]);
   return null;
 }
 
-export default function AdminTrackingMap({ user }) {
-  const [mode, setMode] = useState('live'); // 'live' | 'history'
+function EnsureAguilaresCenter({ enabled }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!enabled) return;
+    map.setView(AGUILARES_COORDS, 13);
+  }, [enabled, map]);
+  return null;
+}
 
-  // Live state
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function isPointNearAguilares(lat, lng) {
+  return haversineKm(AGUILARES_COORDS[0], AGUILARES_COORDS[1], lat, lng) <= MAX_DISTANCE_FROM_AGUILARES_KM;
+}
+
+export default function AdminTrackingMap({ user }) {
+  const [mode, setMode] = useState("live");
+
   const [truckLocation, setTruckLocation] = useState(null);
   const [connected, setConnected] = useState(false);
   const [usingPoll, setUsingPoll] = useState(false);
   const socketRef = useRef(null);
   const lastSocketUpdateRef = useRef(0);
 
-  // History state
   const [histDate, setHistDate] = useState(new Date().toISOString().slice(0, 10));
-  const [histSlot, setHistSlot] = useState('11');
+  const [histSlot, setHistSlot] = useState("11");
   const [drivers, setDrivers] = useState([]);
-  const [histDriverId, setHistDriverId] = useState('all');
+  const [histDriverId, setHistDriverId] = useState("all");
   const [histPoints, setHistPoints] = useState([]);
   const [histLoading, setHistLoading] = useState(false);
   const [allCustomersWithCoords, setAllCustomersWithCoords] = useState([]);
   const [todayDeliveryCustomerIds, setTodayDeliveryCustomerIds] = useState(new Set());
 
-  if (!user || (user.role !== 'ADMIN' && user.username !== 'admin')) {
+  if (!user || (user.role !== "ADMIN" && user.username !== "admin")) {
     return (
       <div className="h-64 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center text-zinc-500 font-mono text-sm">
         🔒 ACCESO DENEGADO: Solo administradores pueden ver el rastreo en vivo.
@@ -99,24 +124,25 @@ export default function AdminTrackingMap({ user }) {
     );
   }
 
-  // Live: socket connection
   useEffect(() => {
-    if (mode !== 'live') return;
+    if (mode !== "live") return;
 
     socketRef.current = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
+      transports: ["websocket", "polling"],
       reconnectionDelay: 2000,
       reconnectionAttempts: Infinity,
     });
 
-    socketRef.current.on('connect', () => setConnected(true));
-    socketRef.current.on('disconnect', () => setConnected(false));
-    socketRef.current.on('update_mapa', (data) => {
-      if (data?.lat && data?.lng) {
-        lastSocketUpdateRef.current = Date.now();
-        setUsingPoll(false);
-        setTruckLocation({ lat: data.lat, lng: data.lng });
-      }
+    socketRef.current.on("connect", () => setConnected(true));
+    socketRef.current.on("disconnect", () => setConnected(false));
+    socketRef.current.on("update_mapa", (data) => {
+      const lat = Number(data?.lat);
+      const lng = Number(data?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      if (!isPointNearAguilares(lat, lng)) return;
+      lastSocketUpdateRef.current = Date.now();
+      setUsingPoll(false);
+      setTruckLocation({ lat, lng });
     });
 
     return () => {
@@ -125,22 +151,22 @@ export default function AdminTrackingMap({ user }) {
     };
   }, [mode]);
 
-  // Live/History map context: customers with coordinates
   useEffect(() => {
     let cancelled = false;
     const loadCustomers = async () => {
       try {
-        const { data } = await api.get('/customers');
+        const { data } = await api.get("/customers");
         if (cancelled) return;
         const rows = (Array.isArray(data) ? data : [])
           .map((customer) => {
             const lat = Number(customer.latitude);
             const lng = Number(customer.longitude);
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            if (!isPointNearAguilares(lat, lng)) return null;
             return {
-              id: String(customer.id || ''),
-              name: String(customer.name || '').trim(),
-              address: String(customer.address || '').trim(),
+              id: String(customer.id || ""),
+              name: String(customer.name || "").trim(),
+              address: String(customer.address || "").trim(),
               lat,
               lng,
             };
@@ -148,8 +174,7 @@ export default function AdminTrackingMap({ user }) {
           .filter(Boolean);
         setAllCustomersWithCoords(rows);
       } catch {
-        if (cancelled) return;
-        setAllCustomersWithCoords([]);
+        if (!cancelled) setAllCustomersWithCoords([]);
       }
     };
     loadCustomers();
@@ -158,7 +183,6 @@ export default function AdminTrackingMap({ user }) {
     };
   }, []);
 
-  // Customers that currently have delivery orders for today (both slots)
   useEffect(() => {
     let cancelled = false;
     const today = new Date().toISOString().slice(0, 10);
@@ -169,16 +193,18 @@ export default function AdminTrackingMap({ user }) {
           api.get(`/deliveries?date=${today}&slot=19`),
         ]);
         if (cancelled) return;
-        const rows = [...(Array.isArray(morning.data) ? morning.data : []), ...(Array.isArray(evening.data) ? evening.data : [])];
+        const rows = [
+          ...(Array.isArray(morning.data) ? morning.data : []),
+          ...(Array.isArray(evening.data) ? evening.data : []),
+        ];
         const nextIds = new Set(
           rows
-            .map((row) => String(row.customer_id || '').trim())
+            .map((row) => String(row.customer_id || "").trim())
             .filter(Boolean)
         );
         setTodayDeliveryCustomerIds(nextIds);
       } catch {
-        if (cancelled) return;
-        setTodayDeliveryCustomerIds(new Set());
+        if (!cancelled) setTodayDeliveryCustomerIds(new Set());
       }
     };
     loadDeliveryCustomers();
@@ -189,19 +215,24 @@ export default function AdminTrackingMap({ user }) {
     };
   }, []);
 
-  // Live: DB polling fallback
   useEffect(() => {
-    if (mode !== 'live') return;
+    if (mode !== "live") return;
 
     const poll = async () => {
       if (Date.now() - lastSocketUpdateRef.current < SOCKET_STALE_MS) return;
       try {
-        const { data } = await api.get('/deliveries/driver-last-location');
-        if (data?.found && (Date.now() - new Date(data.ts).getTime()) < 120000) {
-          setUsingPoll(true);
-          setTruckLocation({ lat: data.lat, lng: data.lng });
-        }
-      } catch { /* non-fatal */ }
+        const { data } = await api.get("/deliveries/driver-last-location");
+        if (!data?.found) return;
+        if ((Date.now() - new Date(data.ts).getTime()) >= 120000) return;
+        const lat = Number(data?.lat);
+        const lng = Number(data?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        if (!isPointNearAguilares(lat, lng)) return;
+        setUsingPoll(true);
+        setTruckLocation({ lat, lng });
+      } catch {
+        // non-fatal
+      }
     };
 
     const timer = setInterval(poll, POLL_INTERVAL_MS);
@@ -209,34 +240,44 @@ export default function AdminTrackingMap({ user }) {
     return () => clearInterval(timer);
   }, [mode]);
 
-  // History: load driver list
   useEffect(() => {
-    if (mode !== 'history') return;
-    api.get('/deliveries/drivers-status').then(({ data }) => {
-      setDrivers(Array.isArray(data) ? data : []);
-    }).catch(() => {});
+    if (mode !== "history") return;
+    api
+      .get("/deliveries/drivers-status")
+      .then(({ data }) => setDrivers(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, [mode]);
 
-  // History: fetch track when params change
   useEffect(() => {
-    if (mode !== 'history') return;
+    if (mode !== "history") return;
     setHistPoints([]);
     setHistLoading(true);
     const params = new URLSearchParams({ date: histDate, slot: histSlot });
-    if (histDriverId !== 'all') params.set('userId', histDriverId);
+    if (histDriverId !== "all") params.set("userId", histDriverId);
 
-    api.get(`/deliveries/route-history?${params}`)
+    api
+      .get(`/deliveries/route-history?${params}`)
       .then(({ data }) => setHistPoints(Array.isArray(data) ? data : []))
       .catch(() => setHistPoints([]))
       .finally(() => setHistLoading(false));
   }, [mode, histDate, histSlot, histDriverId]);
 
-  const histPositions = histPoints.map((p) => [p.lat, p.lng]);
+  const safeHistPoints = useMemo(
+    () =>
+      histPoints.filter((p) => {
+        const lat = Number(p?.lat);
+        const lng = Number(p?.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng) && isPointNearAguilares(lat, lng);
+      }),
+    [histPoints]
+  );
+  const histPositions = safeHistPoints.map((p) => [Number(p.lat), Number(p.lng)]);
+
   const customersWithDelivery = allCustomersWithCoords.filter((customer) =>
-    todayDeliveryCustomerIds.has(String(customer.id || ''))
+    todayDeliveryCustomerIds.has(String(customer.id || ""))
   );
   const customersWithoutDelivery = allCustomersWithCoords.filter(
-    (customer) => !todayDeliveryCustomerIds.has(String(customer.id || ''))
+    (customer) => !todayDeliveryCustomerIds.has(String(customer.id || ""))
   );
   const customerPositions = allCustomersWithCoords.map((customer) => [customer.lat, customer.lng]);
   const liveFitPositions = [
@@ -246,32 +287,27 @@ export default function AdminTrackingMap({ user }) {
 
   return (
     <div className="flex flex-col gap-3 h-full">
-      {/* Mode toggle + history controls */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-lg overflow-hidden border border-zinc-700">
           <button
-            onClick={() => setMode('live')}
+            onClick={() => setMode("live")}
             className={`px-4 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors ${
-              mode === 'live'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:text-white'
+              mode === "live" ? "bg-emerald-600 text-white" : "bg-zinc-800 text-zinc-400 hover:text-white"
             }`}
           >
             En vivo
           </button>
           <button
-            onClick={() => setMode('history')}
+            onClick={() => setMode("history")}
             className={`px-4 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors ${
-              mode === 'history'
-                ? 'bg-[#e85d04] text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:text-white'
+              mode === "history" ? "bg-[#e85d04] text-white" : "bg-zinc-800 text-zinc-400 hover:text-white"
             }`}
           >
             Historial
           </button>
         </div>
 
-        {mode === 'history' && (
+        {mode === "history" && (
           <>
             <input
               type="date"
@@ -284,9 +320,9 @@ export default function AdminTrackingMap({ user }) {
               onChange={(e) => setHistSlot(e.target.value)}
               className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:border-[#e85d04] outline-none"
             >
-              <option value="all">Todo el día</option>
-              <option value="11">Mañana (8–18 h)</option>
-              <option value="19">Tarde (17–23 h)</option>
+              <option value="all">Todo el dia</option>
+              <option value="11">Manana (8-18 h)</option>
+              <option value="19">Tarde (17-23 h)</option>
             </select>
             {drivers.length > 1 && (
               <select
@@ -296,47 +332,37 @@ export default function AdminTrackingMap({ user }) {
               >
                 <option value="all">Todos los repartidores</option>
                 {drivers.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
                 ))}
               </select>
             )}
             {!histLoading && (
               <span className="text-xs text-zinc-500">
-                {histPoints.length === 0
-                  ? 'Sin datos para este período'
-                  : `${histPoints.length} puntos registrados`}
+                {safeHistPoints.length === 0 ? "Sin datos para este periodo" : `${safeHistPoints.length} puntos registrados`}
               </span>
             )}
-            {histLoading && (
-              <span className="text-xs text-zinc-500 animate-pulse">Cargando...</span>
-            )}
+            {histLoading && <span className="text-xs text-zinc-500 animate-pulse">Cargando...</span>}
           </>
         )}
       </div>
 
-      {/* Map */}
       <div className="relative flex-1 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden min-h-[400px]">
-        {/* Live status badge */}
-        {mode === 'live' && (
+        {mode === "live" && (
           <div className="absolute top-3 right-3 z-[1000] bg-black/80 backdrop-blur text-white px-3 py-1 rounded-full text-xs font-bold uppercase border border-zinc-700 flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-            {usingPoll ? 'Sondeo DB' : connected ? 'En vivo' : 'Desconectado'}
+            <div className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
+            {usingPoll ? "Sondeo DB" : connected ? "En vivo" : "Desconectado"}
           </div>
         )}
 
-        <MapContainer
-          center={AGUILARES_COORDS}
-          zoom={13}
-          style={{ height: '100%', width: '100%' }}
-          scrollWheelZoom
-        >
+        <MapContainer center={AGUILARES_COORDS} zoom={13} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
 
-          {/* Live mode: truck marker */}
-          {mode === 'live' && truckLocation && (
+          {mode === "live" && truckLocation && (
             <>
               <Marker position={[truckLocation.lat, truckLocation.lng]} icon={truckIcon}>
                 <Popup>
@@ -347,72 +373,69 @@ export default function AdminTrackingMap({ user }) {
             </>
           )}
 
-          {/* Customer markers (all with coords) */}
           {customersWithoutDelivery.map((customer) => (
             <Marker
               key={`customer-no-delivery-${customer.id}`}
               position={[customer.lat, customer.lng]}
-              icon={createInitialIcon(customer.name?.[0] || 'C', '#f97316')}
+              icon={createInitialIcon(customer.name?.[0] || "C", "#f97316")}
             >
               <Popup>
-                <div className="font-bold">{customer.name || 'Cliente'}</div>
+                <div className="font-bold">{customer.name || "Cliente"}</div>
                 {customer.address ? <div className="text-sm text-gray-600">{customer.address}</div> : null}
                 <div className="text-xs text-gray-500">Sin envio hoy</div>
               </Popup>
             </Marker>
           ))}
+
           {customersWithDelivery.map((customer) => (
             <Marker
               key={`customer-with-delivery-${customer.id}`}
               position={[customer.lat, customer.lng]}
-              icon={createInitialIcon(customer.name?.[0] || 'E', '#2563eb')}
+              icon={createInitialIcon(customer.name?.[0] || "E", "#2563eb")}
             >
               <Popup>
-                <div className="font-bold">{customer.name || 'Cliente'}</div>
+                <div className="font-bold">{customer.name || "Cliente"}</div>
                 {customer.address ? <div className="text-sm text-gray-600">{customer.address}</div> : null}
                 <div className="text-xs text-gray-500">Con envio hoy</div>
               </Popup>
             </Marker>
           ))}
 
-          {mode === 'live' && liveFitPositions.length > 1 && (
-            <FitBounds positions={liveFitPositions} />
-          )}
+          {mode === "live" && liveFitPositions.length > 1 && <FitBounds positions={liveFitPositions} />}
 
-          {/* History mode: polyline + start/end markers */}
-          {mode === 'history' && histPositions.length > 1 && (
+          {mode === "history" && histPositions.length > 1 && (
             <>
-              <Polyline
-                positions={histPositions}
-                color="#e85d04"
-                weight={4}
-                opacity={0.85}
-              />
+              <Polyline positions={histPositions} color="#e85d04" weight={4} opacity={0.85} />
               <Marker position={histPositions[0]} icon={startIcon}>
-                <Popup>
-                  Inicio — {new Date(histPoints[0].ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                </Popup>
+                <Popup>Inicio - {new Date(safeHistPoints[0].ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</Popup>
               </Marker>
               <Marker position={histPositions[histPositions.length - 1]} icon={endIcon}>
                 <Popup>
-                  Fin — {new Date(histPoints[histPoints.length - 1].ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                  Fin -{" "}
+                  {new Date(safeHistPoints[safeHistPoints.length - 1].ts).toLocaleTimeString("es-AR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </Popup>
               </Marker>
               <FitBounds positions={histPositions} />
             </>
           )}
+
+          {((mode === "history" && histPositions.length < 2) ||
+            (mode === "live" && !truckLocation && customerPositions.length === 0)) && <EnsureAguilaresCenter enabled />}
         </MapContainer>
 
-        {mode === 'live' && !truckLocation && connected && (
+        {mode === "live" && !truckLocation && connected && (
           <div className="absolute bottom-4 left-4 z-[1000] bg-black/80 text-zinc-400 px-3 py-2 rounded text-xs pointer-events-none">
-            Esperando señal de GPS...
+            Esperando senal de GPS...
           </div>
         )}
 
-        {mode === 'history' && !histLoading && histPoints.length === 0 && (
+        {mode === "history" && !histLoading && safeHistPoints.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="bg-black/70 text-zinc-400 px-5 py-3 rounded-xl text-sm">
-              No hay recorrido registrado para este período
+              No hay recorrido valido para este periodo
             </div>
           </div>
         )}
