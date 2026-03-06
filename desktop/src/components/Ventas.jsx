@@ -657,7 +657,7 @@ export default function Ventas({
     const onKeyDown = (e) => {
       if (isTypingTarget(e.target)) return;
       const key = String(e.key || "").toLowerCase();
-      if (key === "y") {
+      if (key === "y" || key === "enter") {
         e.preventDefault();
         resolvePrintConfirmation(true);
       } else if (key === "n" || key === "escape") {

@@ -60,14 +60,14 @@ export default function PrintPromptModal({
           </div>
         </div>
         <div className="text-xs text-zinc-500">
-          Atajos: <span className="font-black text-zinc-300">Y</span> = SI, <span className="font-black text-zinc-300">N</span> = NO
+          Atajos: <span className="font-black text-zinc-300">Y / Enter</span> = SI, <span className="font-black text-zinc-300">N / Esc</span> = NO
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="btn btn-muted" onClick={onCancel}>
-            No (N)
+            No (N/Esc)
           </button>
           <button type="button" className="btn btn-primary" onClick={onConfirm}>
-            Si (Y)
+            Si (Y/Enter)
           </button>
         </div>
       </div>
