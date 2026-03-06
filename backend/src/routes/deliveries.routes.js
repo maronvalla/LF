@@ -45,9 +45,9 @@ const consolidatedControlSchema = z.object({
   date: z.string().date(),
   slot: z.enum(["11", "19"]),
   cashierName: z.string().min(2),
-  driverName: z.string().min(2),
-  cashierSignatureBase64: z.string().min(30),
-  driverSignatureBase64: z.string().min(30),
+  driverName: z.string().optional().nullable(),
+  cashierSignatureBase64: z.string().optional().nullable(),
+  driverSignatureBase64: z.string().optional().nullable(),
   totalOrders: z.number().int().nonnegative().optional(),
   totalItems: z.number().int().nonnegative().optional(),
   checklist: z.record(z.string(), z.boolean()).optional().default({}),
@@ -62,6 +62,9 @@ const consolidatedControlSchema = z.object({
     .optional()
     .default([]),
 });
+
+const EMPTY_SIGNATURE_BASE64 =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO8K6k8AAAAASUVORK5CYII=";
 
 const consolidatedControlCancelSchema = z.object({
   date: z.string().date(),
@@ -577,6 +580,11 @@ router.post(
     }
 
     const d = parsed.data;
+    const safeDriverName = String(d.driverName || "").trim() || "SIN_CHOFER";
+    const safeCashierSignature =
+      String(d.cashierSignatureBase64 || "").trim() || EMPTY_SIGNATURE_BASE64;
+    const safeDriverSignature =
+      String(d.driverSignatureBase64 || "").trim() || EMPTY_SIGNATURE_BASE64;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -608,9 +616,9 @@ router.post(
           d.slot,
           req.user.id,
           d.cashierName.trim(),
-          d.driverName.trim(),
-          d.cashierSignatureBase64,
-          d.driverSignatureBase64,
+          safeDriverName,
+          safeCashierSignature,
+          safeDriverSignature,
           Number(d.totalOrders || 0),
           Number(d.totalItems || 0),
           JSON.stringify(d.checklist || {}),
@@ -645,7 +653,7 @@ router.post(
           date: d.date,
           slot: d.slot,
           cashierName: d.cashierName,
-          driverName: d.driverName,
+          driverName: safeDriverName,
           totalOrders: Number(d.totalOrders || 0),
           totalItems: Number(d.totalItems || 0),
           checklistCount: Object.keys(d.checklist || {}).length,
@@ -680,13 +688,18 @@ router.post(
             slot: d.slot,
             date: d.date,
             count: markedLoaded.rowCount,
-            driverName: d.driverName,
+            driverName: safeDriverName,
             message: `Turno ${slotLabel} — ${markedLoaded.rowCount} pedido${markedLoaded.rowCount !== 1 ? "s" : ""} listos para cargar`,
           });
         }
       }
 
-      res.json({ ...upsert.rows[0], autoMarkedLoaded: markedLoaded.rowCount });
+      res.json({
+        ...upsert.rows[0],
+        validatedBy: d.cashierName.trim(),
+        validatedAt: new Date().toISOString(),
+        autoMarkedLoaded: markedLoaded.rowCount,
+      });
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;

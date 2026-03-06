@@ -370,27 +370,8 @@ export default function Consolidado({ user, setToast }) {
       });
       return;
     }
-    if (!allChecklistDone) {
-      setToast?.({
-        message: "Debes tildar todo el checklist de mercaderia",
-        type: "error",
-      });
-      return;
-    }
     if (!cashierName.trim()) {
       setToast?.({ message: "Ingrese nombre del cajero", type: "error" });
-      return;
-    }
-    if (!cashierSignature) {
-      setToast?.({ message: "Falta firma del cajero", type: "error" });
-      return;
-    }
-    if (!driverName.trim()) {
-      setToast?.({ message: "Ingrese nombre del chofer", type: "error" });
-      return;
-    }
-    if (!driverSignature) {
-      setToast?.({ message: "Falta firma del chofer", type: "error" });
       return;
     }
 
@@ -400,12 +381,12 @@ export default function Consolidado({ user, setToast }) {
         date,
         slot,
         cashierName: cashierName.trim(),
-        driverName: driverName.trim(),
-        cashierSignatureBase64: cashierSignature,
-        driverSignatureBase64: driverSignature,
+        driverName: driverName.trim() || "SIN_CHOFER",
+        cashierSignatureBase64: "",
+        driverSignatureBase64: "",
         totalOrders: pedidosEnvio.length,
         totalItems: totalBultos,
-        checklist: checklistByProduct,
+        checklist: {},
         pickPlan: pickPlanRows.map((r) => ({
           productId: r.product_id,
           localQty: Number(r.localQty || 0),
@@ -413,8 +394,14 @@ export default function Consolidado({ user, setToast }) {
         })),
       });
       const autoMarkedLoaded = Number(data?.autoMarkedLoaded || 0);
+      const validatedBy = String(data?.validatedBy || cashierName || "").trim() || "CAJERO";
+      const validatedAtRaw = data?.validatedAt || new Date().toISOString();
+      const validatedAtText = new Date(validatedAtRaw).toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
       setToast?.({
-        message: `Control de consolidado guardado. Pedidos pasados a CARGADO: ${autoMarkedLoaded}`,
+        message: `Consolidado validado por ${validatedBy} a las ${validatedAtText}. Pedidos pasados a CARGADO: ${autoMarkedLoaded}`,
         type: "success",
       });
       setControlOpen(false);
@@ -908,7 +895,7 @@ export default function Consolidado({ user, setToast }) {
       <div className="px-1 flex flex-col md:flex-row md:justify-between md:items-center gap-2">
         <div>
           <h1 className={`text-[28px] font-bold leading-none tracking-tight ${isDark ? 'text-zinc-100' : 'text-zinc-900'}`}>
-            Preparación de carga con control secuencial y firmas
+            Consolidado de carga
           </h1>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 mt-2 md:mt-0">
@@ -940,39 +927,20 @@ export default function Consolidado({ user, setToast }) {
               className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white shadow-md"
               onClick={async () => {
                 if (hasSavedControlForShift) {
-                  const shouldCancel = await showConfirm(
-                    "Ya se registró el consolidado para este turno.\n¿Desea anularlo?",
-                  );
-                  if (!shouldCancel) return;
-                  try {
-                    const { data } = await api.post(
-                      "/deliveries/consolidated-control/cancel",
-                      {
-                        date,
-                        slot,
-                      },
-                    );
-                    const reverted = Number(data?.reverted || 0);
-                    setToast?.({
-                      message: `Consolidado anulado. Pedidos vueltos a PENDIENTE: ${reverted}`,
-                      type: "success",
-                    });
-                    await load();
-                  } catch (err) {
-                    setToast?.({
-                      message:
-                        err.response?.data?.message ||
-                        "No se pudo anular el consolidado",
-                      type: "error",
-                    });
-                    return;
-                  }
+                  setToast?.({
+                    message: "Este turno ya tiene consolidado validado.",
+                    type: "warning",
+                  });
+                  return;
                 }
-                setControlStep("checklist");
-                setControlOpen(true);
+                const confirmed = await showConfirm(
+                  "¿Confirmas aprobar el consolidado? Los pedidos pasarán a CARGADO.",
+                );
+                if (!confirmed) return;
+                await saveControl();
               }}
             >
-              Iniciar control
+              Aprobar consolidado
             </button>
           ) : null}
         </div>

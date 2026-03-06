@@ -31,6 +31,28 @@ const endIcon = L.divIcon({
   iconAnchor: [13, 13],
 });
 
+const createInitialIcon = (initial = 'C', color = '#f97316') =>
+  L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div style="
+      background-color: ${color};
+      color: white;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 11px;
+      border: 2px solid white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.28);
+      text-transform: uppercase;
+    ">${String(initial || 'C').slice(0, 1)}</div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+
 function FitBounds({ positions }) {
   const map = useMap();
   useEffect(() => {
@@ -66,6 +88,8 @@ export default function AdminTrackingMap({ user }) {
   const [histDriverId, setHistDriverId] = useState('all');
   const [histPoints, setHistPoints] = useState([]);
   const [histLoading, setHistLoading] = useState(false);
+  const [allCustomersWithCoords, setAllCustomersWithCoords] = useState([]);
+  const [todayDeliveryCustomerIds, setTodayDeliveryCustomerIds] = useState(new Set());
 
   if (!user || (user.role !== 'ADMIN' && user.username !== 'admin')) {
     return (
@@ -100,6 +124,70 @@ export default function AdminTrackingMap({ user }) {
       setConnected(false);
     };
   }, [mode]);
+
+  // Live/History map context: customers with coordinates
+  useEffect(() => {
+    let cancelled = false;
+    const loadCustomers = async () => {
+      try {
+        const { data } = await api.get('/customers');
+        if (cancelled) return;
+        const rows = (Array.isArray(data) ? data : [])
+          .map((customer) => {
+            const lat = Number(customer.latitude);
+            const lng = Number(customer.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            return {
+              id: String(customer.id || ''),
+              name: String(customer.name || '').trim(),
+              address: String(customer.address || '').trim(),
+              lat,
+              lng,
+            };
+          })
+          .filter(Boolean);
+        setAllCustomersWithCoords(rows);
+      } catch {
+        if (cancelled) return;
+        setAllCustomersWithCoords([]);
+      }
+    };
+    loadCustomers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Customers that currently have delivery orders for today (both slots)
+  useEffect(() => {
+    let cancelled = false;
+    const today = new Date().toISOString().slice(0, 10);
+    const loadDeliveryCustomers = async () => {
+      try {
+        const [morning, evening] = await Promise.all([
+          api.get(`/deliveries?date=${today}&slot=11`),
+          api.get(`/deliveries?date=${today}&slot=19`),
+        ]);
+        if (cancelled) return;
+        const rows = [...(Array.isArray(morning.data) ? morning.data : []), ...(Array.isArray(evening.data) ? evening.data : [])];
+        const nextIds = new Set(
+          rows
+            .map((row) => String(row.customer_id || '').trim())
+            .filter(Boolean)
+        );
+        setTodayDeliveryCustomerIds(nextIds);
+      } catch {
+        if (cancelled) return;
+        setTodayDeliveryCustomerIds(new Set());
+      }
+    };
+    loadDeliveryCustomers();
+    const timer = setInterval(loadDeliveryCustomers, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   // Live: DB polling fallback
   useEffect(() => {
@@ -144,6 +232,17 @@ export default function AdminTrackingMap({ user }) {
   }, [mode, histDate, histSlot, histDriverId]);
 
   const histPositions = histPoints.map((p) => [p.lat, p.lng]);
+  const customersWithDelivery = allCustomersWithCoords.filter((customer) =>
+    todayDeliveryCustomerIds.has(String(customer.id || ''))
+  );
+  const customersWithoutDelivery = allCustomersWithCoords.filter(
+    (customer) => !todayDeliveryCustomerIds.has(String(customer.id || ''))
+  );
+  const customerPositions = allCustomersWithCoords.map((customer) => [customer.lat, customer.lng]);
+  const liveFitPositions = [
+    ...customerPositions,
+    ...(truckLocation ? [[truckLocation.lat, truckLocation.lng]] : []),
+  ];
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -246,6 +345,38 @@ export default function AdminTrackingMap({ user }) {
               </Marker>
               <MapRecenter lat={truckLocation.lat} lng={truckLocation.lng} />
             </>
+          )}
+
+          {/* Customer markers (all with coords) */}
+          {customersWithoutDelivery.map((customer) => (
+            <Marker
+              key={`customer-no-delivery-${customer.id}`}
+              position={[customer.lat, customer.lng]}
+              icon={createInitialIcon(customer.name?.[0] || 'C', '#f97316')}
+            >
+              <Popup>
+                <div className="font-bold">{customer.name || 'Cliente'}</div>
+                {customer.address ? <div className="text-sm text-gray-600">{customer.address}</div> : null}
+                <div className="text-xs text-gray-500">Sin envio hoy</div>
+              </Popup>
+            </Marker>
+          ))}
+          {customersWithDelivery.map((customer) => (
+            <Marker
+              key={`customer-with-delivery-${customer.id}`}
+              position={[customer.lat, customer.lng]}
+              icon={createInitialIcon(customer.name?.[0] || 'E', '#2563eb')}
+            >
+              <Popup>
+                <div className="font-bold">{customer.name || 'Cliente'}</div>
+                {customer.address ? <div className="text-sm text-gray-600">{customer.address}</div> : null}
+                <div className="text-xs text-gray-500">Con envio hoy</div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {mode === 'live' && liveFitPositions.length > 1 && (
+            <FitBounds positions={liveFitPositions} />
           )}
 
           {/* History mode: polyline + start/end markers */}
