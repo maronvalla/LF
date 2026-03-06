@@ -434,6 +434,9 @@ export default function Rutas({ setToast }) {
                       <div className="text-xs text-zinc-500 truncate">
                         {stop.sale_id?.slice(0, 8)}...
                       </div>
+                      <div className="text-[11px] text-zinc-400 truncate">
+                        Vendedor: {stop.created_by_name || stop.created_by_username || stop.seller_name || "N/A"}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -461,6 +464,9 @@ export default function Rutas({ setToast }) {
                       </span>
                     </div>
                     <div className="text-xs text-zinc-500">#{order.sale_number}</div>
+                    <div className="text-[11px] text-zinc-400 mt-0.5 truncate">
+                      Vendedor: {order.created_by_name || order.created_by_username || order.seller_name || "N/A"}
+                    </div>
                     {order.delivery_address && (
                       <div className="text-xs text-zinc-400 mt-1 truncate">
                         {order.delivery_address}
@@ -559,6 +565,9 @@ export default function Rutas({ setToast }) {
                     Parada #{index + 1}: {stop.customer_name}
                   </div>
                   <div className="text-sm text-gray-600">ID: {stop.sale_id?.slice(0, 8)}...</div>
+                  <div className="text-sm text-gray-600">
+                    Vendedor: {stop.created_by_name || stop.created_by_username || stop.seller_name || "N/A"}
+                  </div>
                 </Popup>
               </Marker>
             ))}

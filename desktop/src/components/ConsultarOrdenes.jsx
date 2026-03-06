@@ -13,7 +13,7 @@ export default function ConsultarOrdenes({ setToast }) {
     } catch (err) {
       setRows([]);
       setToast?.({
-        message: err?.response?.data?.message || "No se pudieron cargar tus ordenes de hoy",
+        message: err?.response?.data?.message || "No se pudieron cargar tus ordenes pendientes",
         type: "error",
       });
     } finally {
@@ -37,7 +37,7 @@ export default function ConsultarOrdenes({ setToast }) {
       <div className="flex items-center justify-between rounded-xl border border-zinc-300 bg-white px-4 py-3">
         <div>
           <div className="text-xs font-black uppercase tracking-wider text-zinc-500">Consultar ordenes</div>
-          <div className="text-sm font-bold text-zinc-800">Solo ordenes de hoy</div>
+          <div className="text-sm font-bold text-zinc-800">Solo pendientes de cobro (hoy)</div>
         </div>
         <button
           type="button"
@@ -58,6 +58,7 @@ export default function ConsultarOrdenes({ setToast }) {
             <tr className="text-left text-[11px] font-black uppercase tracking-wider">
               <th className="px-3 py-2">Nro orden</th>
               <th className="px-3 py-2">Cliente</th>
+              <th className="px-3 py-2">Vendedor</th>
               <th className="px-3 py-2">Monto</th>
               <th className="px-3 py-2">Hora</th>
               <th className="px-3 py-2">Estado</th>
@@ -68,6 +69,7 @@ export default function ConsultarOrdenes({ setToast }) {
               <tr key={row.id} className="border-t border-zinc-200">
                 <td className="px-3 py-2 font-bold text-zinc-900">{row.sale_number || row.id}</td>
                 <td className="px-3 py-2 font-semibold text-zinc-800">{row.customer_name || "CONSUMIDOR FINAL"}</td>
+                <td className="px-3 py-2 font-semibold text-zinc-700">{row.seller_name || "N/A"}</td>
                 <td className="px-3 py-2 font-black text-emerald-700">${Number(row.total_amount || 0).toFixed(2)}</td>
                 <td className="px-3 py-2 font-semibold text-zinc-700">
                   {row.created_at
@@ -82,14 +84,14 @@ export default function ConsultarOrdenes({ setToast }) {
             ))}
             {!loading && rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-sm text-zinc-500">
-                  No hay ordenes tuyas cargadas hoy.
+                <td colSpan={6} className="px-3 py-8 text-center text-sm text-zinc-500">
+                  No hay ordenes tuyas pendientes de cobro hoy.
                 </td>
               </tr>
             ) : null}
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-sm text-zinc-500">
+                <td colSpan={6} className="px-3 py-8 text-center text-sm text-zinc-500">
                   Cargando...
                 </td>
               </tr>
@@ -100,4 +102,3 @@ export default function ConsultarOrdenes({ setToast }) {
     </div>
   );
 }
-

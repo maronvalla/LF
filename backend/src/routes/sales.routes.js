@@ -482,15 +482,18 @@ router.get(
         s.created_at,
         s.status,
         s.sale_type,
+        COALESCE(NULLIF(TRIM(s.seller_name_snapshot), ''), creator.full_name, creator.username, 'N/A') AS seller_name,
         COALESCE(c.name, s.customer_name_snapshot, 'CONSUMIDOR FINAL') AS customer_name,
         COALESCE(SUM(si.line_total), 0)::numeric AS total_amount
       FROM sales s
       LEFT JOIN customers c ON c.id = s.customer_id
+      LEFT JOIN users creator ON creator.id = s.created_by
       LEFT JOIN sale_items si ON si.sale_id = s.id
       WHERE s.created_by = $1
         AND s.created_at::date = CURRENT_DATE
-        AND s.status <> 'ANULADO'
-      GROUP BY s.id, c.name
+        AND s.status = 'PENDIENTE'
+        AND s.payment_method IS NULL
+      GROUP BY s.id, c.name, creator.full_name, creator.username
       ORDER BY s.created_at DESC
     `,
       [req.user.id]

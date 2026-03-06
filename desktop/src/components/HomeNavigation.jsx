@@ -277,6 +277,9 @@ export default function HomeNavigation({
                     <div className={`mt-1 text-[11px] uppercase tracking-[0.16em] ${isDark ? "text-zinc-400" : "text-zinc-500"}`}>
                       Orden {order.sale_number || order.id}
                     </div>
+                    <div className={`mt-1 text-[11px] font-bold uppercase tracking-[0.12em] ${isDark ? "text-zinc-300" : "text-zinc-600"}`}>
+                      Vendedor: {order.created_by_name || order.created_by_username || "N/A"}
+                    </div>
                     <div className={`mt-2 text-lg font-black ${isDark ? "text-amber-300" : "text-amber-700"}`}>
                       ${Number(order.total_amount || 0).toFixed(2)}
                     </div>
