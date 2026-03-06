@@ -32,6 +32,14 @@ const endIcon = L.divIcon({
   iconAnchor: [13, 13],
 });
 
+const createStopIcon = (durationMin) =>
+  L.divIcon({
+    className: "",
+    html: `<div style="background:#f59e0b;color:#1c1917;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)">${durationMin}m</div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+
 const createInitialIcon = (initial = "C", color = "#f97316") =>
   L.divIcon({
     className: "custom-div-icon",
@@ -96,6 +104,13 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 
 function isPointNearAguilares(lat, lng) {
   return haversineKm(AGUILARES_COORDS[0], AGUILARES_COORDS[1], lat, lng) <= MAX_DISTANCE_FROM_AGUILARES_KM;
+}
+
+function formatDuration(minutes) {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
 export default function AdminTrackingMap({ user }) {
@@ -273,6 +288,71 @@ export default function AdminTrackingMap({ user }) {
   );
   const histPositions = safeHistPoints.map((p) => [Number(p.lat), Number(p.lng)]);
 
+  const histStats = useMemo(() => {
+    if (safeHistPoints.length < 2) return null;
+    const first = safeHistPoints[0];
+    const last = safeHistPoints[safeHistPoints.length - 1];
+    const startTs = new Date(first.ts).getTime();
+    const endTs = new Date(last.ts).getTime();
+    const totalMinutes = Math.round((endTs - startTs) / 60000);
+
+    let totalKm = 0;
+    for (let i = 1; i < safeHistPoints.length; i++) {
+      totalKm += haversineKm(
+        Number(safeHistPoints[i - 1].lat), Number(safeHistPoints[i - 1].lng),
+        Number(safeHistPoints[i].lat), Number(safeHistPoints[i].lng)
+      );
+    }
+
+    const STOP_DIST_KM = 0.08;
+    const STOP_MIN_MIN = 3;
+    const rawStops = [];
+    let currentStop = null;
+
+    for (let i = 1; i < safeHistPoints.length; i++) {
+      const prev = safeHistPoints[i - 1];
+      const curr = safeHistPoints[i];
+      const dist = haversineKm(Number(prev.lat), Number(prev.lng), Number(curr.lat), Number(curr.lng));
+      const gapMin = (new Date(curr.ts).getTime() - new Date(prev.ts).getTime()) / 60000;
+
+      if (dist < STOP_DIST_KM && gapMin >= STOP_MIN_MIN) {
+        if (currentStop) {
+          currentStop.endTs = new Date(curr.ts).getTime();
+          currentStop.lats.push(Number(curr.lat));
+          currentStop.lngs.push(Number(curr.lng));
+        } else {
+          currentStop = {
+            startTs: new Date(prev.ts).getTime(),
+            endTs: new Date(curr.ts).getTime(),
+            lats: [Number(prev.lat), Number(curr.lat)],
+            lngs: [Number(prev.lng), Number(curr.lng)],
+          };
+          rawStops.push(currentStop);
+        }
+      } else {
+        currentStop = null;
+      }
+    }
+
+    const stops = rawStops
+      .map((stop) => {
+        const durationMin = Math.round((stop.endTs - stop.startTs) / 60000);
+        const lat = stop.lats.reduce((a, b) => a + b, 0) / stop.lats.length;
+        const lng = stop.lngs.reduce((a, b) => a + b, 0) / stop.lngs.length;
+        let nearestCustomer = null;
+        let nearestDist = Infinity;
+        for (const customer of allCustomersWithCoords) {
+          const d = haversineKm(lat, lng, Number(customer.lat), Number(customer.lng));
+          if (d < nearestDist) { nearestDist = d; nearestCustomer = customer; }
+        }
+        return { startTs: stop.startTs, endTs: stop.endTs, durationMin, lat, lng, nearestCustomer: nearestDist < 0.3 ? nearestCustomer : null };
+      })
+      .filter((s) => s.durationMin >= STOP_MIN_MIN)
+      .sort((a, b) => b.durationMin - a.durationMin);
+
+    return { startTs, endTs, totalMinutes, totalKm, stops };
+  }, [safeHistPoints, allCustomersWithCoords]);
+
   const customersWithDelivery = allCustomersWithCoords.filter((customer) =>
     todayDeliveryCustomerIds.has(String(customer.id || ""))
   );
@@ -348,6 +428,49 @@ export default function AdminTrackingMap({ user }) {
         )}
       </div>
 
+      {mode === "history" && histStats && !histLoading && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 space-y-2 flex-shrink-0">
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
+            <span className="text-zinc-400">
+              Inicio: <span className="text-white font-semibold">{new Date(histStats.startTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
+            </span>
+            <span className="text-zinc-400">
+              Fin: <span className="text-white font-semibold">{new Date(histStats.endTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
+            </span>
+            <span className="text-zinc-400">
+              Duración: <span className="text-[#e85d04] font-bold">{formatDuration(histStats.totalMinutes)}</span>
+            </span>
+            <span className="text-zinc-400">
+              Distancia: <span className="text-white font-semibold">{histStats.totalKm.toFixed(1)} km</span>
+            </span>
+          </div>
+          {histStats.stops.length > 0 ? (
+            <div>
+              <div className="text-[10px] uppercase font-bold text-zinc-500 mb-1.5">
+                Paradas detectadas · {histStats.stops.length} · ordenadas por duración
+              </div>
+              <div className="flex flex-col gap-1 max-h-28 overflow-y-auto pr-1">
+                {histStats.stops.map((stop) => (
+                  <div key={stop.startTs} className="flex items-center gap-2 text-xs">
+                    <span className="text-amber-400 font-bold tabular-nums w-10 text-right shrink-0">{stop.durationMin} min</span>
+                    <span className="text-zinc-500 shrink-0">
+                      {new Date(stop.startTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    {stop.nearestCustomer ? (
+                      <span className="text-zinc-200 truncate">{stop.nearestCustomer.name}</span>
+                    ) : (
+                      <span className="text-zinc-600 italic">Sin cliente cercano</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-600 italic">Sin paradas significativas detectadas</div>
+          )}
+        </div>
+      )}
+
       <div className="relative flex-1 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden min-h-[400px]">
         {mode === "live" && (
           <div className="absolute top-3 right-3 z-[1000] bg-black/80 backdrop-blur text-white px-3 py-1 rounded-full text-xs font-bold uppercase border border-zinc-700 flex items-center gap-2">
@@ -419,6 +542,21 @@ export default function AdminTrackingMap({ user }) {
                 </Popup>
               </Marker>
               <FitBounds positions={histPositions} />
+              {histStats?.stops.map((stop) => (
+                <Marker key={`stop-${stop.startTs}`} position={[stop.lat, stop.lng]} icon={createStopIcon(stop.durationMin)}>
+                  <Popup>
+                    <div className="text-sm font-bold">{stop.durationMin} min de parada</div>
+                    <div className="text-xs text-gray-500">
+                      {new Date(stop.startTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                      {" - "}
+                      {new Date(stop.endTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                    {stop.nearestCustomer && (
+                      <div className="text-xs font-medium mt-1">{stop.nearestCustomer.name}</div>
+                    )}
+                  </Popup>
+                </Marker>
+              ))}
             </>
           )}
 
