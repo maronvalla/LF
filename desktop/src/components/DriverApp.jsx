@@ -36,6 +36,21 @@ const toPositiveNumber = (value) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
 
+const TUCUMAN_BOUNDS = {
+  south: -28.25,
+  west: -66.25,
+  north: -25.9,
+  east: -64.75,
+};
+
+const isValidDeliveryCoordinate = (lat, lng) =>
+  Number.isFinite(lat) &&
+  Number.isFinite(lng) &&
+  lat >= TUCUMAN_BOUNDS.south &&
+  lat <= TUCUMAN_BOUNDS.north &&
+  lng >= TUCUMAN_BOUNDS.west &&
+  lng <= TUCUMAN_BOUNDS.east;
+
 const OFFLINE_QUEUE_KEY = 'lf_driver_offline_queue_v1';
 
 const readOfflineQueue = () => {
@@ -288,23 +303,28 @@ export default function DriverApp({ onLogout, user }) {
     };
   }, []);
 
-  const normalizeDelivery = (row) => ({
-    id: row.id,
-    customerId: row.customer_id || null,
-    name: row.customer_name || 'SIN CLIENTE',
-    address: row.delivery_address || 'SIN DIRECCION',
-    lat: Number(row.customer_latitude || 0),
-    lng: Number(row.customer_longitude || 0),
-    status: row.delivery_status || 'PENDIENTE',
-    phone: row.customer_phone || '',
-    saleTotal: Number(row.sale_total || 0),
-    deliveryPayment: row.delivery_payment || null,
-    deliveryPaymentMethod: row.delivery_payment_method || null,
-    finalMethod: row.delivery_final_payment_method || null,
-    finalCashAmount: Number(row.delivery_final_cash_amount || 0),
-    finalTransferAmount: Number(row.delivery_final_transfer_amount || 0),
-    items: Array.isArray(row.items) ? row.items : [],
-  });
+  const normalizeDelivery = (row) => {
+    const lat = Number(row.customer_latitude);
+    const lng = Number(row.customer_longitude);
+    const hasValidCoords = isValidDeliveryCoordinate(lat, lng);
+    return {
+      id: row.id,
+      customerId: row.customer_id || null,
+      name: row.customer_name || 'SIN CLIENTE',
+      address: row.delivery_address || 'SIN DIRECCION',
+      lat: hasValidCoords ? lat : null,
+      lng: hasValidCoords ? lng : null,
+      status: row.delivery_status || 'PENDIENTE',
+      phone: row.customer_phone || '',
+      saleTotal: Number(row.sale_total || 0),
+      deliveryPayment: row.delivery_payment || null,
+      deliveryPaymentMethod: row.delivery_payment_method || null,
+      finalMethod: row.delivery_final_payment_method || null,
+      finalCashAmount: Number(row.delivery_final_cash_amount || 0),
+      finalTransferAmount: Number(row.delivery_final_transfer_amount || 0),
+      items: Array.isArray(row.items) ? row.items : [],
+    };
+  };
 
   const getDeliveryReturnables = (delivery) => {
     const items = Array.isArray(delivery?.items) ? delivery.items : [];
@@ -674,7 +694,9 @@ export default function DriverApp({ onLogout, user }) {
   // Intercept "Marcar como Entregado": if customer has no coordinates, prompt to save location/photo first
   const handleDeliverButtonClick = (deliveryId) => {
     const delivery = deliveries.find((d) => d.id === deliveryId);
-    const hasCoords = delivery && (Number(delivery.lat) !== 0 || Number(delivery.lng) !== 0);
+    const hasCoords =
+      delivery &&
+      isValidDeliveryCoordinate(Number(delivery.lat), Number(delivery.lng));
     if (!hasCoords && delivery?.customerId) {
       setLocationPrompt({ deliveryId, customerId: delivery.customerId });
       return;
@@ -1020,7 +1042,7 @@ export default function DriverApp({ onLogout, user }) {
                 {/* Navigation Button */}
                 <button
                   onClick={() => openGPS(delivery.lat, delivery.lng)}
-                  disabled={!Number(delivery.lat) && !Number(delivery.lng)}
+                  disabled={!isValidDeliveryCoordinate(Number(delivery.lat), Number(delivery.lng))}
                   className="w-full h-16 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed active:scale-[0.98] transition-all rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-blue-900/20"
                 >
                   <span className="text-lg font-black uppercase tracking-wide">Navegar GPS</span>

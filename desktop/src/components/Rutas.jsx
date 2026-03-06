@@ -17,6 +17,24 @@ const DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
+const TUCUMAN_BOUNDS = {
+  south: -28.25,
+  west: -66.25,
+  north: -25.9,
+  east: -64.75,
+};
+
+function isValidRouteCoordinate(lat, lng) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= TUCUMAN_BOUNDS.south &&
+    lat <= TUCUMAN_BOUNDS.north &&
+    lng >= TUCUMAN_BOUNDS.west &&
+    lng <= TUCUMAN_BOUNDS.east
+  );
+}
+
 // Custom icons for different states
 const createNumberedIcon = (number, color = "#e85d04") => {
   return L.divIcon({
@@ -113,7 +131,7 @@ export default function Rutas({ setToast }) {
       .map((order) => {
         const lat = Number(order.customer_latitude);
         const lng = Number(order.customer_longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        if (!isValidRouteCoordinate(lat, lng)) return null;
         return { ...order, lat, lng };
       })
       .filter(Boolean);
@@ -150,7 +168,7 @@ export default function Rutas({ setToast }) {
           .map((customer) => {
             const lat = Number(customer.latitude);
             const lng = Number(customer.longitude);
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            if (!isValidRouteCoordinate(lat, lng)) return null;
             return {
               id: customer.id,
               name: String(customer.name || "").trim(),

@@ -10,6 +10,12 @@ const AGUILARES_COORDS = [-27.4333, -65.6167];
 const POLL_INTERVAL_MS = 20000;
 const SOCKET_STALE_MS = 25000;
 const MAX_DISTANCE_FROM_AGUILARES_KM = 120;
+const TUCUMAN_BOUNDS = {
+  south: -28.25,
+  west: -66.25,
+  north: -25.9,
+  east: -64.75,
+};
 
 const truckIcon = L.divIcon({
   html: '<div style="font-size: 24px;">🚚</div>',
@@ -75,7 +81,7 @@ function FitBounds({ positions }) {
 function MapRecenter({ lat, lng }) {
   const map = useMap();
   useEffect(() => {
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    if (isValidMapCoordinate(lat, lng)) {
       map.flyTo([lat, lng], 15);
     }
   }, [lat, lng, map]);
@@ -104,6 +110,18 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 
 function isPointNearAguilares(lat, lng) {
   return haversineKm(AGUILARES_COORDS[0], AGUILARES_COORDS[1], lat, lng) <= MAX_DISTANCE_FROM_AGUILARES_KM;
+}
+
+function isValidMapCoordinate(lat, lng) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= TUCUMAN_BOUNDS.south &&
+    lat <= TUCUMAN_BOUNDS.north &&
+    lng >= TUCUMAN_BOUNDS.west &&
+    lng <= TUCUMAN_BOUNDS.east &&
+    isPointNearAguilares(lat, lng)
+  );
 }
 
 function formatDuration(minutes) {
@@ -153,8 +171,7 @@ export default function AdminTrackingMap({ user }) {
     socketRef.current.on("update_mapa", (data) => {
       const lat = Number(data?.lat);
       const lng = Number(data?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      if (!isPointNearAguilares(lat, lng)) return;
+      if (!isValidMapCoordinate(lat, lng)) return;
       lastSocketUpdateRef.current = Date.now();
       setUsingPoll(false);
       setTruckLocation({ lat, lng });
@@ -176,8 +193,7 @@ export default function AdminTrackingMap({ user }) {
           .map((customer) => {
             const lat = Number(customer.latitude);
             const lng = Number(customer.longitude);
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-            if (!isPointNearAguilares(lat, lng)) return null;
+            if (!isValidMapCoordinate(lat, lng)) return null;
             return {
               id: String(customer.id || ""),
               name: String(customer.name || "").trim(),
@@ -241,8 +257,7 @@ export default function AdminTrackingMap({ user }) {
         if ((Date.now() - new Date(data.ts).getTime()) >= 120000) return;
         const lat = Number(data?.lat);
         const lng = Number(data?.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        if (!isPointNearAguilares(lat, lng)) return;
+        if (!isValidMapCoordinate(lat, lng)) return;
         setUsingPoll(true);
         setTruckLocation({ lat, lng });
       } catch {
@@ -282,7 +297,7 @@ export default function AdminTrackingMap({ user }) {
       histPoints.filter((p) => {
         const lat = Number(p?.lat);
         const lng = Number(p?.lng);
-        return Number.isFinite(lat) && Number.isFinite(lng) && isPointNearAguilares(lat, lng);
+        return isValidMapCoordinate(lat, lng);
       }),
     [histPoints]
   );
