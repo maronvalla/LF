@@ -21,7 +21,11 @@ const OPTIMIZE_SQL = `
     s.id AS sale_id,
     s.customer_id,
     s.sale_number,
-    COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(s.customer_name_snapshot), ''), 'CONSUMIDOR FINAL') AS customer_name,
+    COALESCE(
+      NULLIF(TRIM(c.name), ''),
+      NULLIF(NULLIF(TRIM(s.customer_name_snapshot), ''), TRIM(s.sale_number)),
+      'CONSUMIDOR FINAL'
+    ) AS customer_name,
     c.latitude,
     c.longitude
   FROM sales s
