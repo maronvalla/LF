@@ -247,6 +247,16 @@ export default function Rutas({ setToast }) {
   }, [fecha, salida]);
 
   // Optimize route
+  const exportToGoogleMaps = () => {
+    if (!optimizedRoute || optimizedRoute.length === 0) return;
+    const stops = [
+      `${origin.lat},${origin.lng}`,
+      ...optimizedRoute.map((s) => `${s.lat},${s.lng}`),
+    ];
+    const url = `https://www.google.com/maps/dir/${stops.join("/")}`;
+    window.open(url, "_blank");
+  };
+
   const optimizeRoute = async () => {
     if (orders.length === 0) {
       setToast?.({ message: "No hay pedidos para optimizar", type: "warning" });
@@ -443,6 +453,18 @@ export default function Rutas({ setToast }) {
               </>
             )}
           </button>
+
+          {optimizedRoute && optimizedRoute.length > 0 && (
+            <button
+              onClick={exportToGoogleMaps}
+              className="bg-white hover:bg-zinc-100 text-zinc-900 px-5 py-2.5 rounded-lg text-sm font-bold shadow transition-colors flex items-center gap-2 border border-zinc-300"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+              </svg>
+              Abrir en Google Maps
+            </button>
+          )}
 
           {/* Metrics */}
           {metrics && (
