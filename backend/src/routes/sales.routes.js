@@ -162,6 +162,16 @@ async function getOpenCashRegisterSession(client) {
   return sessionRes.rows[0] || null;
 }
 
+async function assertOpenCashRegisterForCheckout(client) {
+  const openSession = await getOpenCashRegisterSession(client);
+  if (!openSession) {
+    const err = new Error("No hay caja abierta. Debe abrir caja para facturar");
+    err.status = 400;
+    throw err;
+  }
+  return openSession;
+}
+
 async function registerSaleCancellationCashMovement(client, sale, actorUserId, totalAmount) {
   const cashImpact = getSaleCashImpactAmount(sale, totalAmount);
   if (cashImpact <= 0) {
@@ -726,6 +736,7 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await assertOpenCashRegisterForCheckout(client);
 
       const saleRes = await client.query("SELECT * FROM sales WHERE id = $1 FOR UPDATE", [req.params.id]);
       const sale = saleRes.rows[0];
