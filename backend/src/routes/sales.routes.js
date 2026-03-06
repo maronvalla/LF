@@ -490,6 +490,8 @@ router.get(
       LEFT JOIN users creator ON creator.id = s.created_by
       LEFT JOIN sale_items si ON si.sale_id = s.id
       WHERE s.created_by = $1
+        AND s.sale_type = 'MOSTRADOR'
+        AND COALESCE(s.is_delivery, false) = false
         AND s.created_at::date = CURRENT_DATE
         AND s.status = 'PENDIENTE'
         AND s.payment_method IS NULL
