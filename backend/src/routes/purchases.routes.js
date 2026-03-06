@@ -14,7 +14,7 @@ const createPurchaseSchema = z.object({
     supplierId: z.string().uuid().optional().nullable(),
     date: z.string().datetime().or(z.string().date()).optional(),
     paymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "OTRO", "CUENTA_CORRIENTE"]).optional(),
-    location: z.enum(["GALPON", "LOCAL"]).optional().default("GALPON"),
+    location: z.enum(["GALPON", "LOCAL"]).optional().default("LOCAL"),
     notes: z.string().optional().nullable(),
     category: z.string().optional().default('MERCADERIA'),
     updateCost: z.boolean().optional().default(true),

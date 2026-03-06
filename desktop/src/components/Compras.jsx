@@ -48,6 +48,7 @@ export default function Compras({ user, setToast }) {
     invoiceNumber: "",
     invoiceType: "Factura A",
     paymentMethod: "EFECTIVO",
+    location: "LOCAL",
     items: [],
     date: new Date().toISOString().split("T")[0],
     receiptImageDataUrl: "",
@@ -240,6 +241,7 @@ export default function Compras({ user, setToast }) {
         invoiceNumber: draft.invoiceNumber || "S/N",
         invoiceType: draft.invoiceType,
         paymentMethod: draft.paymentMethod,
+        location: draft.location,
         date: draft.date,
         items: draft.items.map((i) => ({
           productId: i.productId,
@@ -260,6 +262,7 @@ export default function Compras({ user, setToast }) {
         invoiceNumber: "",
         invoiceType: "Factura A",
         paymentMethod: "EFECTIVO",
+        location: "LOCAL",
         items: [],
         date: new Date().toISOString().split("T")[0],
         receiptImageDataUrl: "",
@@ -421,6 +424,17 @@ export default function Compras({ user, setToast }) {
             {supplierHasCurrentAccount ? (
               <option value="CUENTA_CORRIENTE">CUENTA CTA</option>
             ) : null}
+          </select>
+        </div>
+        <div className="flex-1 min-w-[120px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">Destino stock</label>
+          <select
+            className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+            value={draft.location}
+            onChange={(e) => setDraft((p) => ({ ...p, location: e.target.value }))}
+          >
+            <option value="LOCAL">LOCAL</option>
+            <option value="GALPON">GALPON</option>
           </select>
         </div>
         <div className="flex-1 lg:max-w-xs xl:max-w-md">
