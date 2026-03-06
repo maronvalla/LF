@@ -84,6 +84,17 @@ export default function Rutas({ setToast }) {
   const [origin, setOrigin] = useState(fallbackOrigin);
   const [driversStatus, setDriversStatus] = useState([]);
 
+  const pendingOrdersWithCoords = useMemo(() => {
+    return (orders || [])
+      .map((order) => {
+        const lat = Number(order.customer_latitude);
+        const lng = Number(order.customer_longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { ...order, lat, lng };
+      })
+      .filter(Boolean);
+  }, [orders]);
+
   useEffect(() => {
     const loadOrigin = async () => {
       try {
@@ -219,6 +230,14 @@ export default function Rutas({ setToast }) {
       ...optimizedRoute.map((stop) => [stop.lat, stop.lng]),
     ];
   }, [optimizedRoute, origin.lat, origin.lng]);
+
+  const pendingPositions = useMemo(() => {
+    if (optimizedRoute) return [];
+    return [
+      [origin.lat, origin.lng],
+      ...pendingOrdersWithCoords.map((order) => [order.lat, order.lng]),
+    ];
+  }, [optimizedRoute, origin.lat, origin.lng, pendingOrdersWithCoords]);
 
   // Format duration
   const formatDuration = (seconds) => {
@@ -551,6 +570,29 @@ export default function Rutas({ setToast }) {
                 />
                 <FitBounds positions={polylinePositions} />
               </>
+            )}
+
+            {/* Pending markers (without optimization) */}
+            {!optimizedRoute && pendingOrdersWithCoords.map((order, index) => (
+              <Marker
+                key={order.id}
+                position={[order.lat, order.lng]}
+                icon={createNumberedIcon(index + 1, "#2563eb")}
+              >
+                <Popup>
+                  <div className="font-bold">
+                    Pedido #{index + 1}: {order.customer_name || "Sin cliente"}
+                  </div>
+                  <div className="text-sm text-gray-600">Ticket: {order.sale_number || order.id}</div>
+                  <div className="text-sm text-gray-600">
+                    Estado: {String(order.delivery_status || "PENDIENTE").toUpperCase()}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+
+            {!optimizedRoute && pendingPositions.length > 1 && (
+              <FitBounds positions={pendingPositions} />
             )}
 
             {/* Stop markers */}
