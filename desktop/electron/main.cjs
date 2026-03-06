@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 
 const isDev = process.env.ELECTRON_DEV === "1";
+Menu.setApplicationMenu(null);
 if (process.platform === "win32") {
   app.setAppUserModelId("com.lafamilia.desktop");
 }
