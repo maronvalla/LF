@@ -851,6 +851,8 @@ export default function Ventas({
       return;
     }
 
+    const existingIndex = draft.items.findIndex((item) => item.productId === product.id);
+
     setDraft((prev) => {
       const idx = prev.items.findIndex((i) => i.productId === product.id);
       if (idx >= 0) {
@@ -873,6 +875,7 @@ export default function Ventas({
         ],
       };
     });
+    setSelectedIdx(existingIndex >= 0 ? existingIndex : draft.items.length);
     setSearch("");
     setQty("1");
   };

@@ -291,7 +291,7 @@ export default function DriverApp({ onLogout, user }) {
   const normalizeDelivery = (row) => ({
     id: row.id,
     customerId: row.customer_id || null,
-    name: row.customer_name || row.sale_number || 'SIN CLIENTE',
+    name: row.customer_name || 'SIN CLIENTE',
     address: row.delivery_address || 'SIN DIRECCION',
     lat: Number(row.customer_latitude || 0),
     lng: Number(row.customer_longitude || 0),

@@ -164,7 +164,7 @@ async function listDeliveryOrders(date, slot) {
         s.delivery_address,
         s.notes,
         c.id AS customer_id,
-        c.name AS customer_name,
+        COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(s.customer_name_snapshot), ''), 'CONSUMIDOR FINAL') AS customer_name,
         c.phone AS customer_phone,
         c.latitude AS customer_latitude,
         c.longitude AS customer_longitude,

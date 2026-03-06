@@ -696,11 +696,22 @@ export default function Consolidado({ user, setToast }) {
     const leftRight = (left, right) => `${String(left || "")}\x1e${String(right || "")}`;
     const toNumber = (value) => {
       if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-      const normalized = String(value ?? "")
+      const raw = String(value ?? "")
         .trim()
         .replace(/\s+/g, "")
-        .replace(",", ".");
-      const parsed = Number(normalized);
+        .replace(/[^0-9,.-]/g, "");
+      if (!raw) return 0;
+      const lastDot = raw.lastIndexOf(".");
+      const lastComma = raw.lastIndexOf(",");
+      const sepIndex = Math.max(lastDot, lastComma);
+      if (sepIndex >= 0) {
+        const intPart = raw.slice(0, sepIndex).replace(/[.,]/g, "");
+        const decPart = raw.slice(sepIndex + 1).replace(/[.,]/g, "");
+        const normalized = `${intPart || "0"}.${decPart || "0"}`;
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : 0;
+      }
+      const parsed = Number(raw.replace(/[.,]/g, ""));
       return Number.isFinite(parsed) ? parsed : 0;
     };
     const fmt = (v) => `$${toNumber(v).toFixed(2)}`;
@@ -777,9 +788,10 @@ export default function Consolidado({ user, setToast }) {
   };
 
   const printAllDeliveryOrders = async () => {
-    const printableOrders = pedidosEnvio.filter(
-      (o) => String(o.delivery_status || "").toUpperCase() !== "ANULADO",
-    );
+    const printableOrders = pedidosEnvio.filter((o) => {
+      const status = String(o.delivery_status || "").toUpperCase();
+      return status !== "ANULADO" && status !== "PENDIENTE";
+    });
     if (!printableOrders.length) {
       setToast?.({ message: "No hay ordenes de envio para reimprimir", type: "error" });
       return;

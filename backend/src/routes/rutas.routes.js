@@ -21,11 +21,11 @@ const OPTIMIZE_SQL = `
     s.id AS sale_id,
     s.customer_id,
     s.sale_number,
-    c.name AS customer_name,
+    COALESCE(NULLIF(TRIM(c.name), ''), NULLIF(TRIM(s.customer_name_snapshot), ''), 'CONSUMIDOR FINAL') AS customer_name,
     c.latitude,
     c.longitude
   FROM sales s
-  JOIN customers c ON c.id = s.customer_id
+  LEFT JOIN customers c ON c.id = s.customer_id
   WHERE s.is_delivery = true
     AND s.scheduled_date = $1::date
     AND s.delivery_slot = $2
