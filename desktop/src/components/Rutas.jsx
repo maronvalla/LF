@@ -106,6 +106,7 @@ export default function Rutas({ setToast }) {
   const [origin, setOrigin] = useState(fallbackOrigin);
   const [driversStatus, setDriversStatus] = useState([]);
   const [allCustomersWithCoords, setAllCustomersWithCoords] = useState([]);
+  const [customerStopStats, setCustomerStopStats] = useState({});
 
   const pendingOrdersWithCoords = useMemo(() => {
     return (orders || [])
@@ -206,6 +207,7 @@ export default function Rutas({ setToast }) {
     setOptimizedRoute(null);
     setMetrics(null);
     setSkippedOrders([]);
+    setCustomerStopStats({});
   }, [fecha, salida]);
 
   useEffect(() => {
@@ -257,6 +259,28 @@ export default function Rutas({ setToast }) {
     window.open(url, "_blank");
   };
 
+  const SLOW_THRESHOLD_MIN = 8;
+  const SLOW_MIN_SAMPLES = 2;
+  const BIG_ORDER_QTY = 10;
+  const BIG_ORDER_AMOUNT = 150000;
+
+  function applySlowCustomerReorder(orden, stats) {
+    if (!stats || Object.keys(stats).length === 0) return orden;
+    const normal = [];
+    const slowSmall = [];
+    for (const stop of orden) {
+      const s = stats[String(stop.customer_id)];
+      const isSlow = s && s.sampleCount >= SLOW_MIN_SAMPLES && s.avgStopMin >= SLOW_THRESHOLD_MIN;
+      const isBig = Number(stop.total_qty) >= BIG_ORDER_QTY || Number(stop.total_amount) >= BIG_ORDER_AMOUNT;
+      if (isSlow && !isBig) {
+        slowSmall.push({ ...stop, slowWarning: true, avgStopMin: s.avgStopMin });
+      } else {
+        normal.push(stop);
+      }
+    }
+    return [...normal, ...slowSmall];
+  }
+
   const optimizeRoute = async () => {
     if (orders.length === 0) {
       setToast?.({ message: "No hay pedidos para optimizar", type: "warning" });
@@ -265,13 +289,23 @@ export default function Rutas({ setToast }) {
 
     setLoading(true);
     try {
-      const { data } = await api.post("/rutas/optimizar", { fecha, salida });
+      const [{ data }, statsRes] = await Promise.all([
+        api.post("/rutas/optimizar", { fecha, salida }),
+        api.get("/rutas/customer-stop-stats").catch(() => ({ data: {} })),
+      ]);
+      const stats = statsRes.data || {};
+      setCustomerStopStats(stats);
 
       if (data.orden && data.orden.length > 0) {
-        setOptimizedRoute(data.orden);
+        const reordered = applySlowCustomerReorder(data.orden, stats);
+        setOptimizedRoute(reordered);
         setMetrics(data.metric);
         setSkippedOrders(data.skipped_without_coords || []);
-        setToast?.({ message: "Ruta optimizada exitosamente", type: "success" });
+        const slowCount = reordered.filter((s) => s.slowWarning).length;
+        const msg = slowCount > 0
+          ? `Ruta optimizada · ${slowCount} cliente${slowCount > 1 ? "s" : ""} con demora habitual al final`
+          : "Ruta optimizada exitosamente";
+        setToast?.({ message: msg, type: "success" });
       } else {
         setToast?.({ message: data.message || "No hay envios con coordenadas", type: "warning" });
         setSkippedOrders(data.skipped_without_coords || []);
@@ -538,15 +572,24 @@ export default function Rutas({ setToast }) {
                 {optimizedRoute.map((stop, index) => (
                   <div
                     key={stop.sale_id}
-                    className="p-3 border border-zinc-700 rounded-lg bg-zinc-800/50 flex gap-3 items-center hover:bg-zinc-800 transition-colors"
+                    className={`p-3 border rounded-lg flex gap-3 items-center hover:bg-zinc-800 transition-colors ${
+                      stop.slowWarning
+                        ? "border-amber-500/40 bg-amber-500/5"
+                        : "border-zinc-700 bg-zinc-800/50"
+                    }`}
                   >
-                    <div className="w-8 h-8 rounded-full bg-[#e85d04] flex items-center justify-center font-bold text-white shrink-0 text-sm">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white shrink-0 text-sm ${stop.slowWarning ? "bg-amber-500" : "bg-[#e85d04]"}`}>
                       {index + 1}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-sm text-white truncate">
                         {stop.customer_name}
                       </div>
+                      {stop.slowWarning && (
+                        <div className="text-[10px] text-amber-400 font-bold">
+                          ⚠ Demora habitual · ~{stop.avgStopMin} min
+                        </div>
+                      )}
                       <div className="text-xs text-zinc-500 truncate">
                         {stop.sale_id?.slice(0, 8)}...
                       </div>

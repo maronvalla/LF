@@ -6,6 +6,17 @@ const { asyncHandler } = require("../utils/async-handler");
 
 const router = express.Router();
 
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 const FALLBACK_ORIGIN = {
   lat: -27.432028,
   lng: -65.616528,
@@ -27,7 +38,9 @@ const OPTIMIZE_SQL = `
       'CONSUMIDOR FINAL'
     ) AS customer_name,
     c.latitude,
-    c.longitude
+    c.longitude,
+    (SELECT COALESCE(SUM(line_total), 0) FROM sale_items WHERE sale_id = s.id)::numeric AS total_amount,
+    (SELECT COALESCE(SUM(qty), 0) FROM sale_items WHERE sale_id = s.id)::integer AS total_qty
   FROM sales s
   LEFT JOIN customers c ON c.id = s.customer_id
   WHERE s.is_delivery = true
@@ -110,6 +123,8 @@ router.post(
         customer_name: row.customer_name,
         lat: Number(row.latitude),
         lng: Number(row.longitude),
+        total_amount: Number(row.total_amount || 0),
+        total_qty: Number(row.total_qty || 0),
       });
     }
 
@@ -152,6 +167,8 @@ router.post(
         customer_name: wp.meta.customer_name,
         lat: wp.meta.lat,
         lng: wp.meta.lng,
+        total_amount: wp.meta.total_amount,
+        total_qty: wp.meta.total_qty,
       }));
 
     res.json({
@@ -164,6 +181,96 @@ router.post(
       },
       skipped_without_coords: withoutCoords,
     });
+  })
+);
+
+// GET /rutas/customer-stop-stats
+// Returns per-customer average dwell time from the last 30 days of GPS tracking.
+router.get(
+  "/customer-stop-stats",
+  requirePermission("deliveries.manage"),
+  asyncHandler(async (req, res) => {
+    const STOP_DIST_KM = 0.08;
+    const STOP_MIN_MIN = 3;
+    const MATCH_RADIUS_KM = 0.3;
+
+    const [gpsResult, customerResult] = await Promise.all([
+      pool.query(
+        `SELECT latitude::float AS lat, longitude::float AS lng,
+                EXTRACT(EPOCH FROM created_at) * 1000 AS ts_ms,
+                user_id,
+                (created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date AS day
+         FROM delivery_tracking
+         WHERE event_type = 'POSICION_CAMION'
+           AND created_at >= NOW() - INTERVAL '30 days'
+         ORDER BY user_id ASC, created_at ASC`
+      ),
+      pool.query(
+        `SELECT id, latitude::float AS lat, longitude::float AS lng
+         FROM customers
+         WHERE latitude IS NOT NULL AND longitude IS NOT NULL`
+      ),
+    ]);
+
+    const customers = customerResult.rows;
+
+    // Group GPS by user_id + day
+    const groups = new Map();
+    for (const row of gpsResult.rows) {
+      const key = `${row.user_id}:${row.day}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ lat: row.lat, lng: row.lng, ts: Number(row.ts_ms) });
+    }
+
+    // Run stop detection per group and accumulate per customer
+    const accumulator = new Map(); // customer_id -> { totalMin, count }
+    for (const points of groups.values()) {
+      const rawStops = [];
+      let currentStop = null;
+      for (let i = 1; i < points.length; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        const dist = haversineKm(prev.lat, prev.lng, curr.lat, curr.lng);
+        const gapMin = (curr.ts - prev.ts) / 60000;
+        if (dist < STOP_DIST_KM && gapMin >= STOP_MIN_MIN) {
+          if (currentStop) {
+            currentStop.endTs = curr.ts;
+            currentStop.lats.push(curr.lat);
+            currentStop.lngs.push(curr.lng);
+          } else {
+            currentStop = { startTs: prev.ts, endTs: curr.ts, lats: [prev.lat, curr.lat], lngs: [prev.lng, curr.lng] };
+            rawStops.push(currentStop);
+          }
+        } else {
+          currentStop = null;
+        }
+      }
+      for (const stop of rawStops) {
+        const durationMin = (stop.endTs - stop.startTs) / 60000;
+        if (durationMin < STOP_MIN_MIN) continue;
+        const lat = stop.lats.reduce((a, b) => a + b, 0) / stop.lats.length;
+        const lng = stop.lngs.reduce((a, b) => a + b, 0) / stop.lngs.length;
+        let nearestId = null;
+        let nearestDist = Infinity;
+        for (const c of customers) {
+          const d = haversineKm(lat, lng, c.lat, c.lng);
+          if (d < nearestDist) { nearestDist = d; nearestId = c.id; }
+        }
+        if (nearestId && nearestDist <= MATCH_RADIUS_KM) {
+          const key = String(nearestId);
+          if (!accumulator.has(key)) accumulator.set(key, { totalMin: 0, count: 0 });
+          const acc = accumulator.get(key);
+          acc.totalMin += durationMin;
+          acc.count++;
+        }
+      }
+    }
+
+    const result = {};
+    for (const [customerId, acc] of accumulator.entries()) {
+      result[customerId] = { avgStopMin: Math.round(acc.totalMin / acc.count), sampleCount: acc.count };
+    }
+    res.json(result);
   })
 );
 
