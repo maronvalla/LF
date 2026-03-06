@@ -320,13 +320,13 @@ export default function Consolidado({ user, setToast }) {
     [purchaseSuggestion.items],
   );
 
-  const pedidosEnvio = useMemo(
-    () =>
-      orders.filter(
-        (o) => String(o.delivery_status || "").toUpperCase() !== "ANULADO",
-      ),
-    [orders],
-  );
+  const pedidosEnvio = useMemo(() => {
+    const printableStatuses = new Set(["PENDIENTE", "CARGADO", "ENTREGADO", "RECHAZADO", "NO_ESTABA"]);
+    return orders.filter((o) => {
+      const status = String(o.delivery_status || "").toUpperCase();
+      return printableStatuses.has(status);
+    });
+  }, [orders]);
 
   const pickPlanRows = useMemo(
     () =>
@@ -694,7 +694,16 @@ export default function Consolidado({ user, setToast }) {
       return `${repeat(" ", left)}${t}`;
     };
     const leftRight = (left, right) => `${String(left || "")}\x1e${String(right || "")}`;
-    const fmt = (v) => `$${Number(v || 0).toFixed(2)}`;
+    const toNumber = (value) => {
+      if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+      const normalized = String(value ?? "")
+        .trim()
+        .replace(/\s+/g, "")
+        .replace(",", ".");
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const fmt = (v) => `$${toNumber(v).toFixed(2)}`;
 
     const d = new Date(String(sale.created_at || sale.scheduled_date || new Date().toISOString()));
     const dateStr = d.toLocaleDateString("es-AR");
@@ -730,9 +739,10 @@ export default function Consolidado({ user, setToast }) {
     let totalQty = 0;
     let totalAmount = 0;
     items.forEach((item, idx) => {
-      const qty = Number(item.qty || 0);
-      const unitPrice = Number(item.unit_price || item.unitPrice || 0);
-      const lineTotal = qty * unitPrice;
+      const qty = toNumber(item.qty ?? item.quantity ?? 0);
+      const unitPrice = toNumber(item.unit_price ?? item.unitPrice ?? 0);
+      const explicitLineTotal = toNumber(item.line_total ?? item.lineTotal ?? 0);
+      const lineTotal = explicitLineTotal > 0 ? explicitLineTotal : qty * unitPrice;
       totalQty += qty;
       totalAmount += lineTotal;
       lines.push(String(item.product_name || item.productName || "").toUpperCase());
@@ -741,8 +751,8 @@ export default function Consolidado({ user, setToast }) {
         lines.push(repeat(".", Math.min(MAX, 20)));
       }
     });
-    if (totalAmount === 0) {
-      totalAmount = Number(sale.total_amount || sale.sale_total || 0);
+    if (totalAmount <= 0) {
+      totalAmount = toNumber(sale.total_amount ?? sale.sale_total ?? sale.total ?? 0);
     }
 
     lines.push(repeat("-", separatorLength));
