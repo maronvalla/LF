@@ -1,7 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const { pool } = require("../db");
-const { requirePermission } = require("../middleware/rbac");
+const { requirePermission, requireAnyPermission } = require("../middleware/rbac");
 const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
@@ -128,7 +128,7 @@ router.get(
 
 router.get(
   "/stock-control",
-  requirePermission("inventory.view"),
+  requireAnyPermission("inventory.view", "inventory.transfer"),
   asyncHandler(async (req, res) => {
     const [state, canManage] = await Promise.all([
       loadStockControlState(),
@@ -140,7 +140,7 @@ router.get(
 
 router.post(
   "/stock-control/start",
-  requirePermission("inventory.view"),
+  requireAnyPermission("inventory.view", "inventory.transfer"),
   asyncHandler(async (req, res) => {
     const parsed = startStockControlSchema.safeParse(req.body || {});
     if (!parsed.success) return validationError(res, parsed);
@@ -178,7 +178,7 @@ router.post(
 
 router.put(
   "/stock-control/location",
-  requirePermission("inventory.view"),
+  requireAnyPermission("inventory.view", "inventory.transfer"),
   asyncHandler(async (req, res) => {
     const parsed = saveLocationCountsSchema.safeParse(req.body || {});
     if (!parsed.success) return validationError(res, parsed);
@@ -223,7 +223,7 @@ router.put(
 
 router.post(
   "/stock-control/finalize",
-  requirePermission("inventory.view"),
+  requireAnyPermission("inventory.view", "inventory.transfer"),
   asyncHandler(async (req, res) => {
     const canManage = await userCanManageStockControl(req.user, undefined, req.userPermissions);
     if (!canManage) {
@@ -307,7 +307,7 @@ router.post(
 
 router.get(
   "/stock-control/report.xlsx",
-  requirePermission("inventory.view"),
+  requireAnyPermission("inventory.view", "inventory.transfer"),
   asyncHandler(async (_req, res) => {
     const state = await loadStockControlState();
     const reportRows = Array.isArray(state.lastReport?.rows) ? state.lastReport.rows : [];
