@@ -40,6 +40,28 @@ const createNumberedIcon = (number, color = "#e85d04") => {
   });
 };
 
+const createInitialIcon = (initial = "C", color = "#f97316") =>
+  L.divIcon({
+    className: "custom-div-icon",
+    html: `<div style="
+      background-color: ${color};
+      color: white;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 12px;
+      border: 2px solid white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.28);
+      text-transform: uppercase;
+    ">${String(initial || "C").slice(0, 1)}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+
 const depotIcon = L.divIcon({
   className: "custom-div-icon",
   html: `<div style="
@@ -83,6 +105,7 @@ export default function Rutas({ setToast }) {
   const [skippedOrders, setSkippedOrders] = useState([]);
   const [origin, setOrigin] = useState(fallbackOrigin);
   const [driversStatus, setDriversStatus] = useState([]);
+  const [allCustomersWithCoords, setAllCustomersWithCoords] = useState([]);
 
   const pendingOrdersWithCoords = useMemo(() => {
     return (orders || [])
@@ -114,6 +137,38 @@ export default function Rutas({ setToast }) {
       setOrigin(fallbackOrigin);
     };
     loadOrigin();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCustomersWithCoords = async () => {
+      try {
+        const { data } = await api.get("/customers");
+        if (cancelled) return;
+        const rows = (Array.isArray(data) ? data : [])
+          .map((customer) => {
+            const lat = Number(customer.latitude);
+            const lng = Number(customer.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            return {
+              id: customer.id,
+              name: String(customer.name || "").trim(),
+              lat,
+              lng,
+              address: String(customer.address || "").trim(),
+            };
+          })
+          .filter(Boolean);
+        setAllCustomersWithCoords(rows);
+      } catch {
+        if (cancelled) return;
+        setAllCustomersWithCoords([]);
+      }
+    };
+    loadCustomersWithCoords();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Poll driver online status every 15 s
@@ -233,11 +288,31 @@ export default function Rutas({ setToast }) {
 
   const pendingPositions = useMemo(() => {
     if (optimizedRoute) return [];
+    const orderCustomerIds = new Set(
+      (orders || [])
+        .map((order) => String(order.customer_id || "").trim())
+        .filter(Boolean)
+    );
+    const customersWithoutOrders = allCustomersWithCoords.filter(
+      (customer) => !orderCustomerIds.has(String(customer.id || ""))
+    );
     return [
       [origin.lat, origin.lng],
       ...pendingOrdersWithCoords.map((order) => [order.lat, order.lng]),
+      ...customersWithoutOrders.map((customer) => [customer.lat, customer.lng]),
     ];
-  }, [optimizedRoute, origin.lat, origin.lng, pendingOrdersWithCoords]);
+  }, [optimizedRoute, origin.lat, origin.lng, pendingOrdersWithCoords, allCustomersWithCoords, orders]);
+
+  const customersWithoutOrders = useMemo(() => {
+    const orderCustomerIds = new Set(
+      (orders || [])
+        .map((order) => String(order.customer_id || "").trim())
+        .filter(Boolean)
+    );
+    return allCustomersWithCoords.filter(
+      (customer) => !orderCustomerIds.has(String(customer.id || ""))
+    );
+  }, [allCustomersWithCoords, orders]);
 
   // Format duration
   const formatDuration = (seconds) => {
@@ -587,6 +662,21 @@ export default function Rutas({ setToast }) {
                   <div className="text-sm text-gray-600">
                     Estado: {String(order.delivery_status || "PENDIENTE").toUpperCase()}
                   </div>
+                </Popup>
+              </Marker>
+            ))}
+            {!optimizedRoute && customersWithoutOrders.map((customer) => (
+              <Marker
+                key={`customer-${customer.id}`}
+                position={[customer.lat, customer.lng]}
+                icon={createInitialIcon(customer.name?.[0] || "C", "#f97316")}
+              >
+                <Popup>
+                  <div className="font-bold">{customer.name || "Cliente"}</div>
+                  {customer.address ? (
+                    <div className="text-sm text-gray-600">{customer.address}</div>
+                  ) : null}
+                  <div className="text-xs text-gray-500">Sin envío en este turno</div>
                 </Popup>
               </Marker>
             ))}
