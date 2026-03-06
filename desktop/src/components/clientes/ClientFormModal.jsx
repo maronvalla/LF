@@ -156,15 +156,17 @@ export default function ClientFormModal({
                     <div className="absolute z-20 mt-1 w-full bg-[#181818] border border-zinc-700 rounded-lg shadow-xl max-h-48 overflow-auto">
                       {addressOptions.map((option, index) => (
                         <button
-                          key={`${option.latitude}-${option.longitude}-${index}`}
+                          key={option.placeId || `${option.latitude}-${option.longitude}-${index}`}
                           type="button"
                           className="w-full text-left px-3 py-2 hover:bg-zinc-800 border-b border-zinc-800 last:border-b-0"
                           onClick={() => onRequestAddressSelection(option)}
                         >
                           <div className="text-xs text-zinc-100">{option.label}</div>
-                          <div className="text-[10px] text-zinc-500 font-mono">
-                            {Number(option.latitude).toFixed(6)}, {Number(option.longitude).toFixed(6)}
-                          </div>
+                          {option.latitude != null && option.longitude != null ? (
+                            <div className="text-[10px] text-zinc-500 font-mono">
+                              {Number(option.latitude).toFixed(6)}, {Number(option.longitude).toFixed(6)}
+                            </div>
+                          ) : null}
                         </button>
                       ))}
                       {String(addressSearch || "").trim().length >= 5 ? (

@@ -154,50 +154,14 @@ async function searchWithGoogle(query) {
   );
 
   const suggestions = Array.isArray(data?.suggestions) ? data.suggestions.slice(0, 6) : [];
-  if (!suggestions.length) return [];
-
-  const details = await Promise.all(
-    suggestions.map(async (s) => {
+  return suggestions
+    .map((s) => {
       const placeId = s?.placePrediction?.placeId;
-      if (!placeId) return null;
-      try {
-        const { data: placeData } = await axios.get(
-          `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
-          {
-            params: {
-              languageCode: "es",
-              regionCode: "AR",
-            },
-            headers: {
-              "X-Goog-Api-Key": key,
-              "X-Goog-FieldMask": "location,formattedAddress,displayName",
-            },
-            ...AXIOS_BASE_CONFIG,
-          }
-        );
-
-        const lat = Number(placeData?.location?.latitude);
-        const lng = Number(placeData?.location?.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-        const label =
-          placeData?.formattedAddress ||
-          placeData?.displayName?.text ||
-          s?.placePrediction?.text?.text ||
-          "";
-        return {
-          provider: "GOOGLE",
-          label,
-          address: label,
-          latitude: lat,
-          longitude: lng,
-        };
-      } catch {
-        return null;
-      }
+      const label = s?.placePrediction?.text?.text || "";
+      if (!placeId || !label) return null;
+      return { provider: "GOOGLE", label, address: label, placeId, latitude: null, longitude: null };
     })
-  );
-
-  return filterTucumanResults(details.filter(Boolean));
+    .filter(Boolean);
 }
 
 async function reverseWithMapbox(lat, lng) {
@@ -290,6 +254,37 @@ router.get(
     }
 
     res.json(results);
+  })
+);
+
+router.get(
+  "/place-details",
+  requirePermission("customers.manage"),
+  asyncHandler(async (req, res) => {
+    const placeId = String(req.query.placeId || "").trim();
+    if (!placeId) return res.status(400).json({ ok: false, message: "placeId requerido" });
+    const key = process.env.GOOGLE_MAPS_API_KEY;
+    if (!key) return res.status(503).json({ ok: false, message: "Google Maps no configurado" });
+
+    const { data } = await axios.get(
+      `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
+      {
+        params: { languageCode: "es", regionCode: "AR" },
+        headers: {
+          "X-Goog-Api-Key": key,
+          "X-Goog-FieldMask": "location,formattedAddress,displayName",
+        },
+        ...AXIOS_BASE_CONFIG,
+      }
+    );
+
+    const lat = Number(data?.location?.latitude);
+    const lng = Number(data?.location?.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(404).json({ ok: false, message: "No se encontraron coordenadas" });
+    }
+    const address = data?.formattedAddress || data?.displayName?.text || "";
+    return res.json({ ok: true, latitude: lat, longitude: lng, address });
   })
 );
 

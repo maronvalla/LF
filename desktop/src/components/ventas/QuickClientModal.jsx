@@ -68,15 +68,17 @@ export default function QuickClientModal({
                 <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-auto rounded-lg border border-zinc-700 bg-[#181818] shadow-xl">
                   {addressOptions.map((option, index) => (
                     <button
-                      key={`${option.latitude}-${option.longitude}-${index}`}
+                      key={option.placeId || `${option.latitude}-${option.longitude}-${index}`}
                       type="button"
                       className="w-full border-b border-zinc-800 px-3 py-2 text-left hover:bg-zinc-800 last:border-b-0"
                       onClick={() => onAddressSelect(option)}
                     >
                       <div className="text-xs text-zinc-100">{option.label}</div>
-                      <div className="text-[10px] font-mono text-zinc-500">
-                        {Number(option.latitude).toFixed(6)}, {Number(option.longitude).toFixed(6)}
-                      </div>
+                      {option.latitude != null && option.longitude != null ? (
+                        <div className="text-[10px] font-mono text-zinc-500">
+                          {Number(option.latitude).toFixed(6)}, {Number(option.longitude).toFixed(6)}
+                        </div>
+                      ) : null}
                     </button>
                   ))}
                   {String(addressSearch || "").trim().length >= 5 ? (

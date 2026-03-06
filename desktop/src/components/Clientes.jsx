@@ -390,26 +390,36 @@ export default function Clientes({ setToast }) {
     setBulkAddressOptions([]);
   };
 
-  const requestAddressSelection = ({ mode, option, rowId = null }) => {
-    const lat = Number(option?.latitude);
-    const lng = Number(option?.longitude);
+  const requestAddressSelection = async ({ mode, option, rowId = null }) => {
+    let resolved = option;
+    if (option?.placeId && option.latitude == null) {
+      try {
+        const { data } = await api.get("/customers/place-details", { params: { placeId: option.placeId } });
+        resolved = { ...option, latitude: data.latitude, longitude: data.longitude, address: data.address || option.address };
+      } catch {
+        resolved = option;
+      }
+    }
+
+    const lat = Number(resolved?.latitude);
+    const lng = Number(resolved?.longitude);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      if (mode === "bulk") applyBulkAddressOption(rowId, option);
-      else applySingleAddressOption(option);
+      if (mode === "bulk") applyBulkAddressOption(rowId, resolved);
+      else applySingleAddressOption(resolved);
       return;
     }
 
     const distanceKm = haversineKm(DEFAULT_MAP_CENTER, { lat, lng });
     if (distanceKm <= HABITUAL_ROUTE_RADIUS_KM) {
-      if (mode === "bulk") applyBulkAddressOption(rowId, option);
-      else applySingleAddressOption(option);
+      if (mode === "bulk") applyBulkAddressOption(rowId, resolved);
+      else applySingleAddressOption(resolved);
       return;
     }
 
     setPendingAddressSelection({
       mode,
       rowId,
-      option,
+      option: resolved,
       distanceKm,
     });
   };
