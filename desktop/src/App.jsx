@@ -13,6 +13,7 @@ function isTypingTarget(target) {
 }
 
 const ConsultarVentas = lazy(() => import("./components/ConsultarVentas"));
+const ConsultarOrdenes = lazy(() => import("./components/ConsultarOrdenes"));
 const DriverApp = lazy(() => import("./components/DriverApp"));
 const RepartoPanel = lazy(() => import("./components/RepartoPanel"));
 const Productos = lazy(() => import("./components/Productos"));
@@ -295,6 +296,8 @@ export default function App() {
         );
       case "📝 ConsultarVentas":
         return <ConsultarVentas />;
+      case "📋 ConsultarOrdenes":
+        return <ConsultarOrdenes setToast={setToast} />;
       case "🛵 Reparto":
         return role === "REPARTIDOR" ? (
           <DriverApp onLogout={handleLogout} />

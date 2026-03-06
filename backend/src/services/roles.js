@@ -56,7 +56,7 @@ const TABS_BY_PERMISSION = [
   { permission: "products.manage", tabs: ["📦 Productos"] },
   { permission: "customers.manage", tabs: ["👥 Clientes"] },
   { permission: "purchases.manage", tabs: ["🛒 Compras", "🚚 Proveedores"] },
-  { permission: "sales.manage", tabs: ["🏷️ Ventas", "📝 ConsultarVentas"] },
+  { permission: "sales.manage", tabs: ["🏷️ Ventas", "📝 ConsultarVentas", "📋 ConsultarOrdenes"] },
   { permission: "sales.checkout", tabs: ["💰 Caja", "📊 Consolidado"] },
   { permission: "deliveries.manage", tabs: ["🛵 Reparto", "🗺️ Rutas"] },
   { permission: "inventory.view", tabs: ["🏢 Inventario"] },

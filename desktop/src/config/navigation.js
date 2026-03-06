@@ -44,5 +44,5 @@ export const ROLE_TABS = {
     "🗺️ Rutas",
     "🚚 Proveedores",
   ],
-  VENDEDOR: ["🏷️ Ventas", "🗺️ Rutas"],
+  VENDEDOR: ["🏷️ Ventas", "🗺️ Rutas", "📋 ConsultarOrdenes"],
 };

@@ -471,6 +471,35 @@ router.get(
 );
 
 router.get(
+  "/my-orders-today",
+  requirePermission("sales.manage"),
+  asyncHandler(async (req, res) => {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        s.id,
+        s.sale_number,
+        s.created_at,
+        s.status,
+        s.sale_type,
+        COALESCE(c.name, s.customer_name_snapshot, 'CONSUMIDOR FINAL') AS customer_name,
+        COALESCE(SUM(si.line_total), 0)::numeric AS total_amount
+      FROM sales s
+      LEFT JOIN customers c ON c.id = s.customer_id
+      LEFT JOIN sale_items si ON si.sale_id = s.id
+      WHERE s.created_by = $1
+        AND s.created_at::date = CURRENT_DATE
+        AND s.status <> 'ANULADO'
+      GROUP BY s.id, c.name
+      ORDER BY s.created_at DESC
+    `,
+      [req.user.id]
+    );
+    res.json(rows);
+  })
+);
+
+router.get(
   "/pending-orders",
   requirePermission("sales.manage"),
   asyncHandler(async (req, res) => {
