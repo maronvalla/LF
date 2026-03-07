@@ -883,6 +883,10 @@ export default function Consolidado({ user, setToast }) {
       if (deliveryAddress) {
         lines.push(...wrapTicketText(deliveryAddress, MAX, "Dir: "));
       }
+      const customerZone = String(sale.customer_zone || "").trim();
+      if (customerZone) {
+        lines.push(...wrapTicketText(customerZone, MAX, "Zona: "));
+      }
       lines.push(repeat("-", separatorLength));
     }
 

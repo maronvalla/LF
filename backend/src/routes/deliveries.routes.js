@@ -173,6 +173,7 @@ async function listDeliveryOrders(date, slot) {
           'CONSUMIDOR FINAL'
         ) AS customer_name,
         c.phone AS customer_phone,
+        c.zone AS customer_zone,
         c.latitude AS customer_latitude,
         c.longitude AS customer_longitude,
         COALESCE(total.total_amount, 0)::numeric AS sale_total,
