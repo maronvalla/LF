@@ -113,23 +113,30 @@ async function searchWithTomTom(query) {
   );
 }
 
-async function searchWithGoogle(query) {
-  const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return [];
-  const { data } = await axios.get("https://maps.googleapis.com/maps/api/geocode/json", {
-    params: { address: `${query}, Tucumán, Argentina`, key, language: "es", region: "AR" },
+async function searchWithNominatim(query) {
+  const { data } = await axios.get("https://nominatim.openstreetmap.org/search", {
+    params: {
+      q: `${query}, Tucumán, Argentina`,
+      countrycodes: "ar",
+      limit: 3,
+      format: "json",
+      "accept-language": "es",
+    },
+    headers: { "User-Agent": "LF-DeliveryApp/1.0" },
     ...AXIOS_BASE_CONFIG,
   });
-  const results = Array.isArray(data?.results) ? data.results.slice(0, 3) : [];
+  const results = Array.isArray(data) ? data : [];
   return filterTucumanResults(
-    results.map((r) => {
-      const lat = Number(r?.geometry?.location?.lat);
-      const lng = Number(r?.geometry?.location?.lng);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      const label = r?.formatted_address || "";
-      if (!label) return null;
-      return { provider: "GOOGLE", label, address: label, latitude: lat, longitude: lng };
-    }).filter(Boolean)
+    results
+      .map((r) => {
+        const lat = Number(r?.lat);
+        const lng = Number(r?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const label = r?.display_name || "";
+        if (!label) return null;
+        return { provider: "OSM", label, address: label, latitude: lat, longitude: lng };
+      })
+      .filter(Boolean)
   );
 }
 
@@ -176,7 +183,7 @@ router.get(
     const tomtomHasNumber = !queriedNumber || results.some((r) => String(r.label).includes(queriedNumber));
     if (!results.length || (queriedNumber && !tomtomHasNumber)) {
       try {
-        results = await searchWithGoogle(q);
+        results = await searchWithNominatim(q);
       } catch {
         results = [];
       }
