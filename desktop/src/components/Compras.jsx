@@ -15,6 +15,9 @@ const isQtyShortcut = (event) =>
 const isPriceShortcut = (event) =>
   event.key === "/" || event.key === "Divide" || event.code === "NumpadDivide";
 
+const normalizeActiveProducts = (rows) =>
+  (Array.isArray(rows) ? rows : []).filter((product) => product?.is_active !== false);
+
 export default function Compras({ user, setToast }) {
   const role = String(user?.role || "").toUpperCase();
   const [products, setProducts] = useState([]);
@@ -57,14 +60,30 @@ export default function Compras({ user, setToast }) {
   const hasComprasModalOpen =
     showQtyEditModal || showCostEditModal || showProductModal || showHistoryModal;
 
+  const fetchProductsFromDb = async ({ silent = false } = {}) => {
+    try {
+      const { data } = await api.get("/products");
+      const nextProducts = normalizeActiveProducts(data);
+      setProducts(nextProducts);
+      return nextProducts;
+    } catch {
+      if (!silent) {
+        setToast?.({ message: "No se pudo refrescar articulos", type: "error" });
+      }
+      return null;
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       try {
         const [p, s] = await Promise.all([
-          api.get("/products"),
+          fetchProductsFromDb({ silent: true }),
           api.get("/suppliers").catch(() => ({ data: [] })),
         ]);
-        setProducts((p.data || []).filter((x) => x.is_active !== false));
+        if (!p) {
+          throw new Error("products-load-failed");
+        }
         setSuppliers(s.data || []);
       } catch {
         setToast?.({ message: "Error al cargar datos de compras", type: "error" });
@@ -109,7 +128,7 @@ export default function Compras({ user, setToast }) {
       }
       if (e.key === "F5") {
         e.preventDefault();
-        setShowProductModal(true);
+        openProductSearch();
       }
       if (qtyShortcut) {
         e.preventDefault();
@@ -180,6 +199,9 @@ export default function Compras({ user, setToast }) {
   };
 
   const addItem = (product) => {
+    const qtyToAdd = Number(String(qty || "1").replace(",", ".")) || 1;
+    const existingIndex = draft.items.findIndex((item) => item.productId === product.id);
+
     setDraft((prev) => {
       const costToUse = Number(unitCost) > 0 ? Number(unitCost) : Number(product.cost || 0);
       const idx = prev.items.findIndex((i) => i.productId === product.id);
@@ -187,7 +209,7 @@ export default function Compras({ user, setToast }) {
         const next = [...prev.items];
         next[idx] = {
           ...next[idx],
-          qty: Number(next[idx].qty) + Number(qty || 1),
+          qty: Number(next[idx].qty) + qtyToAdd,
           unitCost: costToUse,
         };
         return { ...prev, items: next };
@@ -200,20 +222,23 @@ export default function Compras({ user, setToast }) {
             productId: product.id,
             codigo: product.codigo || product.sku,
             name: product.name,
-            qty: Number(qty || 1),
+            qty: qtyToAdd,
             unitCost: costToUse,
           },
         ],
       };
     });
+    setSelectedIdx(existingIndex >= 0 ? existingIndex : draft.items.length);
     setSearch("");
     setQty(1);
     setUnitCost("");
   };
 
-  const addCurrentSearchItem = () => {
+  const addCurrentSearchItem = async () => {
     if (!search.trim()) return;
-    const exact = products.find(
+    const refreshedProducts = await fetchProductsFromDb();
+    if (!refreshedProducts) return;
+    const exact = refreshedProducts.find(
       (p) =>
         String(p.codigo || p.sku).toLowerCase() === search.trim().toLowerCase() ||
         String(p.id).toLowerCase() === search.trim().toLowerCase()
@@ -223,6 +248,12 @@ export default function Compras({ user, setToast }) {
     } else {
       setToast?.({ message: "Articulo no encontrado", type: "error" });
     }
+  };
+
+  const openProductSearch = async () => {
+    const refreshedProducts = await fetchProductsFromDb();
+    if (!refreshedProducts) return;
+    setShowProductModal(true);
   };
 
   const submit = async () => {
@@ -551,14 +582,14 @@ export default function Compras({ user, setToast }) {
                     addCurrentSearchItem();
                   } else if (e.key === "F5") {
                     e.preventDefault();
-                    setShowProductModal(true);
+                    openProductSearch();
                   }
                 }}
                 autoComplete="off"
               />
               <button
                 className="bg-white hover:bg-zinc-50 border border-[#caa57f] text-[#b26a1e] rounded w-[26px] h-[26px] flex items-center justify-center transition-colors"
-                onClick={() => setShowProductModal(true)}
+                onClick={openProductSearch}
                 title="Busqueda de Articulos (F5)"
                 type="button"
               >
