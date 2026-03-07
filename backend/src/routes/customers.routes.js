@@ -93,7 +93,7 @@ async function searchWithTomTom(query) {
       lon: AGUILARES_BIAS.lng,
       radius: 80000,
       language: "es-ES",
-      idxSet: "PAD,Addr,Str,Geo,POI",
+      idxSet: "PAD,Addr,Str,Geo,POI,XStr",
     },
     ...AXIOS_BASE_CONFIG,
   });
