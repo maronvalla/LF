@@ -81,6 +81,7 @@ export default function Clientes({ setToast }) {
   const [addressOptions, setAddressOptions] = useState([]);
   const [addressLoading, setAddressLoading] = useState(false);
   const [addressDropdownOpen, setAddressDropdownOpen] = useState(false);
+  const [googleSearchLoading, setGoogleSearchLoading] = useState(false);
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [mapPosition, setMapPosition] = useState(DEFAULT_MAP_CENTER);
   const [mapResolvingAddress, setMapResolvingAddress] = useState(false);
@@ -390,6 +391,20 @@ export default function Clientes({ setToast }) {
     setBulkAddressOptions([]);
   };
 
+  const searchWithGoogleDirect = async (query) => {
+    if (!query || query.length < 5) return;
+    try {
+      setGoogleSearchLoading(true);
+      const { data } = await api.get("/customers/address-search", { params: { q: query, provider: "google" } });
+      setAddressOptions(Array.isArray(data) ? data : []);
+      setAddressDropdownOpen(true);
+    } catch {
+      setAddressOptions([]);
+    } finally {
+      setGoogleSearchLoading(false);
+    }
+  };
+
   const requestAddressSelection = ({ mode, option, rowId = null }) => {
     const resolved = option;
     const lat = Number(resolved?.latitude);
@@ -633,6 +648,8 @@ export default function Clientes({ setToast }) {
           onRequestAddressSelection={(option) =>
             requestAddressSelection({ mode: "single", option })
           }
+          onGoogleSearch={searchWithGoogleDirect}
+          googleSearchLoading={googleSearchLoading}
           priceLists={priceLists}
           onClose={closeFormModal}
           onSave={saveClient}

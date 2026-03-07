@@ -167,6 +167,13 @@ router.get(
   asyncHandler(async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (q.length < 5) return res.json([]);
+
+    if (req.query.provider === "google") {
+      let results = [];
+      try { results = await searchWithGoogle(q); } catch { results = []; }
+      return res.json(results);
+    }
+
     let results = [];
     try {
       results = await searchWithTomTom(q);
