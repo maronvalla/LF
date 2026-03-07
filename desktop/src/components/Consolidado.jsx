@@ -800,7 +800,7 @@ export default function Consolidado({ user, setToast }) {
   const printAllDeliveryOrders = async () => {
     const printableOrders = pedidosEnvio.filter((o) => {
       const status = String(o.delivery_status || "").toUpperCase();
-      return status !== "ANULADO" && status !== "PENDIENTE";
+      return status !== "ANULADO";
     });
     if (!printableOrders.length) {
       setToast?.({ message: "No hay ordenes de envio para reimprimir", type: "error" });
