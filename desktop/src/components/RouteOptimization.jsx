@@ -102,7 +102,7 @@ export default function RouteOptimization({ onBack }) {
                 {/* Map */}
                 <div className="lg:col-span-3 card p-0 overflow-hidden relative border-zinc-700">
                     <MapContainer center={[-27.4339, -65.6186]} zoom={14} style={{ height: '100%', width: '100%' }}>
-                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
                         {route && (
                             <>
                                 <Polyline positions={polylinePositions} color="blue" />
