@@ -87,7 +87,7 @@ async function searchWithTomTom(query) {
   const { data } = await axios.get(endpoint, {
     params: {
       key,
-      limit: 6,
+      limit: 3,
       countrySet: "AR",
       lat: AGUILARES_BIAS.lat,
       lon: AGUILARES_BIAS.lng,
