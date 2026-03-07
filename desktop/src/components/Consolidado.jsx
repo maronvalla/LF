@@ -127,7 +127,13 @@ export default function Consolidado({ user, setToast }) {
   const [theme] = useState(() => localStorage.getItem("appTheme") || "light");
   const isDark = theme === "dark";
 
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  });
   const [slot, setSlot] = useState("11");
   const [loading, setLoading] = useState(false);
   const [orders, setOrders] = useState([]);
@@ -147,6 +153,7 @@ export default function Consolidado({ user, setToast }) {
   const [cashierSignature, setCashierSignature] = useState("");
   const [driverSignature, setDriverSignature] = useState("");
   const [savingControl, setSavingControl] = useState(false);
+  const [cancellingControl, setCancellingControl] = useState(false);
   const [hasSavedControlForShift, setHasSavedControlForShift] = useState(false);
 
   const [controlOpen, setControlOpen] = useState(false);
@@ -414,6 +421,22 @@ export default function Consolidado({ user, setToast }) {
       });
     } finally {
       setSavingControl(false);
+    }
+  };
+
+  const cancelControl = async () => {
+    setCancellingControl(true);
+    try {
+      await api.post("/deliveries/consolidated-control/cancel", { date, slot });
+      setToast?.({ message: "Consolidado anulado correctamente", type: "success" });
+      await load();
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo anular el consolidado",
+        type: "error",
+      });
+    } finally {
+      setCancellingControl(false);
     }
   };
 
@@ -925,12 +948,21 @@ export default function Consolidado({ user, setToast }) {
             <button
               type="button"
               className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white shadow-md"
+              disabled={cancellingControl}
               onClick={async () => {
                 if (hasSavedControlForShift) {
-                  setToast?.({
-                    message: "Este turno ya tiene consolidado validado.",
-                    type: "warning",
-                  });
+                  if (role === "ADMIN") {
+                    const confirmed = await showConfirm(
+                      "Ya hay un consolidado hecho. ¿Deseas anularlo?",
+                    );
+                    if (!confirmed) return;
+                    await cancelControl();
+                  } else {
+                    setToast?.({
+                      message: "Este turno ya tiene consolidado validado.",
+                      type: "warning",
+                    });
+                  }
                   return;
                 }
                 const confirmed = await showConfirm(
