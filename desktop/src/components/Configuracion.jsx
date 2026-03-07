@@ -34,6 +34,7 @@ import {
 import {
   DEFAULT_CONSOLIDADO_CONFIG,
   loadConsolidadoConfig,
+  normalizeConsolidadoPriorityRubros,
   saveConsolidadoConfig,
 } from "../utils/consolidadoConfig";
 
@@ -191,6 +192,9 @@ export default function Configuracion({ user, setToast }) {
   const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [resettingAppData, setResettingAppData] = useState(false);
   const [consolidadoConfig, setConsolidadoConfig] = useState(() => loadConsolidadoConfig());
+  const [consolidadoPriorityInput, setConsolidadoPriorityInput] = useState(() =>
+    loadConsolidadoConfig().priorityRubros.join(", ")
+  );
 
   const canEdit = useMemo(() => {
     return role === "ADMIN" || role === "CAJERO";
@@ -1725,7 +1729,7 @@ export default function Configuracion({ user, setToast }) {
 
       <SettingsCard
         title="Consolidado de carga"
-        subtitle="Comportamiento predeterminado de la asignacion de stock."
+        subtitle="Comportamiento predeterminado de la asignacion de stock y orden de rubros."
       >
         <div className="space-y-4">
           <div>
@@ -1746,12 +1750,31 @@ export default function Configuracion({ user, setToast }) {
             <option value="LOCAL">LOCAL</option>
             <option value="GALPON">GALPON</option>
           </select>
+          <div>
+            <label className={sectionLabelClass}>Rubros prioritarios</label>
+            <p className="text-zinc-400 text-sm mt-1">
+              Define el orden de aparicion del consolidado. Escribe los rubros separados por coma.
+              El primero tiene maxima prioridad. Por defecto se prioriza BEBIDAS.
+            </p>
+          </div>
+          <textarea
+            className={`${panelInputClass} min-h-[96px] max-w-2xl`}
+            value={consolidadoPriorityInput}
+            onChange={(e) => setConsolidadoPriorityInput(e.target.value)}
+            disabled={!canEdit}
+            placeholder="Ej: BEBIDAS, ALMACEN, LIMPIEZA"
+          />
           <div className="flex justify-end">
             <button
               className={primaryButtonClass}
               disabled={!canEdit}
               onClick={() => {
-                saveConsolidadoConfig(consolidadoConfig);
+                const normalized = saveConsolidadoConfig({
+                  ...consolidadoConfig,
+                  priorityRubros: normalizeConsolidadoPriorityRubros(consolidadoPriorityInput),
+                });
+                setConsolidadoConfig(normalized);
+                setConsolidadoPriorityInput(normalized.priorityRubros.join(", "));
                 setToast?.({ message: "Configuracion de consolidado guardada", type: "success" });
               }}
             >

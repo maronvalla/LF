@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
 import ConfirmModal from "./ventas/ConfirmModal";
 import {
@@ -9,6 +9,61 @@ import {
   loadTicketConfig,
 } from "../utils/ticketConfig";
 import { loadConsolidadoConfig } from "../utils/consolidadoConfig";
+
+function normalizeRubroKey(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function getRowRubroLabel(row) {
+  return (
+    String(
+      row?.rubro_name || row?.rubroName || row?.category_name || row?.categoryName || "SIN RUBRO"
+    ).trim() || "SIN RUBRO"
+  );
+}
+
+function buildRowsByRubro(rows, priorityRubros) {
+  const priorities = new Map(
+    (Array.isArray(priorityRubros) ? priorityRubros : []).map((item, index) => [
+      normalizeRubroKey(item),
+      index,
+    ])
+  );
+  const groups = new Map();
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const rubroLabel = getRowRubroLabel(row);
+    const rubroKey = normalizeRubroKey(rubroLabel);
+    if (!groups.has(rubroKey)) {
+      groups.set(rubroKey, {
+        key: rubroKey,
+        label: rubroLabel,
+        items: [],
+        totalQty: 0,
+        totalReturnableUnits: 0,
+      });
+    }
+
+    const group = groups.get(rubroKey);
+    group.items.push(row);
+    group.totalQty += Number(row?.total_qty ?? row?.qty_to_return ?? 0);
+    group.totalReturnableUnits += Number(row?.total_returnable_units || 0);
+  }
+
+  return Array.from(groups.values())
+    .sort((a, b) => {
+      const aPriority = priorities.has(a.key) ? priorities.get(a.key) : Number.MAX_SAFE_INTEGER;
+      const bPriority = priorities.has(b.key) ? priorities.get(b.key) : Number.MAX_SAFE_INTEGER;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      return a.label.localeCompare(b.label, "es", { sensitivity: "base" });
+    })
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort((a, b) =>
+        String(a?.name || "").localeCompare(String(b?.name || ""), "es", { sensitivity: "base" })
+      ),
+    }));
+}
 
 function SignaturePad({ label, onChange, initialDataUrl }) {
   const canvasRef = useRef(null);
@@ -356,6 +411,26 @@ export default function Consolidado({ user, setToast }) {
     [consolidated, pickPlanByProduct],
   );
 
+  const consolidadoSettings = loadConsolidadoConfig();
+  const priorityRubros = Array.isArray(consolidadoSettings.priorityRubros)
+    ? consolidadoSettings.priorityRubros
+    : [];
+
+  const consolidatedSections = useMemo(
+    () => buildRowsByRubro(consolidated, priorityRubros),
+    [consolidated, priorityRubros],
+  );
+
+  const pickPlanSections = useMemo(
+    () => buildRowsByRubro(pickPlanRows, priorityRubros),
+    [pickPlanRows, priorityRubros],
+  );
+
+  const rejectedReturnSections = useMemo(
+    () => buildRowsByRubro(rejectedReturns, priorityRubros),
+    [rejectedReturns, priorityRubros],
+  );
+
   const checklistDoneCount = useMemo(
     () =>
       consolidated.filter((r) => Boolean(checklistByProduct[r.product_id]))
@@ -627,42 +702,50 @@ export default function Consolidado({ user, setToast }) {
     lines.push(repeat("-", MAX));
     lines.push("MERCADERIA A SACAR");
     lines.push(repeat("-", MAX));
-    consolidated.forEach((row) => {
-      lines.push(
-        String(row.name || "")
-          .toUpperCase()
-          .slice(0, MAX),
-      );
-      lines.push(leftRight("Cant", `${Number(row.total_qty || 0)}`));
-      const plan = pickPlanByProduct[row.product_id] || {
-        localQty: 0,
-        galponQty: Number(row.total_qty || 0),
-      };
-      lines.push(
-        leftRight(
-          "Local/Galpon",
-          `${Number(plan.localQty || 0)}/${Number(plan.galponQty || 0)}`,
-        ),
-      );
-      if (Number(row.total_returnable_units || 0) > 0) {
-        lines.push(
-          leftRight("Envases", `${Number(row.total_returnable_units || 0)}`),
-        );
-      }
-      lines.push(repeat("-", MAX));
-    });
-    if (rejectedReturns.length) {
-      lines.push("DEVOLUCIONES POR RECHAZO");
-      lines.push(repeat("-", MAX));
-      rejectedReturns.forEach((row) => {
+    consolidatedSections.forEach((section) => {
+      lines.push(String(section.label || "SIN RUBRO").toUpperCase().slice(0, MAX));
+      lines.push(repeat(".", Math.min(MAX, 20)));
+      section.items.forEach((row) => {
         lines.push(
           String(row.name || "")
             .toUpperCase()
             .slice(0, MAX),
         );
-        lines.push(leftRight("Dev.", `${Number(row.qty_to_return || 0)}`));
+        lines.push(leftRight("Cant", `${Number(row.total_qty || 0)}`));
+        const plan = pickPlanByProduct[row.product_id] || {
+          localQty: 0,
+          galponQty: Number(row.total_qty || 0),
+        };
+        lines.push(
+          leftRight(
+            "Local/Galpon",
+            `${Number(plan.localQty || 0)}/${Number(plan.galponQty || 0)}`,
+          ),
+        );
+        if (Number(row.total_returnable_units || 0) > 0) {
+          lines.push(
+            leftRight("Envases", `${Number(row.total_returnable_units || 0)}`),
+          );
+        }
+        lines.push(repeat("-", MAX));
       });
+    });
+    if (rejectedReturnSections.length) {
+      lines.push("DEVOLUCIONES POR RECHAZO");
       lines.push(repeat("-", MAX));
+      rejectedReturnSections.forEach((section) => {
+        lines.push(String(section.label || "SIN RUBRO").toUpperCase().slice(0, MAX));
+        lines.push(repeat(".", Math.min(MAX, 20)));
+        section.items.forEach((row) => {
+          lines.push(
+            String(row.name || "")
+              .toUpperCase()
+              .slice(0, MAX),
+          );
+          lines.push(leftRight("Dev.", `${Number(row.qty_to_return || 0)}`));
+        });
+        lines.push(repeat("-", MAX));
+      });
     }
     lines.push(center("Control: ____ / Chofer: ____"));
     lines.push("");
@@ -1055,25 +1138,41 @@ export default function Consolidado({ user, setToast }) {
                 </tr>
               </thead>
               <tbody>
-                {consolidated.map((row) => (
-                  <tr
-                    key={row.product_id}
-                    className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
-                  >
-                    <td className={`px-5 py-3 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
-                    <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
-                      {row.name}
-                    </td>
-                    <td className={`px-5 py-3 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                      {row.unit_label || "unidad"}
-                    </td>
-                    <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
-                      {Number(row.total_qty || 0)}
-                    </td>
-                    <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-emerald-600'}`}>
-                      {Number(row.total_returnable_units || 0)}
-                    </td>
-                  </tr>
+                {consolidatedSections.map((section) => (
+                  <Fragment key={`section-preview-${section.key}`}>
+                    <tr className={`${isDark ? 'bg-zinc-900/80' : 'bg-[#fff7f1]'}`}>
+                      <td colSpan={5} className="px-5 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className={`font-black uppercase tracking-[0.16em] ${isDark ? 'text-[#ffb36c]' : 'text-[#b45309]'}`}>
+                            {section.label}
+                          </span>
+                          <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            {section.items.length} item{section.items.length === 1 ? "" : "s"} - {section.totalQty} unidades
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {section.items.map((row) => (
+                      <tr
+                        key={row.product_id}
+                        className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                      >
+                        <td className={`px-5 py-3 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
+                        <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                          {row.name}
+                        </td>
+                        <td className={`px-5 py-3 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                          {row.unit_label || "unidad"}
+                        </td>
+                        <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
+                          {Number(row.total_qty || 0)}
+                        </td>
+                        <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-emerald-600'}`}>
+                          {Number(row.total_returnable_units || 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
                 {!consolidated.length && (
                   <tr>
@@ -1121,22 +1220,38 @@ export default function Consolidado({ user, setToast }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {consolidated.map((row) => (
-                    <tr
-                      key={row.product_id}
-                      className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
-                    >
-                      <td className={`px-4 xl:px-5 py-3 xl:py-4 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
-                      <td className={`px-4 xl:px-5 py-3 xl:py-4 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
-                        {row.name}
-                      </td>
-                      <td className={`px-4 xl:px-5 py-3 xl:py-4 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                        {row.unit_label || "unidad"}
-                      </td>
-                      <td className={`px-4 xl:px-5 py-3 xl:py-4 text-right font-black text-base xl:text-lg ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
-                        {Number(row.total_qty || 0)}
-                      </td>
-                    </tr>
+                  {consolidatedSections.map((section) => (
+                    <Fragment key={`section-items-${section.key}`}>
+                      <tr className={`${isDark ? 'bg-zinc-900/80' : 'bg-[#fff7f1]'}`}>
+                        <td colSpan={4} className="px-4 xl:px-5 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className={`font-black uppercase tracking-[0.16em] ${isDark ? 'text-[#ffb36c]' : 'text-[#b45309]'}`}>
+                              {section.label}
+                            </span>
+                            <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                              {section.totalQty} unidades
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {section.items.map((row) => (
+                        <tr
+                          key={row.product_id}
+                          className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                        >
+                          <td className={`px-4 xl:px-5 py-3 xl:py-4 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
+                          <td className={`px-4 xl:px-5 py-3 xl:py-4 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                            {row.name}
+                          </td>
+                          <td className={`px-4 xl:px-5 py-3 xl:py-4 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            {row.unit_label || "unidad"}
+                          </td>
+                          <td className={`px-4 xl:px-5 py-3 xl:py-4 text-right font-black text-base xl:text-lg ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
+                            {Number(row.total_qty || 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                   {!consolidated.length && (
                     <tr>
@@ -1178,63 +1293,79 @@ export default function Consolidado({ user, setToast }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {pickPlanRows.map((row) => (
-                    <tr
-                      key={row.product_id}
-                      className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
-                    >
-                      <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
-                        {row.name}
-                      </td>
-                      <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
-                        {Number(row.total_qty || 0)}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <input
-                          className={`input w-20 md:w-24 ml-auto text-right py-1 text-sm font-bold focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-900'}`}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={row.localQty}
-                          onChange={(e) =>
-                            setPlan(
-                              row.product_id,
-                              "localQty",
-                              e.target.value,
-                              row.total_qty,
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <input
-                          className={`input w-20 md:w-24 ml-auto text-right py-1 text-sm font-bold focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-900'}`}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={row.galponQty}
-                          onChange={(e) =>
-                            setPlan(
-                              row.product_id,
-                              "galponQty",
-                              e.target.value,
-                              row.total_qty,
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                        {row.mismatch ? (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${isDark ? 'bg-amber-500/20 text-amber-500 ring-1 ring-inset ring-amber-500/40' : 'bg-rose-100 text-rose-600'}`}>
-                            {isDark ? 'Requerir Galpón' : 'NO CUADRA'}
-                          </span>
-                        ) : (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${isDark ? 'bg-emerald-500/20 text-emerald-500 ring-1 ring-inset ring-emerald-500/40' : 'bg-emerald-100 text-emerald-600'}`}>
-                            OK
-                          </span>
-                        )}
-                      </td>
-                    </tr>
+                  {pickPlanSections.map((section) => (
+                    <Fragment key={`section-pick-${section.key}`}>
+                      <tr className={`${isDark ? 'bg-zinc-900/80' : 'bg-[#fff7f1]'}`}>
+                        <td colSpan={5} className="px-5 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className={`font-black uppercase tracking-[0.16em] ${isDark ? 'text-[#ffb36c]' : 'text-[#b45309]'}`}>
+                              {section.label}
+                            </span>
+                            <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                              {section.totalQty} unidades
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {section.items.map((row) => (
+                        <tr
+                          key={row.product_id}
+                          className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                        >
+                          <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                            {row.name}
+                          </td>
+                          <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-[#e85d04]'}`}>
+                            {Number(row.total_qty || 0)}
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            <input
+                              className={`input w-20 md:w-24 ml-auto text-right py-1 text-sm font-bold focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-900'}`}
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={row.localQty}
+                              onChange={(e) =>
+                                setPlan(
+                                  row.product_id,
+                                  "localQty",
+                                  e.target.value,
+                                  row.total_qty,
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            <input
+                              className={`input w-20 md:w-24 ml-auto text-right py-1 text-sm font-bold focus:border-[#e85d04] ${isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-900'}`}
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={row.galponQty}
+                              onChange={(e) =>
+                                setPlan(
+                                  row.product_id,
+                                  "galponQty",
+                                  e.target.value,
+                                  row.total_qty,
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="px-5 py-3 text-center">
+                            {row.mismatch ? (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${isDark ? 'bg-amber-500/20 text-amber-500 ring-1 ring-inset ring-amber-500/40' : 'bg-rose-100 text-rose-600'}`}>
+                                {isDark ? 'Requerir Galpon' : 'NO CUADRA'}
+                              </span>
+                            ) : (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${isDark ? 'bg-emerald-500/20 text-emerald-500 ring-1 ring-inset ring-emerald-500/40' : 'bg-emerald-100 text-emerald-600'}`}>
+                                OK
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                   {!pickPlanRows.length && (
                     <tr>
@@ -1273,22 +1404,38 @@ export default function Consolidado({ user, setToast }) {
                 </tr>
               </thead>
               <tbody>
-                {rejectedReturns.map((row) => (
-                  <tr
-                    key={row.product_id}
-                    className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
-                  >
-                    <td className={`px-5 py-3 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
-                    <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
-                      {row.name}
-                    </td>
-                    <td className={`px-5 py-3 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                      {row.unit_label || "unidad"}
-                    </td>
-                    <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-amber-500'}`}>
-                      {Number(row.qty_to_return || 0)}
-                    </td>
-                  </tr>
+                {rejectedReturnSections.map((section) => (
+                  <Fragment key={`section-return-${section.key}`}>
+                    <tr className={`${isDark ? 'bg-zinc-900/80' : 'bg-[#fff7f1]'}`}>
+                      <td colSpan={4} className="px-5 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className={`font-black uppercase tracking-[0.16em] ${isDark ? 'text-[#ffb36c]' : 'text-[#b45309]'}`}>
+                            {section.label}
+                          </span>
+                          <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            {section.totalQty} unidades
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {section.items.map((row) => (
+                      <tr
+                        key={row.product_id}
+                        className={`border-t transition-colors ${isDark ? 'border-zinc-800/60 hover:bg-zinc-800/20' : 'border-zinc-100 hover:bg-zinc-50/50'}`}
+                      >
+                        <td className={`px-5 py-3 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>{row.sku || "-"}</td>
+                        <td className={`px-5 py-3 font-bold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}`}>
+                          {row.name}
+                        </td>
+                        <td className={`px-5 py-3 uppercase ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                          {row.unit_label || "unidad"}
+                        </td>
+                        <td className={`px-5 py-3 text-right font-black text-base ${isDark ? 'text-zinc-200' : 'text-amber-500'}`}>
+                          {Number(row.qty_to_return || 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
                 {!rejectedReturns.length && (
                   <tr>
@@ -1355,29 +1502,36 @@ export default function Consolidado({ user, setToast }) {
                       {checklistDoneCount}/{consolidated.length})
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[50vh] overflow-y-auto pr-2 pb-2">
-                      {consolidated.map((row) => (
-                        <label
-                          key={row.product_id}
-                          className={`flex items-center gap-3 border rounded-xl p-3.5 cursor-pointer hover:border-[#e85d04]/50 transition-all shadow-sm ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800'}`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-5 w-5 md:h-4 md:w-4 accent-[#e85d04] cursor-pointer"
-                            checked={Boolean(checklistByProduct[row.product_id])}
-                            onChange={(e) =>
-                              setChecklistByProduct((prev) => ({
-                                ...prev,
-                                [row.product_id]: e.target.checked,
-                              }))
-                            }
-                          />
-                          <span className="text-sm md:text-xs font-bold line-clamp-2 leading-tight">
-                            {row.name}
-                          </span>
-                          <span className={`ml-auto text-sm font-black ${isDark ? 'text-emerald-400' : 'text-emerald-500'}`}>
-                            {Boolean(checklistByProduct[row.product_id]) ? "✔" : ""}
-                          </span>
-                        </label>
+                      {consolidatedSections.map((section) => (
+                        <div key={`section-check-${section.key}`} className="space-y-3">
+                          <div className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-[0.16em] ${isDark ? 'bg-zinc-900 text-[#ffb36c]' : 'bg-[#fff7f1] text-[#b45309] border border-[#f5d0a9]'}`}>
+                            {section.label}
+                          </div>
+                          {section.items.map((row) => (
+                            <label
+                              key={row.product_id}
+                              className={`flex items-center gap-3 border rounded-xl p-3.5 cursor-pointer hover:border-[#e85d04]/50 transition-all shadow-sm ${isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-800'}`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-5 w-5 md:h-4 md:w-4 accent-[#e85d04] cursor-pointer"
+                                checked={Boolean(checklistByProduct[row.product_id])}
+                                onChange={(e) =>
+                                  setChecklistByProduct((prev) => ({
+                                    ...prev,
+                                    [row.product_id]: e.target.checked,
+                                  }))
+                                }
+                              />
+                              <span className="text-sm md:text-xs font-bold line-clamp-2 leading-tight">
+                                {row.name}
+                              </span>
+                              <span className={`ml-auto text-sm font-black ${isDark ? 'text-emerald-400' : 'text-emerald-500'}`}>
+                                {Boolean(checklistByProduct[row.product_id]) ? 'OK' : ''}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
                       ))}
                     </div>
                     <div className="flex justify-end pt-3">

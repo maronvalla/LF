@@ -371,6 +371,8 @@ router.get(
         p.name,
         p.sku,
         p.unit_label,
+        COALESCE(pr.name, pc.name, 'SIN RUBRO') AS rubro_name,
+        COALESCE(pc.name, 'SIN CATEGORIA') AS category_name,
         COALESCE(p.default_pick_location, 'GALPON') AS default_pick_location,
         COALESCE(p.has_returnable, false) AS has_returnable,
         COALESCE(p.returnable_units_per_item, 0) AS returnable_units_per_item,
@@ -384,6 +386,8 @@ router.get(
       FROM sales s
       JOIN sale_items si ON si.sale_id = s.id
       JOIN products p ON p.id = si.product_id
+      LEFT JOIN product_rubros pr ON pr.id = p.rubro_id
+      LEFT JOIN product_categories pc ON pc.id = p.category_id
       WHERE (s.is_delivery = true OR s.sale_type = 'ENVIO')
         AND s.scheduled_date = $1
         AND s.delivery_slot = $2
@@ -393,10 +397,12 @@ router.get(
         p.name,
         p.sku,
         p.unit_label,
+        pr.name,
+        pc.name,
         p.default_pick_location,
         p.has_returnable,
         p.returnable_units_per_item
-      ORDER BY p.name
+      ORDER BY COALESCE(pr.name, pc.name, 'SIN RUBRO'), p.name
     `,
       [parsed.data.date, parsed.data.slot]
     );
@@ -408,17 +414,21 @@ router.get(
         p.name,
         p.sku,
         p.unit_label,
+        COALESCE(pr.name, pc.name, 'SIN RUBRO') AS rubro_name,
+        COALESCE(pc.name, 'SIN CATEGORIA') AS category_name,
         SUM(si.qty)::int AS qty_to_return
       FROM sales s
       JOIN sale_items si ON si.sale_id = s.id
       JOIN products p ON p.id = si.product_id
+      LEFT JOIN product_rubros pr ON pr.id = p.rubro_id
+      LEFT JOIN product_categories pc ON pc.id = p.category_id
       WHERE (s.is_delivery = true OR s.sale_type = 'ENVIO')
         AND s.scheduled_date = $1
         AND s.delivery_slot = $2
         AND s.status <> 'ANULADO'
         AND s.delivery_status IN ('RECHAZADO', 'NO_ESTABA')
-      GROUP BY si.product_id, p.name, p.sku, p.unit_label
-      ORDER BY p.name
+      GROUP BY si.product_id, p.name, p.sku, p.unit_label, pr.name, pc.name
+      ORDER BY COALESCE(pr.name, pc.name, 'SIN RUBRO'), p.name
       `,
       [parsed.data.date, parsed.data.slot]
     );

@@ -62,9 +62,11 @@ function getRelationshipStatus(customer) {
 function buildCustomerDto(row) {
   const totalSalesCount = toNumber(row.total_sales_count);
   const totalSalesAmount = toNumber(row.total_sales_amount);
+  const salesLast90Days = toNumber(row.sales_last_90_days);
 
   return {
     ...row,
+    is_frequent_buyer: salesLast90Days >= 2,
     average_ticket: totalSalesCount > 0 ? totalSalesAmount / totalSalesCount : 0,
     relationship_status: getRelationshipStatus(row),
   };
@@ -234,6 +236,10 @@ router.get(
     );
 
     const customers = rows.map(buildCustomerDto);
+    const totalOrders90d = customers.reduce(
+      (acc, customer) => acc + toNumber(customer.sales_last_90_days),
+      0
+    );
 
     const summary = customers.reduce(
       (acc, customer) => {
@@ -245,6 +251,18 @@ router.get(
         acc.customersWithDebt += toNumber(customer.current_account_balance) > 0 ? 1 : 0;
         acc.totalOutstandingBalance += toNumber(customer.current_account_balance);
         acc.salesLast30Days += toNumber(customer.sales_last_30_days);
+        acc.frequentBuyersCount += customer.is_frequent_buyer ? 1 : 0;
+        acc.followUpsOverdue +=
+          customer.crm_next_follow_up_at &&
+          new Date(customer.crm_next_follow_up_at).getTime() < Date.now()
+            ? 1
+            : 0;
+        acc.reactivationCandidatesCount +=
+          toNumber(customer.total_sales_count) > 0 &&
+          (customer.relationship_status === "EN_RIESGO" ||
+            customer.relationship_status === "INACTIVO")
+            ? 1
+            : 0;
         acc.stageCounts[customer.crm_stage] = (acc.stageCounts[customer.crm_stage] || 0) + 1;
         return acc;
       },
@@ -256,9 +274,18 @@ router.get(
         customersWithDebt: 0,
         totalOutstandingBalance: 0,
         salesLast30Days: 0,
+        frequentBuyersCount: 0,
+        followUpsOverdue: 0,
+        reactivationCandidatesCount: 0,
         stageCounts: Object.fromEntries(CRM_STAGE_VALUES.map((stage) => [stage, 0])),
       }
     );
+
+    summary.frequentBuyersPct =
+      summary.totalCustomers > 0
+        ? (summary.frequentBuyersCount / summary.totalCustomers) * 100
+        : 0;
+    summary.totalOrders90Days = totalOrders90d;
 
     const prospectsFromBudgets = customers
       .filter((customer) => toNumber(customer.budgets_count) > 0)
@@ -269,12 +296,29 @@ router.get(
       })
       .slice(0, 12);
 
+    const frequentCustomers = customers
+      .filter((customer) => customer.is_frequent_buyer)
+      .sort((a, b) => {
+        const ordersDiff = toNumber(b.sales_last_90_days) - toNumber(a.sales_last_90_days);
+        if (ordersDiff !== 0) return ordersDiff;
+        return toNumber(b.total_sales_count) - toNumber(a.total_sales_count);
+      })
+      .slice(0, 12)
+      .map((customer) => ({
+        ...customer,
+        orders_share_90d_pct:
+          totalOrders90d > 0
+            ? (toNumber(customer.sales_last_90_days) / totalOrders90d) * 100
+            : 0,
+      }));
+
     res.json({
       summary,
       crmStages: CRM_STAGE_VALUES,
       crmPriorities: CRM_PRIORITY_VALUES,
       customers,
       prospectsFromBudgets,
+      frequentCustomers,
     });
   })
 );
