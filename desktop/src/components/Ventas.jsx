@@ -128,6 +128,7 @@ export default function Ventas({
   const [quickClientAddressOptions, setQuickClientAddressOptions] = useState([]);
   const [quickClientAddressLoading, setQuickClientAddressLoading] = useState(false);
   const [quickClientAddressDropdownOpen, setQuickClientAddressDropdownOpen] = useState(false);
+  const [quickClientGoogleSearchLoading, setQuickClientGoogleSearchLoading] = useState(false);
   const [showQuickClientMapPicker, setShowQuickClientMapPicker] = useState(false);
   const [quickClientMapPosition, setQuickClientMapPosition] = useState(DEFAULT_MAP_CENTER);
   const [quickClientMapResolvingAddress, setQuickClientMapResolvingAddress] = useState(false);
@@ -1387,6 +1388,20 @@ export default function Ventas({
     }
   };
 
+  const searchQuickClientWithGoogle = async (query) => {
+    if (!query || query.length < 5) return;
+    try {
+      setQuickClientGoogleSearchLoading(true);
+      const { data } = await api.get("/customers/address-search", { params: { q: query, provider: "google" } });
+      setQuickClientAddressOptions(Array.isArray(data) ? data : []);
+      setQuickClientAddressDropdownOpen(true);
+    } catch {
+      setQuickClientAddressOptions([]);
+    } finally {
+      setQuickClientGoogleSearchLoading(false);
+    }
+  };
+
   const applyQuickClientAddressOption = (option) => {
     setQuickClientDraft((prev) => ({
       ...prev,
@@ -1620,6 +1635,8 @@ export default function Ventas({
           addressOptions={quickClientAddressOptions}
           addressLoading={quickClientAddressLoading}
           addressDropdownOpen={quickClientAddressDropdownOpen}
+          onGoogleSearch={searchQuickClientWithGoogle}
+          googleSearchLoading={quickClientGoogleSearchLoading}
           onClose={() => {
             setShowQuickClientModal(false);
             setQuickClientAddressOptions([]);
