@@ -229,9 +229,7 @@ export default function Consolidado({ user, setToast }) {
       const globalDefaultPick = loadConsolidadoConfig().defaultPickLocation;
       for (const row of nextConsolidated) {
         const total = Number(row.total_qty || 0);
-        const pick = String(
-          row.default_pick_location || globalDefaultPick,
-        ).toUpperCase();
+        const pick = globalDefaultPick;
         defaultPlan[row.product_id] =
           pick === "LOCAL"
             ? { localQty: total, galponQty: 0 }
