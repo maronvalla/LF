@@ -31,6 +31,11 @@ import {
   normalizePriceListKey,
   normalizePriceListsConfig,
 } from "../utils/priceLists";
+import {
+  DEFAULT_CONSOLIDADO_CONFIG,
+  loadConsolidadoConfig,
+  saveConsolidadoConfig,
+} from "../utils/consolidadoConfig";
 
 const FALLBACK = {
   local: { address: "Avenida Mitre 831, Aguilares", lat: -27.432028, lng: -65.616528 },
@@ -185,6 +190,7 @@ export default function Configuracion({ user, setToast }) {
   const [resetPassword, setResetPassword] = useState("");
   const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [resettingAppData, setResettingAppData] = useState(false);
+  const [consolidadoConfig, setConsolidadoConfig] = useState(() => loadConsolidadoConfig());
 
   const canEdit = useMemo(() => {
     return role === "ADMIN" || role === "CAJERO";
@@ -1715,6 +1721,44 @@ export default function Configuracion({ user, setToast }) {
           </button>
         </div>
       </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Consolidado de carga"
+        subtitle="Comportamiento predeterminado de la asignacion de stock."
+      >
+        <div className="space-y-4">
+          <div>
+            <label className={sectionLabelClass}>Ubicacion predeterminada (LOCAL / GALPON)</label>
+            <p className="text-zinc-400 text-sm mt-1">
+              Define si el stock se asigna a LOCAL o GALPON por defecto al cargar el consolidado.
+              Productos con ubicacion propia la usan siempre.
+            </p>
+          </div>
+          <select
+            className={`${panelInputClass} max-w-xs`}
+            value={consolidadoConfig.defaultPickLocation}
+            onChange={(e) =>
+              setConsolidadoConfig((prev) => ({ ...prev, defaultPickLocation: e.target.value }))
+            }
+            disabled={!canEdit}
+          >
+            <option value="LOCAL">LOCAL</option>
+            <option value="GALPON">GALPON</option>
+          </select>
+          <div className="flex justify-end">
+            <button
+              className={primaryButtonClass}
+              disabled={!canEdit}
+              onClick={() => {
+                saveConsolidadoConfig(consolidadoConfig);
+                setToast?.({ message: "Configuracion de consolidado guardada", type: "success" });
+              }}
+            >
+              Guardar
+            </button>
+          </div>
+        </div>
       </SettingsCard>
 
       <section className="rounded-2xl border border-rose-900/50 bg-[linear-gradient(180deg,rgba(80,10,10,0.36),rgba(28,12,12,0.55))] p-4 md:p-5 shadow-[0_12px_40px_rgba(0,0,0,0.24)]">

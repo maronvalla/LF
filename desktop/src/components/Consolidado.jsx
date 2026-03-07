@@ -8,6 +8,7 @@ import {
   getTicketPaperWidthMm,
   loadTicketConfig,
 } from "../utils/ticketConfig";
+import { loadConsolidadoConfig } from "../utils/consolidadoConfig";
 
 function SignaturePad({ label, onChange, initialDataUrl }) {
   const canvasRef = useRef(null);
@@ -225,10 +226,11 @@ export default function Consolidado({ user, setToast }) {
 
       const defaultPlan = {};
       const defaultChecklist = {};
+      const globalDefaultPick = loadConsolidadoConfig().defaultPickLocation;
       for (const row of nextConsolidated) {
         const total = Number(row.total_qty || 0);
         const pick = String(
-          row.default_pick_location || "GALPON",
+          row.default_pick_location || globalDefaultPick,
         ).toUpperCase();
         defaultPlan[row.product_id] =
           pick === "LOCAL"
