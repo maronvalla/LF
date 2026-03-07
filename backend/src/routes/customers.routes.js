@@ -113,6 +113,26 @@ async function searchWithTomTom(query) {
   );
 }
 
+async function searchWithGoogle(query) {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) return [];
+  const { data } = await axios.get("https://maps.googleapis.com/maps/api/geocode/json", {
+    params: { address: `${query}, Tucumán, Argentina`, key, language: "es", region: "AR" },
+    ...AXIOS_BASE_CONFIG,
+  });
+  const results = Array.isArray(data?.results) ? data.results.slice(0, 3) : [];
+  return filterTucumanResults(
+    results.map((r) => {
+      const lat = Number(r?.geometry?.location?.lat);
+      const lng = Number(r?.geometry?.location?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      const label = r?.formatted_address || "";
+      if (!label) return null;
+      return { provider: "GOOGLE", label, address: label, latitude: lat, longitude: lng };
+    }).filter(Boolean)
+  );
+}
+
 async function reverseWithTomTom(lat, lng) {
   const key = process.env.TOMTOM_API_KEY;
   if (!key) return "";
@@ -145,12 +165,20 @@ router.get(
   asyncHandler(async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (q.length < 5) return res.json([]);
+    let results = [];
     try {
-      const results = await searchWithTomTom(q);
-      res.json(results);
+      results = await searchWithTomTom(q);
     } catch {
-      res.json([]);
+      results = [];
     }
+    if (!results.length) {
+      try {
+        results = await searchWithGoogle(q);
+      } catch {
+        results = [];
+      }
+    }
+    res.json(results);
   })
 );
 
