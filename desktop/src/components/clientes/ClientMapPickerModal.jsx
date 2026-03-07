@@ -1,53 +1,8 @@
-import { useEffect } from "react";
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import { useEffect, useRef, useCallback } from "react";
+import Map, { Marker, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 
-const leafletDefaultIcon = L.icon({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-L.Marker.prototype.options.icon = leafletDefaultIcon;
-
-function MapClickSelect({ position, setPosition }) {
-  useMapEvents({
-    click(event) {
-      setPosition({ lat: event.latlng.lat, lng: event.latlng.lng });
-    },
-  });
-
-  return (
-    <Marker
-      position={[position.lat, position.lng]}
-      draggable
-      eventHandlers={{
-        dragend: (event) => {
-          const point = event.target.getLatLng();
-          setPosition({ lat: point.lat, lng: point.lng });
-        },
-      }}
-    />
-  );
-}
-
-function MapRecenter({ position }) {
-  const map = useMap();
-
-  useEffect(() => {
-    map.setView([position.lat, position.lng], map.getZoom());
-  }, [map, position.lat, position.lng]);
-
-  return null;
-}
+const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 export default function ClientMapPickerModal({
   mapPosition,
@@ -57,6 +12,41 @@ export default function ClientMapPickerModal({
   onApplyCoords,
   onApplyWithAddress,
 }) {
+  const mapRef = useRef(null);
+  const positionRef = useRef(mapPosition);
+
+  // Keep ref in sync so flyTo always uses latest position
+  useEffect(() => {
+    positionRef.current = mapPosition;
+  }, [mapPosition]);
+
+  // When mapPosition changes from outside (e.g. address resolution), recenter map
+  useEffect(() => {
+    if (mapRef.current) {
+      mapRef.current.flyTo({
+        center: [mapPosition.lng, mapPosition.lat],
+        zoom: mapRef.current.getZoom(),
+        duration: 400,
+      });
+    }
+  }, [mapPosition.lat, mapPosition.lng]);
+
+  const handleMapClick = useCallback(
+    (e) => {
+      const { lat, lng } = e.lngLat;
+      setMapPosition({ lat, lng });
+    },
+    [setMapPosition]
+  );
+
+  const handleDragEnd = useCallback(
+    (e) => {
+      const { lat, lng } = e.lngLat;
+      setMapPosition({ lat, lng });
+    },
+    [setMapPosition]
+  );
+
   return (
     <div className="fixed inset-0 z-[70] bg-black/85 backdrop-blur-sm p-4 flex items-center justify-center">
       <div className="w-full max-w-4xl h-[80vh] bg-[#121212] border border-zinc-800 rounded-2xl overflow-hidden flex flex-col">
@@ -74,14 +64,38 @@ export default function ClientMapPickerModal({
           </button>
         </div>
         <div className="flex-1 relative">
-          <MapContainer center={[mapPosition.lat, mapPosition.lng]} zoom={16} className="h-full w-full">
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            />
-            <MapClickSelect position={mapPosition} setPosition={setMapPosition} />
-            <MapRecenter position={mapPosition} />
-          </MapContainer>
+          <Map
+            ref={mapRef}
+            initialViewState={{
+              longitude: mapPosition.lng,
+              latitude: mapPosition.lat,
+              zoom: 16,
+            }}
+            mapStyle={OPENFREEMAP_STYLE}
+            style={{ width: "100%", height: "100%" }}
+            onClick={handleMapClick}
+            cursor="crosshair"
+          >
+            <NavigationControl position="top-right" />
+            <Marker
+              latitude={mapPosition.lat}
+              longitude={mapPosition.lng}
+              draggable
+              onDragEnd={handleDragEnd}
+            >
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  background: "#e85d04",
+                  border: "3px solid white",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                  cursor: "grab",
+                }}
+              />
+            </Marker>
+          </Map>
         </div>
         <div className="px-4 py-3 bg-[#1a1a1a] border-t border-zinc-800 flex items-center justify-between">
           <div className="text-xs text-zinc-300 font-mono">

@@ -1,30 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Map, { Marker, NavigationControl } from 'react-map-gl/maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-
-L.Marker.prototype.options.icon = DefaultIcon;
-
-function LocationMarker({ position, setPosition }) {
-    useMapEvents({
-        click(e) {
-            setPosition(e.latlng);
-        },
-    });
-
-    return position === null ? null : (
-        <Marker position={position}></Marker>
-    );
-}
+const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 export default function ClientModal({ client, onClose, onSave }) {
     const [formData, setFormData] = useState({
@@ -35,6 +13,8 @@ export default function ClientModal({ client, onClose, onSave }) {
         lat: -27.432028, // Avenida Mitre 831, Aguilares
         lng: -65.616528, // Avenida Mitre 831, Aguilares
     });
+
+    const mapRef = useRef(null);
 
     useEffect(() => {
         if (client) {
@@ -62,6 +42,16 @@ export default function ClientModal({ client, onClose, onSave }) {
             onClose();
         }
     };
+
+    const handleMapClick = useCallback((e) => {
+        const { lat, lng } = e.lngLat;
+        setFormData((prev) => ({ ...prev, lat, lng }));
+    }, []);
+
+    const handleDragEnd = useCallback((e) => {
+        const { lat, lng } = e.lngLat;
+        setFormData((prev) => ({ ...prev, lat, lng }));
+    }, []);
 
     // Prevent map from stealing focus on load, but allow interaction
     return (
@@ -99,19 +89,41 @@ export default function ClientModal({ client, onClose, onSave }) {
 
                 {/* Map Section */}
                 <div className="relative h-full bg-zinc-900 border-l border-zinc-800">
-                    <div className="absolute top-2 left-2 z-[1000] bg-black/70 text-white text-xs px-2 py-1 rounded pointer-events-none">
+                    <div className="absolute top-2 left-2 z-[10] bg-black/70 text-white text-xs px-2 py-1 rounded pointer-events-none">
                         Click en el mapa para ubicar
                     </div>
-                    <MapContainer center={[formData.lat, formData.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
-                        <TileLayer
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                        />
-                        <LocationMarker
-                            position={{ lat: formData.lat, lng: formData.lng }}
-                            setPosition={(pos) => setFormData({ ...formData, lat: pos.lat, lng: pos.lng })}
-                        />
-                    </MapContainer>
+                    <Map
+                        ref={mapRef}
+                        initialViewState={{
+                            longitude: formData.lng,
+                            latitude: formData.lat,
+                            zoom: 15,
+                        }}
+                        mapStyle={OPENFREEMAP_STYLE}
+                        style={{ height: '100%', width: '100%' }}
+                        onClick={handleMapClick}
+                        cursor="crosshair"
+                    >
+                        <NavigationControl position="top-right" />
+                        <Marker
+                            latitude={formData.lat}
+                            longitude={formData.lng}
+                            draggable
+                            onDragEnd={handleDragEnd}
+                        >
+                            <div
+                                style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: '50%',
+                                    background: '#e85d04',
+                                    border: '3px solid white',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                                    cursor: 'grab',
+                                }}
+                            />
+                        </Marker>
+                    </Map>
                 </div>
             </div>
         </div>

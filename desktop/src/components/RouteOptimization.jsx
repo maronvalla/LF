@@ -1,42 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Map, { Marker, Popup, Source, Layer, NavigationControl } from 'react-map-gl/maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import api from '../api'; // Adjust path if needed, assuming this file is in components folder and api is in src root or use passed prop
 
-// Fix Leaflet icons
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
-
-function FitBounds({ path }) {
-    const map = useMap();
-    useEffect(() => {
-        if (path.length > 0) {
-            const bounds = L.latLngBounds(path);
-            map.fitBounds(bounds, { padding: [50, 50] });
-        }
-    }, [path, map]);
-    return null;
-}
+const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 export default function RouteOptimization({ onBack }) {
     const [shift, setShift] = useState('MANIANA');
     const [route, setRoute] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [selectedStop, setSelectedStop] = useState(null);
+    const mapRef = useRef(null);
 
     const optimize = async () => {
         setLoading(true);
         try {
-            // Mocking the response for now as requested if backend isn't 100% ready, 
+            // Mocking the response for now as requested if backend isn't 100% ready,
             // but code is set to consume the endpoint.
-            // const { data } = await api.post("/rutas/optimizar", { shift }); 
+            // const { data } = await api.post("/rutas/optimizar", { shift });
 
             // MOCK DATA FOR VIZ START
             const mockData = [
@@ -55,7 +36,32 @@ export default function RouteOptimization({ onBack }) {
         }
     };
 
-    const polylinePositions = route ? route.map(p => [p.lat, p.lng]) : [];
+    // Fit bounds when route changes
+    useEffect(() => {
+        if (!route || route.length === 0 || !mapRef.current) return;
+        const lngs = route.map((p) => p.lng);
+        const lats = route.map((p) => p.lat);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        mapRef.current.fitBounds(
+            [[minLng, minLat], [maxLng, maxLat]],
+            { padding: 50, duration: 800 }
+        );
+    }, [route]);
+
+    // GeoJSON linestring for the polyline
+    const lineGeoJSON = route
+        ? {
+              type: 'Feature',
+              geometry: {
+                  type: 'LineString',
+                  // GeoJSON uses [longitude, latitude]
+                  coordinates: route.map((p) => [p.lng, p.lat]),
+              },
+          }
+        : null;
 
     return (
         <div className="h-full flex flex-col space-y-4">
@@ -101,23 +107,88 @@ export default function RouteOptimization({ onBack }) {
 
                 {/* Map */}
                 <div className="lg:col-span-3 card p-0 overflow-hidden relative border-zinc-700">
-                    <MapContainer center={[-27.4339, -65.6186]} zoom={14} style={{ height: '100%', width: '100%' }}>
-                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                        {route && (
-                            <>
-                                <Polyline positions={polylinePositions} color="blue" />
-                                <FitBounds path={polylinePositions} />
-                                {route.map((stop, index) => (
-                                    <Marker key={stop.id} position={[stop.lat, stop.lng]}>
-                                        <Popup>
-                                            <b>{index + 1}. {stop.name}</b><br />
-                                            {stop.address}
-                                        </Popup>
-                                    </Marker>
-                                ))}
-                            </>
+                    <Map
+                        ref={mapRef}
+                        initialViewState={{
+                            longitude: -65.6186,
+                            latitude: -27.4339,
+                            zoom: 14,
+                        }}
+                        mapStyle={OPENFREEMAP_STYLE}
+                        style={{ height: '100%', width: '100%' }}
+                    >
+                        <NavigationControl position="top-right" />
+
+                        {/* Polyline */}
+                        {lineGeoJSON && (
+                            <Source type="geojson" data={lineGeoJSON}>
+                                <Layer
+                                    type="line"
+                                    paint={{
+                                        'line-color': '#2563eb',
+                                        'line-width': 3,
+                                        'line-opacity': 0.85,
+                                    }}
+                                    layout={{
+                                        'line-join': 'round',
+                                        'line-cap': 'round',
+                                    }}
+                                />
+                            </Source>
                         )}
-                    </MapContainer>
+
+                        {/* Stop markers */}
+                        {route &&
+                            route.map((stop, index) => (
+                                <Marker
+                                    key={stop.id}
+                                    latitude={stop.lat}
+                                    longitude={stop.lng}
+                                    onClick={(e) => {
+                                        e.originalEvent.stopPropagation();
+                                        setSelectedStop({ ...stop, index });
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            background: '#e85d04',
+                                            color: 'white',
+                                            width: 28,
+                                            height: 28,
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontWeight: 'bold',
+                                            fontSize: 12,
+                                            border: '2px solid white',
+                                            boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {index + 1}
+                                    </div>
+                                </Marker>
+                            ))}
+
+                        {/* Popup */}
+                        {selectedStop && (
+                            <Popup
+                                latitude={selectedStop.lat}
+                                longitude={selectedStop.lng}
+                                onClose={() => setSelectedStop(null)}
+                                closeButton={true}
+                                closeOnClick={false}
+                                anchor="bottom"
+                            >
+                                <div style={{ padding: '4px 2px' }}>
+                                    <b>{selectedStop.index + 1}. {selectedStop.name}</b>
+                                    <br />
+                                    {selectedStop.address}
+                                </div>
+                            </Popup>
+                        )}
+                    </Map>
                 </div>
             </div>
         </div>

@@ -1,21 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import Map, { Marker, Popup, Source, Layer, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { io } from "socket.io-client";
 import api, { socketOrigin } from "../api";
 
-// Fix Leaflet default icons
-import icon from "leaflet/dist/images/marker-icon.png";
-import iconShadow from "leaflet/dist/images/marker-shadow.png";
-
-const DefaultIcon = L.icon({
-  iconUrl: icon,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 const TUCUMAN_BOUNDS = {
   south: -28.25,
@@ -35,80 +24,19 @@ function isValidRouteCoordinate(lat, lng) {
   );
 }
 
-// Custom icons for different states
-const createNumberedIcon = (number, color = "#e85d04") => {
-  return L.divIcon({
-    className: "custom-div-icon",
-    html: `<div style="
-      background-color: ${color};
-      color: white;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 12px;
-      border: 2px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    ">${number}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-  });
-};
-
-const createInitialIcon = (initial = "C", color = "#f97316") =>
-  L.divIcon({
-    className: "custom-div-icon",
-    html: `<div style="
-      background-color: ${color};
-      color: white;
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 12px;
-      border: 2px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.28);
-      text-transform: uppercase;
-    ">${String(initial || "C").slice(0, 1)}</div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-  });
-
-const depotIcon = L.divIcon({
-  className: "custom-div-icon",
-  html: `<div style="
-    background-color: #10b981;
-    color: white;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    border: 3px solid white;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-  ">D</div>`,
-  iconSize: [36, 36],
-  iconAnchor: [18, 18],
-});
-
-// Component to fit map bounds
-function FitBounds({ positions }) {
-  const map = useMap();
-  useEffect(() => {
-    if (positions.length > 1) {
-      const bounds = L.latLngBounds(positions);
-      map.fitBounds(bounds, { padding: [50, 50] });
-    }
-  }, [positions, map]);
-  return null;
+// Helper to compute bounds from [lat, lng] pairs and fit the map
+function fitMapToBounds(mapRef, positions, padding = 50) {
+  if (!mapRef.current || positions.length < 2) return;
+  const lngs = positions.map(([, lng]) => lng);
+  const lats = positions.map(([lat]) => lat);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  mapRef.current.fitBounds(
+    [[minLng, minLat], [maxLng, maxLat]],
+    { padding, duration: 800 }
+  );
 }
 
 export default function Rutas({ setToast }) {
@@ -125,6 +53,9 @@ export default function Rutas({ setToast }) {
   const [driversStatus, setDriversStatus] = useState([]);
   const [allCustomersWithCoords, setAllCustomersWithCoords] = useState([]);
   const [customerStopStats, setCustomerStopStats] = useState({});
+  const [selectedPopup, setSelectedPopup] = useState(null);
+
+  const mapRef = useRef(null);
 
   const pendingOrdersWithCoords = useMemo(() => {
     return (orders || [])
@@ -339,7 +270,7 @@ export default function Rutas({ setToast }) {
     }
   };
 
-  // Polyline positions for the route
+  // Polyline positions for the route — [lat, lng] pairs for fitBounds, [lng, lat] for GeoJSON
   const polylinePositions = useMemo(() => {
     if (!optimizedRoute || optimizedRoute.length === 0) return [];
     return [
@@ -375,6 +306,32 @@ export default function Rutas({ setToast }) {
       (customer) => !orderCustomerIds.has(String(customer.id || ""))
     );
   }, [allCustomersWithCoords, orders]);
+
+  // Fit bounds when optimized route changes
+  useEffect(() => {
+    if (optimizedRoute && polylinePositions.length > 1) {
+      fitMapToBounds(mapRef, polylinePositions);
+    }
+  }, [optimizedRoute, polylinePositions]);
+
+  // Fit bounds when pending positions change (no optimized route)
+  useEffect(() => {
+    if (!optimizedRoute && pendingPositions.length > 1) {
+      fitMapToBounds(mapRef, pendingPositions);
+    }
+  }, [pendingPositions, optimizedRoute]);
+
+  // GeoJSON for route polyline
+  const routeLineGeoJSON = useMemo(() => {
+    if (polylinePositions.length < 2) return null;
+    return {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: polylinePositions.map(([lat, lng]) => [lng, lat]),
+      },
+    };
+  }, [polylinePositions]);
 
   // Format duration
   const formatDuration = (seconds) => {
@@ -697,100 +654,250 @@ export default function Rutas({ setToast }) {
 
         {/* Map */}
         <div className="lg:col-span-3 bg-[#121212] border border-zinc-800/80 rounded-xl overflow-hidden relative">
-          <MapContainer
-            center={[origin.lat, origin.lng]}
-            zoom={13}
+          <Map
+            ref={mapRef}
+            initialViewState={{
+              longitude: origin.lng,
+              latitude: origin.lat,
+              zoom: 13,
+            }}
+            mapStyle={OPENFREEMAP_STYLE}
             style={{ height: "100%", width: "100%" }}
-            className="z-0"
           >
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            />
-
-            {/* Depot marker */}
-            <Marker position={[origin.lat, origin.lng]} icon={depotIcon}>
-              <Popup>
-                <div className="font-bold">DEPOSITO</div>
-                <div className="text-sm text-gray-600">{origin.address}</div>
-              </Popup>
-            </Marker>
+            <NavigationControl position="top-right" />
 
             {/* Route polyline */}
-            {optimizedRoute && polylinePositions.length > 1 && (
-              <>
-                <Polyline
-                  positions={polylinePositions}
-                  color="#e85d04"
-                  weight={4}
-                  opacity={0.8}
-                  dashArray="10, 10"
+            {optimizedRoute && routeLineGeoJSON && (
+              <Source type="geojson" data={routeLineGeoJSON}>
+                <Layer
+                  type="line"
+                  paint={{
+                    "line-color": "#e85d04",
+                    "line-width": 4,
+                    "line-opacity": 0.8,
+                    "line-dasharray": [2, 2],
+                  }}
+                  layout={{
+                    "line-join": "round",
+                    "line-cap": "round",
+                  }}
                 />
-                <FitBounds positions={polylinePositions} />
-              </>
+              </Source>
             )}
+
+            {/* Depot marker */}
+            <Marker
+              latitude={origin.lat}
+              longitude={origin.lng}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedPopup({ type: "depot" });
+              }}
+            >
+              <div
+                style={{
+                  background: "#10b981",
+                  color: "white",
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 16,
+                  fontWeight: "bold",
+                  border: "3px solid white",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                  cursor: "pointer",
+                }}
+              >
+                D
+              </div>
+            </Marker>
 
             {/* Pending markers (without optimization) */}
-            {!optimizedRoute && pendingOrdersWithCoords.map((order, index) => (
-              <Marker
-                key={order.id}
-                position={[order.lat, order.lng]}
-                icon={createNumberedIcon(index + 1, "#2563eb")}
-              >
-                <Popup>
-                  <div className="font-bold">
-                    Pedido #{index + 1}: {order.customer_name || "Sin cliente"}
+            {!optimizedRoute &&
+              pendingOrdersWithCoords.map((order, index) => (
+                <Marker
+                  key={order.id}
+                  latitude={order.lat}
+                  longitude={order.lng}
+                  onClick={(e) => {
+                    e.originalEvent.stopPropagation();
+                    setSelectedPopup({ type: "pending_order", data: order, index });
+                  }}
+                >
+                  <div
+                    style={{
+                      background: "#2563eb",
+                      color: "white",
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: "bold",
+                      fontSize: 12,
+                      border: "2px solid white",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {index + 1}
                   </div>
-                  <div className="text-sm text-gray-600">Ticket: {order.sale_number || order.id}</div>
-                  <div className="text-sm text-gray-600">
-                    Estado: {String(order.delivery_status || "PENDIENTE").toUpperCase()}
+                </Marker>
+              ))}
+
+            {!optimizedRoute &&
+              customersWithoutOrders.map((customer) => (
+                <Marker
+                  key={`customer-${customer.id}`}
+                  latitude={customer.lat}
+                  longitude={customer.lng}
+                  onClick={(e) => {
+                    e.originalEvent.stopPropagation();
+                    setSelectedPopup({ type: "customer_no_order", data: customer });
+                  }}
+                >
+                  <div
+                    style={{
+                      background: "#f97316",
+                      color: "white",
+                      width: 26,
+                      height: 26,
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 800,
+                      fontSize: 12,
+                      border: "2px solid white",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.28)",
+                      textTransform: "uppercase",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {String(customer.name?.[0] || "C").slice(0, 1)}
                   </div>
-                </Popup>
-              </Marker>
-            ))}
-            {!optimizedRoute && customersWithoutOrders.map((customer) => (
-              <Marker
-                key={`customer-${customer.id}`}
-                position={[customer.lat, customer.lng]}
-                icon={createInitialIcon(customer.name?.[0] || "C", "#f97316")}
-              >
-                <Popup>
-                  <div className="font-bold">{customer.name || "Cliente"}</div>
-                  {customer.address ? (
-                    <div className="text-sm text-gray-600">{customer.address}</div>
-                  ) : null}
-                  <div className="text-xs text-gray-500">Sin envío en este turno</div>
-                </Popup>
-              </Marker>
-            ))}
+                </Marker>
+              ))}
 
-            {!optimizedRoute && pendingPositions.length > 1 && (
-              <FitBounds positions={pendingPositions} />
-            )}
-
-            {/* Stop markers */}
+            {/* Optimized stop markers */}
             {optimizedRoute?.map((stop, index) => (
               <Marker
                 key={stop.sale_id}
-                position={[stop.lat, stop.lng]}
-                icon={createNumberedIcon(index + 1)}
+                latitude={stop.lat}
+                longitude={stop.lng}
+                onClick={(e) => {
+                  e.originalEvent.stopPropagation();
+                  setSelectedPopup({ type: "optimized_stop", data: stop, index });
+                }}
               >
-                <Popup>
-                  <div className="font-bold">
-                    Parada #{index + 1}: {stop.customer_name}
-                  </div>
-                  <div className="text-sm text-gray-600">ID: {stop.sale_id?.slice(0, 8)}...</div>
-                  <div className="text-sm text-gray-600">
-                    Vendedor: {stop.created_by_name || stop.created_by_username || stop.seller_name || "N/A"}
-                  </div>
-                </Popup>
+                <div
+                  style={{
+                    background: stop.slowWarning ? "#f59e0b" : "#e85d04",
+                    color: "white",
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: "bold",
+                    fontSize: 12,
+                    border: "2px solid white",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {index + 1}
+                </div>
               </Marker>
             ))}
-          </MapContainer>
+
+            {/* Popups */}
+            {selectedPopup?.type === "depot" && (
+              <Popup
+                latitude={origin.lat}
+                longitude={origin.lng}
+                onClose={() => setSelectedPopup(null)}
+                closeButton={true}
+                closeOnClick={false}
+                anchor="bottom"
+              >
+                <div style={{ padding: "4px 2px" }}>
+                  <div className="font-bold">DEPOSITO</div>
+                  <div className="text-sm text-gray-600">{origin.address}</div>
+                </div>
+              </Popup>
+            )}
+
+            {selectedPopup?.type === "pending_order" && (
+              <Popup
+                latitude={selectedPopup.data.lat}
+                longitude={selectedPopup.data.lng}
+                onClose={() => setSelectedPopup(null)}
+                closeButton={true}
+                closeOnClick={false}
+                anchor="bottom"
+              >
+                <div style={{ padding: "4px 2px" }}>
+                  <div className="font-bold">
+                    Pedido #{selectedPopup.index + 1}: {selectedPopup.data.customer_name || "Sin cliente"}
+                  </div>
+                  <div className="text-sm text-gray-600">Ticket: {selectedPopup.data.sale_number || selectedPopup.data.id}</div>
+                  <div className="text-sm text-gray-600">
+                    Estado: {String(selectedPopup.data.delivery_status || "PENDIENTE").toUpperCase()}
+                  </div>
+                </div>
+              </Popup>
+            )}
+
+            {selectedPopup?.type === "customer_no_order" && (
+              <Popup
+                latitude={selectedPopup.data.lat}
+                longitude={selectedPopup.data.lng}
+                onClose={() => setSelectedPopup(null)}
+                closeButton={true}
+                closeOnClick={false}
+                anchor="bottom"
+              >
+                <div style={{ padding: "4px 2px" }}>
+                  <div className="font-bold">{selectedPopup.data.name || "Cliente"}</div>
+                  {selectedPopup.data.address ? (
+                    <div className="text-sm text-gray-600">{selectedPopup.data.address}</div>
+                  ) : null}
+                  <div className="text-xs text-gray-500">Sin envío en este turno</div>
+                </div>
+              </Popup>
+            )}
+
+            {selectedPopup?.type === "optimized_stop" && (
+              <Popup
+                latitude={selectedPopup.data.lat}
+                longitude={selectedPopup.data.lng}
+                onClose={() => setSelectedPopup(null)}
+                closeButton={true}
+                closeOnClick={false}
+                anchor="bottom"
+              >
+                <div style={{ padding: "4px 2px" }}>
+                  <div className="font-bold">
+                    Parada #{selectedPopup.index + 1}: {selectedPopup.data.customer_name}
+                  </div>
+                  <div className="text-sm text-gray-600">ID: {selectedPopup.data.sale_id?.slice(0, 8)}...</div>
+                  <div className="text-sm text-gray-600">
+                    Vendedor: {selectedPopup.data.created_by_name || selectedPopup.data.created_by_username || selectedPopup.data.seller_name || "N/A"}
+                  </div>
+                </div>
+              </Popup>
+            )}
+          </Map>
 
           {/* Map overlay info */}
           {!optimizedRoute && orders.length > 0 && (
-            <div className="absolute bottom-4 left-4 right-4 bg-black/80 backdrop-blur-sm rounded-lg p-4 text-center">
+            <div className="absolute bottom-4 left-4 right-4 bg-black/80 backdrop-blur-sm rounded-lg p-4 text-center" style={{ pointerEvents: "none" }}>
               <p className="text-zinc-300 text-sm">
                 Hay <span className="text-[#e85d04] font-bold">{orders.length}</span> pedidos
                 pendientes.

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import Map, { Marker, Popup, Source, Layer, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 import io from "socket.io-client";
 import api, { socketOrigin } from "../api";
+
+const OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 const SOCKET_URL = socketOrigin;
 const AGUILARES_COORDS = [-27.4333, -65.6167];
@@ -16,86 +17,6 @@ const TUCUMAN_BOUNDS = {
   north: -25.9,
   east: -64.75,
 };
-
-const truckIcon = L.divIcon({
-  html: '<div style="font-size: 24px;">🚚</div>',
-  className: "truck-marker",
-  iconSize: [30, 30],
-  iconAnchor: [15, 15],
-});
-
-const startIcon = L.divIcon({
-  html: '<div style="background:#10b981;color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)">S</div>',
-  className: "",
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
-});
-
-const endIcon = L.divIcon({
-  html: '<div style="background:#ef4444;color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)">F</div>',
-  className: "",
-  iconSize: [26, 26],
-  iconAnchor: [13, 13],
-});
-
-const createStopIcon = (durationMin) =>
-  L.divIcon({
-    className: "",
-    html: `<div style="background:#f59e0b;color:#1c1917;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)">${durationMin}m</div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-  });
-
-const createInitialIcon = (initial = "C", color = "#f97316") =>
-  L.divIcon({
-    className: "custom-div-icon",
-    html: `<div style="
-      background-color: ${color};
-      color: white;
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      font-size: 11px;
-      border: 2px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.28);
-      text-transform: uppercase;
-    ">${String(initial || "C").slice(0, 1)}</div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
-
-function FitBounds({ positions }) {
-  const map = useMap();
-  useEffect(() => {
-    if (positions.length > 1) {
-      map.fitBounds(L.latLngBounds(positions), { padding: [40, 40] });
-    }
-  }, [positions, map]);
-  return null;
-}
-
-function MapRecenter({ lat, lng }) {
-  const map = useMap();
-  useEffect(() => {
-    if (isValidMapCoordinate(lat, lng)) {
-      map.flyTo([lat, lng], 15);
-    }
-  }, [lat, lng, map]);
-  return null;
-}
-
-function EnsureAguilaresCenter({ enabled }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!enabled) return;
-    map.setView(AGUILARES_COORDS, 13);
-  }, [enabled, map]);
-  return null;
-}
 
 function haversineKm(lat1, lng1, lat2, lng2) {
   const toRad = (v) => (v * Math.PI) / 180;
@@ -131,6 +52,21 @@ function formatDuration(minutes) {
   return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
+// Fit map to [lat, lng] pair array
+function fitMapToBounds(mapRef, positions, padding = 40) {
+  if (!mapRef.current || positions.length < 2) return;
+  const lngs = positions.map(([, lng]) => lng);
+  const lats = positions.map(([lat]) => lat);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  mapRef.current.fitBounds(
+    [[minLng, minLat], [maxLng, maxLat]],
+    { padding, duration: 800 }
+  );
+}
+
 export default function AdminTrackingMap({ user }) {
   const [mode, setMode] = useState("live");
 
@@ -139,6 +75,7 @@ export default function AdminTrackingMap({ user }) {
   const [usingPoll, setUsingPoll] = useState(false);
   const socketRef = useRef(null);
   const lastSocketUpdateRef = useRef(0);
+  const mapRef = useRef(null);
 
   const [histDate, setHistDate] = useState(new Date().toISOString().slice(0, 10));
   const [histSlot, setHistSlot] = useState("11");
@@ -148,6 +85,7 @@ export default function AdminTrackingMap({ user }) {
   const [histLoading, setHistLoading] = useState(false);
   const [allCustomersWithCoords, setAllCustomersWithCoords] = useState([]);
   const [todayDeliveryCustomerIds, setTodayDeliveryCustomerIds] = useState(new Set());
+  const [selectedPopup, setSelectedPopup] = useState(null);
 
   if (!user || (user.role !== "ADMIN" && user.username !== "admin")) {
     return (
@@ -301,6 +239,7 @@ export default function AdminTrackingMap({ user }) {
       }),
     [histPoints]
   );
+  // [lat, lng] pairs for internal use
   const histPositions = safeHistPoints.map((p) => [Number(p.lat), Number(p.lng)]);
 
   const histStats = useMemo(() => {
@@ -379,6 +318,63 @@ export default function AdminTrackingMap({ user }) {
     ...customerPositions,
     ...(truckLocation ? [[truckLocation.lat, truckLocation.lng]] : []),
   ];
+
+  // Fly to truck when location updates (live mode)
+  useEffect(() => {
+    if (mode !== "live" || !truckLocation || !mapRef.current) return;
+    mapRef.current.flyTo({
+      center: [truckLocation.lng, truckLocation.lat],
+      zoom: 15,
+      duration: 800,
+    });
+  }, [truckLocation, mode]);
+
+  // Fit to all positions when customers or truck load
+  useEffect(() => {
+    if (mode !== "live") return;
+    if (liveFitPositions.length > 1) {
+      fitMapToBounds(mapRef, liveFitPositions);
+    }
+  }, [customerPositions.length, mode]);
+
+  // Fit to history route when it loads
+  useEffect(() => {
+    if (mode !== "history") return;
+    if (histPositions.length > 1) {
+      fitMapToBounds(mapRef, histPositions);
+    } else {
+      // Reset to Aguilares
+      mapRef.current?.flyTo({
+        center: [AGUILARES_COORDS[1], AGUILARES_COORDS[0]],
+        zoom: 13,
+        duration: 600,
+      });
+    }
+  }, [histPositions.length, mode]);
+
+  // Reset to Aguilares when switching to history with no data
+  useEffect(() => {
+    if (mode === "live" && !truckLocation && customerPositions.length === 0) {
+      mapRef.current?.flyTo({
+        center: [AGUILARES_COORDS[1], AGUILARES_COORDS[0]],
+        zoom: 13,
+        duration: 600,
+      });
+    }
+  }, [mode]);
+
+  // GeoJSON for history polyline
+  const histLineGeoJSON = useMemo(() => {
+    if (histPositions.length < 2) return null;
+    return {
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        // GeoJSON uses [longitude, latitude]
+        coordinates: histPositions.map(([lat, lng]) => [lng, lat]),
+      },
+    };
+  }, [histPositions]);
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -488,105 +484,339 @@ export default function AdminTrackingMap({ user }) {
 
       <div className="relative flex-1 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden min-h-[400px]">
         {mode === "live" && (
-          <div className="absolute top-3 right-3 z-[1000] bg-black/80 backdrop-blur text-white px-3 py-1 rounded-full text-xs font-bold uppercase border border-zinc-700 flex items-center gap-2">
+          <div className="absolute top-3 right-3 z-10 bg-black/80 backdrop-blur text-white px-3 py-1 rounded-full text-xs font-bold uppercase border border-zinc-700 flex items-center gap-2" style={{ zIndex: 10 }}>
             <div className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
             {usingPoll ? "Sondeo DB" : connected ? "En vivo" : "Desconectado"}
           </div>
         )}
 
-        <MapContainer center={AGUILARES_COORDS} zoom={13} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          />
+        <Map
+          ref={mapRef}
+          initialViewState={{
+            longitude: AGUILARES_COORDS[1],
+            latitude: AGUILARES_COORDS[0],
+            zoom: 13,
+          }}
+          mapStyle={OPENFREEMAP_STYLE}
+          style={{ height: "100%", width: "100%" }}
+          scrollZoom
+        >
+          <NavigationControl position="top-left" />
 
-          {mode === "live" && truckLocation && (
-            <>
-              <Marker position={[truckLocation.lat, truckLocation.lng]} icon={truckIcon}>
-                <Popup>
-                  <div className="text-center font-bold">Repartidor en movimiento</div>
-                </Popup>
-              </Marker>
-              <MapRecenter lat={truckLocation.lat} lng={truckLocation.lng} />
-            </>
+          {/* History polyline */}
+          {mode === "history" && histLineGeoJSON && (
+            <Source type="geojson" data={histLineGeoJSON}>
+              <Layer
+                type="line"
+                paint={{
+                  "line-color": "#e85d04",
+                  "line-width": 4,
+                  "line-opacity": 0.85,
+                }}
+                layout={{
+                  "line-join": "round",
+                  "line-cap": "round",
+                }}
+              />
+            </Source>
           )}
 
+          {/* Live truck marker */}
+          {mode === "live" && truckLocation && (
+            <Marker
+              latitude={truckLocation.lat}
+              longitude={truckLocation.lng}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedPopup({ type: "truck" });
+              }}
+            >
+              <div style={{ fontSize: 24, cursor: "pointer" }}>🚚</div>
+            </Marker>
+          )}
+
+          {/* Customers without delivery today */}
           {customersWithoutDelivery.map((customer) => (
             <Marker
               key={`customer-no-delivery-${customer.id}`}
-              position={[customer.lat, customer.lng]}
-              icon={createInitialIcon(customer.name?.[0] || "C", "#f97316")}
+              latitude={customer.lat}
+              longitude={customer.lng}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedPopup({ type: "customer_no_delivery", data: customer });
+              }}
             >
-              <Popup>
-                <div className="font-bold">{customer.name || "Cliente"}</div>
-                {customer.address ? <div className="text-sm text-gray-600">{customer.address}</div> : null}
-                <div className="text-xs text-gray-500">Sin envio hoy</div>
-              </Popup>
+              <div
+                style={{
+                  background: "#f97316",
+                  color: "white",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 800,
+                  fontSize: 11,
+                  border: "2px solid white",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.28)",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                }}
+              >
+                {String(customer.name?.[0] || "C").slice(0, 1)}
+              </div>
             </Marker>
           ))}
 
+          {/* Customers with delivery today */}
           {customersWithDelivery.map((customer) => (
             <Marker
               key={`customer-with-delivery-${customer.id}`}
-              position={[customer.lat, customer.lng]}
-              icon={createInitialIcon(customer.name?.[0] || "E", "#2563eb")}
+              latitude={customer.lat}
+              longitude={customer.lng}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedPopup({ type: "customer_with_delivery", data: customer });
+              }}
             >
-              <Popup>
-                <div className="font-bold">{customer.name || "Cliente"}</div>
-                {customer.address ? <div className="text-sm text-gray-600">{customer.address}</div> : null}
-                <div className="text-xs text-gray-500">Con envio hoy</div>
-              </Popup>
+              <div
+                style={{
+                  background: "#2563eb",
+                  color: "white",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 800,
+                  fontSize: 11,
+                  border: "2px solid white",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.28)",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                }}
+              >
+                {String(customer.name?.[0] || "E").slice(0, 1)}
+              </div>
             </Marker>
           ))}
 
-          {mode === "live" && liveFitPositions.length > 1 && <FitBounds positions={liveFitPositions} />}
-
+          {/* History: start marker */}
           {mode === "history" && histPositions.length > 1 && (
-            <>
-              <Polyline positions={histPositions} color="#e85d04" weight={4} opacity={0.85} />
-              <Marker position={histPositions[0]} icon={startIcon}>
-                <Popup>Inicio - {new Date(safeHistPoints[0].ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</Popup>
-              </Marker>
-              <Marker position={histPositions[histPositions.length - 1]} icon={endIcon}>
-                <Popup>
-                  Fin -{" "}
-                  {new Date(safeHistPoints[safeHistPoints.length - 1].ts).toLocaleTimeString("es-AR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </Popup>
-              </Marker>
-              <FitBounds positions={histPositions} />
-              {histStats?.stops.map((stop) => (
-                <Marker key={`stop-${stop.startTs}`} position={[stop.lat, stop.lng]} icon={createStopIcon(stop.durationMin)}>
-                  <Popup>
-                    <div className="text-sm font-bold">{stop.durationMin} min de parada</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(stop.startTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
-                      {" - "}
-                      {new Date(stop.endTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
-                    </div>
-                    {stop.nearestCustomer && (
-                      <div className="text-xs font-medium mt-1">{stop.nearestCustomer.name}</div>
-                    )}
-                  </Popup>
-                </Marker>
-              ))}
-            </>
+            <Marker
+              latitude={histPositions[0][0]}
+              longitude={histPositions[0][1]}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedPopup({ type: "hist_start" });
+              }}
+            >
+              <div
+                style={{
+                  background: "#10b981",
+                  color: "white",
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: "bold",
+                  border: "2px solid white",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                  cursor: "pointer",
+                }}
+              >
+                S
+              </div>
+            </Marker>
           )}
 
-          {((mode === "history" && histPositions.length < 2) ||
-            (mode === "live" && !truckLocation && customerPositions.length === 0)) && <EnsureAguilaresCenter enabled />}
-        </MapContainer>
+          {/* History: end marker */}
+          {mode === "history" && histPositions.length > 1 && (
+            <Marker
+              latitude={histPositions[histPositions.length - 1][0]}
+              longitude={histPositions[histPositions.length - 1][1]}
+              onClick={(e) => {
+                e.originalEvent.stopPropagation();
+                setSelectedPopup({ type: "hist_end" });
+              }}
+            >
+              <div
+                style={{
+                  background: "#ef4444",
+                  color: "white",
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: "bold",
+                  border: "2px solid white",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                  cursor: "pointer",
+                }}
+              >
+                F
+              </div>
+            </Marker>
+          )}
+
+          {/* History: stop markers */}
+          {mode === "history" &&
+            histStats?.stops.map((stop) => (
+              <Marker
+                key={`stop-${stop.startTs}`}
+                latitude={stop.lat}
+                longitude={stop.lng}
+                onClick={(e) => {
+                  e.originalEvent.stopPropagation();
+                  setSelectedPopup({ type: "hist_stop", data: stop });
+                }}
+              >
+                <div
+                  style={{
+                    background: "#f59e0b",
+                    color: "#1c1917",
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 9,
+                    fontWeight: "bold",
+                    border: "2px solid white",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {stop.durationMin}m
+                </div>
+              </Marker>
+            ))}
+
+          {/* Popups */}
+          {selectedPopup?.type === "truck" && truckLocation && (
+            <Popup
+              latitude={truckLocation.lat}
+              longitude={truckLocation.lng}
+              onClose={() => setSelectedPopup(null)}
+              closeButton={true}
+              closeOnClick={false}
+              anchor="bottom"
+            >
+              <div style={{ padding: "4px 2px" }}>
+                <div className="text-center font-bold">Repartidor en movimiento</div>
+              </div>
+            </Popup>
+          )}
+
+          {selectedPopup?.type === "customer_no_delivery" && (
+            <Popup
+              latitude={selectedPopup.data.lat}
+              longitude={selectedPopup.data.lng}
+              onClose={() => setSelectedPopup(null)}
+              closeButton={true}
+              closeOnClick={false}
+              anchor="bottom"
+            >
+              <div style={{ padding: "4px 2px" }}>
+                <div className="font-bold">{selectedPopup.data.name || "Cliente"}</div>
+                {selectedPopup.data.address ? <div className="text-sm text-gray-600">{selectedPopup.data.address}</div> : null}
+                <div className="text-xs text-gray-500">Sin envio hoy</div>
+              </div>
+            </Popup>
+          )}
+
+          {selectedPopup?.type === "customer_with_delivery" && (
+            <Popup
+              latitude={selectedPopup.data.lat}
+              longitude={selectedPopup.data.lng}
+              onClose={() => setSelectedPopup(null)}
+              closeButton={true}
+              closeOnClick={false}
+              anchor="bottom"
+            >
+              <div style={{ padding: "4px 2px" }}>
+                <div className="font-bold">{selectedPopup.data.name || "Cliente"}</div>
+                {selectedPopup.data.address ? <div className="text-sm text-gray-600">{selectedPopup.data.address}</div> : null}
+                <div className="text-xs text-gray-500">Con envio hoy</div>
+              </div>
+            </Popup>
+          )}
+
+          {selectedPopup?.type === "hist_start" && histPositions.length > 0 && (
+            <Popup
+              latitude={histPositions[0][0]}
+              longitude={histPositions[0][1]}
+              onClose={() => setSelectedPopup(null)}
+              closeButton={true}
+              closeOnClick={false}
+              anchor="bottom"
+            >
+              <div style={{ padding: "4px 2px" }}>
+                Inicio - {new Date(safeHistPoints[0].ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+              </div>
+            </Popup>
+          )}
+
+          {selectedPopup?.type === "hist_end" && histPositions.length > 0 && (
+            <Popup
+              latitude={histPositions[histPositions.length - 1][0]}
+              longitude={histPositions[histPositions.length - 1][1]}
+              onClose={() => setSelectedPopup(null)}
+              closeButton={true}
+              closeOnClick={false}
+              anchor="bottom"
+            >
+              <div style={{ padding: "4px 2px" }}>
+                Fin -{" "}
+                {new Date(safeHistPoints[safeHistPoints.length - 1].ts).toLocaleTimeString("es-AR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </div>
+            </Popup>
+          )}
+
+          {selectedPopup?.type === "hist_stop" && (
+            <Popup
+              latitude={selectedPopup.data.lat}
+              longitude={selectedPopup.data.lng}
+              onClose={() => setSelectedPopup(null)}
+              closeButton={true}
+              closeOnClick={false}
+              anchor="bottom"
+            >
+              <div style={{ padding: "4px 2px" }}>
+                <div className="text-sm font-bold">{selectedPopup.data.durationMin} min de parada</div>
+                <div className="text-xs text-gray-500">
+                  {new Date(selectedPopup.data.startTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                  {" - "}
+                  {new Date(selectedPopup.data.endTs).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                {selectedPopup.data.nearestCustomer && (
+                  <div className="text-xs font-medium mt-1">{selectedPopup.data.nearestCustomer.name}</div>
+                )}
+              </div>
+            </Popup>
+          )}
+        </Map>
 
         {mode === "live" && !truckLocation && connected && (
-          <div className="absolute bottom-4 left-4 z-[1000] bg-black/80 text-zinc-400 px-3 py-2 rounded text-xs pointer-events-none">
+          <div className="absolute bottom-4 left-4 bg-black/80 text-zinc-400 px-3 py-2 rounded text-xs pointer-events-none" style={{ zIndex: 10 }}>
             Esperando senal de GPS...
           </div>
         )}
 
         {mode === "history" && !histLoading && safeHistPoints.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 10 }}>
             <div className="bg-black/70 text-zinc-400 px-5 py-3 rounded-xl text-sm">
               No hay recorrido valido para este periodo
             </div>
