@@ -79,6 +79,7 @@ const parseSellerSelectionKey = (value) => {
 const buildEmptySaleDraft = (schedule, sellerId = "", sellerName = "") => ({
   customerId: "",
   customerName: "CONSUMIDOR FINAL",
+  customerPhone: "",
   sellerId: sellerId || "",
   sellerName: sellerName || "",
   paymentMethod: "EFECTIVO",
@@ -450,6 +451,7 @@ export default function Ventas({
       setDraft({
         customerId,
         customerName,
+        customerPhone: customer?.phone || "",
         sellerId: data?.created_by || draft.sellerId || user?.id || "",
         sellerName: String(data?.created_by_name || draft.sellerName || getUserDisplayName(user)).trim(),
         paymentMethod: "EFECTIVO",
@@ -1235,37 +1237,72 @@ export default function Ventas({
       });
       return;
     }
+    if (!String(draft.customerPhone || "").trim()) {
+      setToast?.({
+        message: "El celular es obligatorio para redactar un presupuesto",
+        type: "error",
+      });
+      return;
+    }
 
     const now = new Date();
     const budgetNumber = `PRES-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
       now.getDate()
     ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
 
-    const lines = buildTicketLines(
-      { saleData: { sale_number: budgetNumber }, paymentData: {} },
-      {
-        docLabel: draft.invoiceType || "PRESUPUESTO",
-        includePayment: false,
-        ticketNumberOverride: budgetNumber,
-        budgetNotice: true,
-      }
-    );
+    try {
+      await api.post("/sales/budgets", {
+        customerId: draft.customerId || null,
+        customerName: String(draft.customerName || "").trim(),
+        customerPhone: String(draft.customerPhone || "").trim(),
+        sellerName: String(draft.sellerName || "").trim() || null,
+        saleType: isDelivery ? "ENVIO" : "MOSTRADOR",
+        shift: isDelivery ? draft.shift || null : null,
+        scheduledDate: isDelivery ? draft.scheduledDate || null : null,
+        deliveryAddress: isDelivery ? String(draft.deliveryAddress || "").trim() || null : null,
+        notes: null,
+        budgetNumber,
+        invoiceType: draft.invoiceType || "Presupuesto",
+        items: draft.items.map((item) => ({
+          productId: item.productId,
+          qty: Number(item.qty || 0),
+          unitPrice: Number(item.unitPrice || 0),
+        })),
+      });
 
-    const printDecision = await askPrintConfirmation(lines, "Imprimir presupuesto");
-    if (printDecision?.shouldPrint) {
-      try {
-        await printReceipt({ lines, deviceName: printDecision?.deviceName });
-      } catch (printError) {
-        console.error("No se pudo imprimir presupuesto:", printError);
-        setToast?.({
-          message: "No se pudo imprimir el presupuesto",
-          type: "error",
-        });
-        return;
+      const lines = buildTicketLines(
+        { saleData: { sale_number: budgetNumber }, paymentData: {} },
+        {
+          docLabel: draft.invoiceType || "PRESUPUESTO",
+          includePayment: false,
+          ticketNumberOverride: budgetNumber,
+          budgetNotice: true,
+        }
+      );
+
+      const printDecision = await askPrintConfirmation(lines, "Imprimir presupuesto");
+      if (printDecision?.shouldPrint) {
+        try {
+          await printReceipt({ lines, deviceName: printDecision?.deviceName });
+        } catch (printError) {
+          console.error("No se pudo imprimir presupuesto:", printError);
+          setToast?.({
+            message: "Presupuesto guardado. No se pudo imprimir.",
+            type: "error",
+          });
+          return;
+        }
       }
+
+      setToast?.({ message: "Presupuesto generado y prospecto actualizado", type: "success" });
+      resetSaleState();
+      setDeliveryConditions(loadDeliveryConditions());
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo guardar el presupuesto",
+        type: "error",
+      });
     }
-    setToast?.({ message: "Presupuesto generado", type: "success" });
-    setDeliveryConditions(loadDeliveryConditions());
   };
 
   const createQuickClient = async () => {
@@ -1287,6 +1324,29 @@ export default function Ventas({
         longitude: quickClientDraft.longitude === "" ? null : Number(quickClientDraft.longitude),
         preferredPriceList: listaActiva,
       };
+
+      const { data: prospectMatch } = await api
+        .get("/customers/prospect-match", { params: { name } })
+        .catch(() => ({ data: null }));
+
+      if (prospectMatch?.id) {
+        const suggestedPhone = String(
+          payload.phone || prospectMatch.customer_phone || prospectMatch.phone || ""
+        ).trim();
+        const confirmed = await showConfirm(
+          `Se encontro un prospecto por presupuesto: ${prospectMatch.name}. ` +
+            `Ultimo presupuesto: ${prospectMatch.budget_number || "N/A"}. ` +
+            `Celular sugerido: ${suggestedPhone || "sin celular"}. ` +
+            `Quieres usar ese prospecto como este cliente?`
+        );
+
+        if (confirmed) {
+          payload.phone = suggestedPhone || null;
+          payload.prospectMatchCustomerId = prospectMatch.id;
+          setQuickClientDraft((prev) => ({ ...prev, phone: suggestedPhone }));
+        }
+      }
+
       const { data } = await api.post("/customers", payload);
 
       setCustomers((prev) => [data, ...prev]);
@@ -1330,6 +1390,7 @@ export default function Ventas({
       setDraft((prev) => ({
         ...prev,
         customerId: "",
+        customerPhone: "",
         deliveryAddress: "",
       }));
       setListaClienteOriginal(getDefaultPriceListKey(priceListsConfig));
@@ -1342,6 +1403,7 @@ export default function Ventas({
       ...prev,
       customerId: id,
       customerName: customer?.name || prev.customerName || "CONSUMIDOR FINAL",
+      customerPhone: customer?.phone || prev.customerPhone || "",
       deliveryAddress: customer?.address || "",
     }));
     setListaClienteOriginal(listaCliente);
@@ -1543,6 +1605,10 @@ export default function Ventas({
         onCustomerNameChange={(value) => {
           if (readOnlyPendingOrder) return;
           setDraft((prev) => ({ ...prev, customerId: "", customerName: value }));
+        }}
+        onCustomerPhoneChange={(value) => {
+          if (readOnlyPendingOrder) return;
+          setDraft((prev) => ({ ...prev, customerPhone: value }));
         }}
         shiftOptions={deliveryShiftOptions}
         onShiftChange={(value) =>

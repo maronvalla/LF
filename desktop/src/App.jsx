@@ -18,6 +18,7 @@ const DriverApp = lazy(() => import("./components/DriverApp"));
 const RepartoPanel = lazy(() => import("./components/RepartoPanel"));
 const Productos = lazy(() => import("./components/Productos"));
 const Clientes = lazy(() => import("./components/Clientes"));
+const CRM = lazy(() => import("./components/CRM"));
 const Compras = lazy(() => import("./components/Compras"));
 const Ventas = lazy(() => import("./components/Ventas"));
 const Inventario = lazy(() => import("./components/Inventario"));
@@ -278,6 +279,8 @@ export default function App() {
         return <Dashboard user={user} setToast={setToast} />;
       case "📦 Productos":
         return <Productos user={user} setToast={setToast} />;
+      case "CRM":
+        return <CRM setToast={setToast} />;
       case "👥 Clientes":
         return <Clientes setToast={setToast} />;
       case "🛒 Compras":

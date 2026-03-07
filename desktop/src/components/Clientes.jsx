@@ -501,6 +501,30 @@ export default function Clientes({ setToast }) {
         await api.put(`/customers/${editingClient.id}`, payload);
         setToast?.({ message: "Cliente actualizado", type: "success" });
       } else {
+        const matchName = String(draft.name || "").trim();
+        if (matchName.length >= 3) {
+          const { data: prospectMatch } = await api
+            .get("/customers/prospect-match", { params: { name: matchName } })
+            .catch(() => ({ data: null }));
+
+          if (prospectMatch?.id) {
+            const suggestedPhone = String(
+              draft.phone || prospectMatch.customer_phone || prospectMatch.phone || ""
+            ).trim();
+            const confirmed = await showConfirm(
+              `Se encontro un prospecto por presupuesto: ${prospectMatch.name}. ` +
+                `Ultimo presupuesto: ${prospectMatch.budget_number || "N/A"}. ` +
+                `Celular sugerido: ${suggestedPhone || "sin celular"}. ` +
+                `Quieres usar ese prospecto como este cliente?`
+            );
+
+            if (confirmed) {
+              payload.phone = suggestedPhone || null;
+              payload.prospectMatchCustomerId = prospectMatch.id;
+              updateDraft({ phone: suggestedPhone });
+            }
+          }
+        }
         await api.post("/customers", payload);
         setToast?.({ message: "Cliente creado", type: "success" });
       }

@@ -134,7 +134,7 @@ export default function HomeNavigation({
   };
 
   const externalTab = allowedTabs.find((tab) => tab.includes("Configuracion"));
-  const sideTabOrder = ["Ventas", "Compras", "Clientes", "Productos", "Consolidado", "ConsultarVentas", "ConsultarOrdenes"];
+  const sideTabOrder = ["CRM", "Ventas", "Compras", "Clientes", "Productos", "Consolidado", "ConsultarVentas", "ConsultarOrdenes"];
   const sideTabs = sideTabOrder
     .map((label) =>
       allowedTabs.find((tab) => normalizeTabToken(tab) === normalizeTabToken(label))

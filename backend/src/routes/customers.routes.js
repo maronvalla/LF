@@ -2,7 +2,7 @@ const express = require("express");
 const { z } = require("zod");
 const axios = require("axios");
 const { pool } = require("../db");
-const { requirePermission } = require("../middleware/rbac");
+const { requirePermission, isAdmin } = require("../middleware/rbac");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
 
@@ -22,6 +22,7 @@ const schema = z.object({
   latitude: z.number().optional().nullable(),
   longitude: z.number().optional().nullable(),
   enableCurrentAccount: z.boolean().optional(),
+  prospectMatchCustomerId: z.string().uuid().optional().nullable(),
 });
 
 const AXIOS_BASE_CONFIG = {
@@ -173,6 +174,14 @@ async function reverseWithTomTom(lat, lng) {
   return first?.address?.freeformAddress || "";
 }
 
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
 router.get(
   "/",
   requirePermission("customers.manage"),
@@ -184,6 +193,92 @@ router.get(
        FROM customers ORDER BY created_at DESC`
     );
     res.json(rows);
+  })
+);
+
+router.get(
+  "/prospect-match",
+  requirePermission("customers.manage"),
+  asyncHandler(async (req, res) => {
+    if (!isAdmin(req)) return res.json(null);
+    const name = String(req.query.name || "").trim();
+    if (name.length < 3) return res.json(null);
+
+    const normalizedName = normalizeText(name);
+    const { rows } = await pool.query(
+      `
+        WITH budget_summary AS (
+          SELECT
+            b.customer_id,
+            MAX(b.created_at) AS last_budget_at,
+            (ARRAY_AGG(b.customer_phone ORDER BY b.created_at DESC))[1] AS customer_phone,
+            (ARRAY_AGG(b.budget_number ORDER BY b.created_at DESC))[1] AS budget_number
+          FROM budgets b
+          WHERE b.customer_id IS NOT NULL
+          GROUP BY b.customer_id
+        )
+        SELECT
+          c.id,
+          c.name,
+          c.phone,
+          c.crm_stage,
+          bs.last_budget_at,
+          bs.customer_phone,
+          bs.budget_number
+        FROM customers c
+        LEFT JOIN budget_summary bs ON bs.customer_id = c.id
+        WHERE c.crm_stage IN ('PROSPECTO', 'CONTACTO', 'NEGOCIACION', 'REACTIVACION')
+          AND (
+            UPPER(unaccent(c.name)) = UPPER(unaccent($1))
+            OR UPPER(unaccent(c.name)) LIKE UPPER(unaccent($2))
+          )
+        ORDER BY
+          CASE WHEN UPPER(unaccent(c.name)) = UPPER(unaccent($1)) THEN 0 ELSE 1 END,
+          bs.last_budget_at DESC NULLS LAST,
+          c.created_at DESC
+        LIMIT 1
+      `,
+      [normalizedName, `%${normalizedName}%`]
+    ).catch(async () => {
+      const fallback = await pool.query(
+        `
+          WITH budget_summary AS (
+            SELECT
+              b.customer_id,
+              MAX(b.created_at) AS last_budget_at,
+              (ARRAY_AGG(b.customer_phone ORDER BY b.created_at DESC))[1] AS customer_phone,
+              (ARRAY_AGG(b.budget_number ORDER BY b.created_at DESC))[1] AS budget_number
+            FROM budgets b
+            WHERE b.customer_id IS NOT NULL
+            GROUP BY b.customer_id
+          )
+          SELECT
+            c.id,
+            c.name,
+            c.phone,
+            c.crm_stage,
+            bs.last_budget_at,
+            bs.customer_phone,
+            bs.budget_number
+          FROM customers c
+          LEFT JOIN budget_summary bs ON bs.customer_id = c.id
+          WHERE c.crm_stage IN ('PROSPECTO', 'CONTACTO', 'NEGOCIACION', 'REACTIVACION')
+            AND (
+              UPPER(c.name) = UPPER($1)
+              OR UPPER(c.name) LIKE UPPER($2)
+            )
+          ORDER BY
+            CASE WHEN UPPER(c.name) = UPPER($1) THEN 0 ELSE 1 END,
+            bs.last_budget_at DESC NULLS LAST,
+            c.created_at DESC
+          LIMIT 1
+        `,
+        [name.trim(), `%${name.trim()}%`]
+      );
+      return fallback;
+    });
+
+    res.json(rows[0] || null);
   })
 );
 
@@ -261,36 +356,136 @@ router.post(
     if (!parsed.success) return res.status(400).json({ message: "Datos invalidos" });
     const d = parsed.data;
     const preferredPriceList = d.preferredPriceList || (await loadDefaultPriceListKey());
-    const { rows } = await pool.query(
-      `
-      INSERT INTO customers(name, code, tax_id, phone, email, address, zone, iva_condition, notes, preferred_price_list, latitude, longitude, enable_current_account)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING *
-    `,
-      [
-        d.name,
-        d.code || null,
-        d.taxId || null,
-        d.phone || null,
-        d.email || null,
-        d.address || null,
-        d.zone || null,
-        d.ivaCondition || "Consumidor Final",
-        d.notes || null,
-        preferredPriceList,
-        d.latitude || null,
-        d.longitude || null,
-        Boolean(d.enableCurrentAccount),
-      ]
-    );
-    await logAudit({
-      actorUserId: req.user.id,
-      action: "CUSTOMER_CREATE",
-      entity: "customers",
-      entityId: rows[0].id,
-      metadata: { after: rows[0] },
-    });
-    res.status(201).json(rows[0]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      let rows;
+
+      if (d.prospectMatchCustomerId) {
+        if (!isAdmin(req)) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({ message: "Solo ADMIN puede vincular prospectos de presupuesto" });
+        }
+        const beforeRes = await client.query("SELECT * FROM customers WHERE id = $1 LIMIT 1", [
+          d.prospectMatchCustomerId,
+        ]);
+        const before = beforeRes.rows[0];
+        if (!before) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ message: "Prospecto no encontrado" });
+        }
+
+        const updated = await client.query(
+          `
+            UPDATE customers
+            SET
+              name = $2,
+              code = $3,
+              tax_id = $4,
+              phone = $5,
+              email = $6,
+              address = $7,
+              zone = $8,
+              iva_condition = $9,
+              notes = $10,
+              preferred_price_list = $11,
+              latitude = $12,
+              longitude = $13,
+              enable_current_account = $14,
+              crm_stage = 'CLIENTE_ACTIVO',
+              crm_last_contact_at = NOW()
+            WHERE id = $1
+            RETURNING *
+          `,
+          [
+            d.prospectMatchCustomerId,
+            d.name,
+            d.code || null,
+            d.taxId || null,
+            d.phone || before.phone || null,
+            d.email || null,
+            d.address || null,
+            d.zone || null,
+            d.ivaCondition || "Consumidor Final",
+            d.notes || null,
+            preferredPriceList,
+            d.latitude || null,
+            d.longitude || null,
+            Boolean(d.enableCurrentAccount),
+          ]
+        );
+        rows = updated.rows;
+
+        await client.query(
+          `
+            INSERT INTO customer_crm_interactions(
+              customer_id,
+              interaction_type,
+              summary,
+              notes,
+              happened_at,
+              created_by
+            )
+            VALUES ($1, 'NOTA', 'Cliente regreso desde presupuesto', $2, NOW(), $3)
+          `,
+          [
+            d.prospectMatchCustomerId,
+            `Se confirmo que ${d.name} es el mismo prospecto que habia solicitado presupuesto.`,
+            req.user.id,
+          ]
+        );
+
+        await logAudit({
+          actorUserId: req.user.id,
+          action: "CUSTOMER_RETURNED_FROM_BUDGET",
+          entity: "customers",
+          entityId: rows[0].id,
+          metadata: { before, after: rows[0] },
+          client,
+        });
+      } else {
+        const inserted = await client.query(
+          `
+            INSERT INTO customers(name, code, tax_id, phone, email, address, zone, iva_condition, notes, preferred_price_list, latitude, longitude, enable_current_account)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING *
+          `,
+          [
+            d.name,
+            d.code || null,
+            d.taxId || null,
+            d.phone || null,
+            d.email || null,
+            d.address || null,
+            d.zone || null,
+            d.ivaCondition || "Consumidor Final",
+            d.notes || null,
+            preferredPriceList,
+            d.latitude || null,
+            d.longitude || null,
+            Boolean(d.enableCurrentAccount),
+          ]
+        );
+        rows = inserted.rows;
+
+        await logAudit({
+          actorUserId: req.user.id,
+          action: "CUSTOMER_CREATE",
+          entity: "customers",
+          entityId: rows[0].id,
+          metadata: { after: rows[0] },
+          client,
+        });
+      }
+
+      await client.query("COMMIT");
+      res.status(201).json(rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   })
 );
 

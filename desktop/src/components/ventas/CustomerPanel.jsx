@@ -13,6 +13,7 @@ export default function CustomerPanel({
   onOpenQuickClient,
   onOpenCustomerSearch,
   onCustomerNameChange,
+  onCustomerPhoneChange,
   onCustomerCommit,
   shiftOptions = [],
   onShiftChange,
@@ -60,6 +61,18 @@ export default function CustomerPanel({
             className={readOnly ? "pointer-events-none opacity-70 flex-1 min-w-[200px]" : "flex-1 min-w-[200px]"}
             forceOpenSignal={customerForceOpenSignal}
             onCommit={onCustomerCommit}
+          />
+        </div>
+        <div className="w-full md:w-[220px]">
+          <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide mb-0 block">
+            Celular presupuesto
+          </label>
+          <input
+            className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[24px] text-xs font-medium text-zinc-900 placeholder:text-zinc-500 outline-none focus:border-[#d97706]"
+            value={draft.customerPhone || ""}
+            onChange={(event) => onCustomerPhoneChange(event.target.value)}
+            placeholder="381..."
+            disabled={readOnly}
           />
         </div>
       </div>

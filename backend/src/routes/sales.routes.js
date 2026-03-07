@@ -63,6 +63,7 @@ const cancelSaleSchema = z.object({
 const createBudgetSchema = z.object({
   customerId: z.string().uuid().nullable().optional(),
   customerName: z.string().trim().min(1).max(200),
+  customerPhone: z.string().trim().min(6).max(40),
   sellerName: z.string().trim().min(1).max(200).nullable().optional(),
   saleType: z.enum(["MOSTRADOR", "ENVIO"]),
   shift: z.enum(["MANIANA", "TARDE"]).nullable().optional(),
@@ -93,6 +94,139 @@ const checkoutSaleSchema = z.object({
   proofImageMimeType: z.string().optional().nullable(),
   proofImageName: z.string().optional().nullable(),
 });
+
+function normalizePhone(value) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+async function findCustomerByPhone(client, phone) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+
+  const { rows } = await client.query(
+    `
+      SELECT *
+      FROM customers
+      WHERE regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [normalized]
+  );
+
+  return rows[0] || null;
+}
+
+async function ensureBudgetProspect({
+  client,
+  customerId,
+  customerName,
+  customerPhone,
+  notes,
+  deliveryAddress,
+  actorUserId,
+  budgetNumber,
+}) {
+  if (customerId) {
+    const existingRes = await client.query(
+      "SELECT * FROM customers WHERE id = $1 LIMIT 1",
+      [customerId]
+    );
+    const existingCustomer = existingRes.rows[0];
+    if (!existingCustomer) {
+      throw new Error("Cliente no encontrado para presupuesto");
+    }
+
+    const { rows } = await client.query(
+      `
+        UPDATE customers
+        SET
+          phone = CASE
+            WHEN COALESCE(NULLIF(TRIM(phone), ''), '') = '' THEN $2
+            ELSE phone
+          END,
+          crm_last_contact_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [customerId, customerPhone]
+    );
+
+    return rows[0];
+  }
+
+  const customerByPhone = await findCustomerByPhone(client, customerPhone);
+  if (customerByPhone) {
+    const { rows } = await client.query(
+      `
+        UPDATE customers
+        SET
+          name = CASE
+            WHEN COALESCE(NULLIF(TRIM(name), ''), '') = '' THEN $2
+            ELSE name
+          END,
+          address = COALESCE(address, $3),
+          crm_stage = CASE
+            WHEN crm_stage = 'CLIENTE_ACTIVO' THEN crm_stage
+            ELSE 'PROSPECTO'
+          END,
+          crm_last_contact_at = NOW(),
+          crm_commercial_notes = CASE
+            WHEN $4 IS NULL OR $4 = '' THEN crm_commercial_notes
+            WHEN crm_commercial_notes IS NULL OR crm_commercial_notes = '' THEN $4
+            ELSE crm_commercial_notes
+          END
+        WHERE id = $1
+        RETURNING *
+      `,
+      [
+        customerByPhone.id,
+        customerName,
+        deliveryAddress || null,
+        notes || `Prospecto generado desde presupuesto ${budgetNumber}`,
+      ]
+    );
+    return rows[0];
+  }
+
+  const insertRes = await client.query(
+    `
+      INSERT INTO customers(
+        name,
+        phone,
+        address,
+        notes,
+        crm_stage,
+        crm_priority,
+        crm_last_contact_at,
+        crm_commercial_notes
+      )
+      VALUES ($1, $2, $3, $4, 'PROSPECTO', 'MEDIA', NOW(), $5)
+      RETURNING *
+    `,
+    [
+      customerName,
+      customerPhone,
+      deliveryAddress || null,
+      notes || null,
+      `Prospecto generado desde presupuesto ${budgetNumber}`,
+    ]
+  );
+
+  await logAudit({
+    actorUserId,
+    action: "CUSTOMER_PROSPECT_CREATE_FROM_BUDGET",
+    entity: "customers",
+    entityId: insertRes.rows[0].id,
+    metadata: {
+      after: insertRes.rows[0],
+      budgetNumber,
+    },
+    client,
+  });
+
+  return insertRes.rows[0];
+}
 
 async function getLocalId(client) {
   const { rows } = await client.query("SELECT id FROM locations WHERE code = 'LOCAL' LIMIT 1");
@@ -550,9 +684,24 @@ router.post(
 
     const data = parsed.data;
     const customerName = String(data.customerName || "").trim() || "CONSUMIDOR FINAL";
+    const customerPhone = String(data.customerPhone || "").trim();
+    if (!customerPhone) {
+      return res.status(400).json({ message: "El celular es obligatorio para presupuestos" });
+    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      const resolvedCustomer = await ensureBudgetProspect({
+        client,
+        customerId: data.customerId || null,
+        customerName,
+        customerPhone,
+        notes: data.notes || null,
+        deliveryAddress: data.deliveryAddress || null,
+        actorUserId: req.user.id,
+        budgetNumber: data.budgetNumber,
+      });
 
       const totalAmount = data.items.reduce(
         (acc, item) => acc + Number(item.qty || 0) * Number(item.unitPrice || 0),
@@ -570,6 +719,7 @@ router.post(
             budget_number,
             customer_id,
             customer_name_snapshot,
+            customer_phone,
             sale_type,
             shift,
             scheduled_date,
@@ -580,13 +730,14 @@ router.post(
             seller_name_snapshot,
             invoice_type
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
           RETURNING *
         `,
         [
           data.budgetNumber,
-          data.customerId || null,
+          resolvedCustomer?.id || data.customerId || null,
           customerName,
+          customerPhone,
           data.saleType,
           data.shift || null,
           data.scheduledDate || null,
@@ -621,6 +772,26 @@ router.post(
         },
         client,
       });
+
+      await client.query(
+        `
+          INSERT INTO customer_crm_interactions(
+            customer_id,
+            interaction_type,
+            summary,
+            notes,
+            happened_at,
+            created_by
+          )
+          VALUES ($1, 'VENTA', $2, $3, NOW(), $4)
+        `,
+        [
+          resolvedCustomer?.id || null,
+          `Presupuesto ${data.budgetNumber}`,
+          data.notes || `Prospecto generado desde presupuesto ${data.budgetNumber}`,
+          req.user.id,
+        ]
+      );
 
       await client.query("COMMIT");
       res.status(201).json(budgetRes.rows[0]);

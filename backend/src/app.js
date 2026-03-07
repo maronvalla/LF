@@ -25,6 +25,7 @@ const settingsRoutes = require("./routes/settings.routes");
 const cajaRoutes = require("./routes/caja.routes");
 const currentAccountRoutes = require("./routes/current-account.routes");
 const reportsRoutes = require("./routes/reports.routes");
+const crmRoutes = require("./routes/crm.routes");
 const telegramOrderBotRoutes = require("./routes/telegram-order-bot.routes");
 
 const app = express();
@@ -67,6 +68,7 @@ app.use("/api/settings", authRequired, settingsRoutes);
 app.use("/api/caja", authRequired, cajaRoutes);
 app.use("/api/current-account", authRequired, currentAccountRoutes);
 app.use("/api/reports", authRequired, reportsRoutes);
+app.use("/api/crm", authRequired, crmRoutes);
 
 app.use((err, _req, res, _next) => {
   if (err?.status === 413 || err?.type === "entity.too.large") {
