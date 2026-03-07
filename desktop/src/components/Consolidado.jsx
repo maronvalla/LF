@@ -135,7 +135,7 @@ export default function Consolidado({ user, setToast }) {
     const d = String(now.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   });
-  const [slot, setSlot] = useState("11");
+  const [slot, setSlot] = useState(() => new Date().getHours() >= 11 ? "19" : "11");
   const [loading, setLoading] = useState(false);
   const [orders, setOrders] = useState([]);
   const [consolidated, setConsolidated] = useState([]);
