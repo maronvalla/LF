@@ -79,6 +79,32 @@ async function loadDefaultPriceListKey() {
   return defaultKey || "MAYORISTA";
 }
 
+function looksLikeCrossStreet(query) {
+  return /\s+y\s+|\s*&\s*|\sesq\.?\s*|\besquina\b/i.test(query);
+}
+
+async function searchWithGeoRef(query) {
+  const { data } = await axios.get("https://apis.datos.gob.ar/georef/api/direcciones", {
+    params: {
+      direccion: query,
+      provincia: "tucuman",
+      max: 3,
+    },
+    ...AXIOS_BASE_CONFIG,
+  });
+  const results = Array.isArray(data?.direcciones) ? data.direcciones : [];
+  return results
+    .map((r) => {
+      const lat = Number(r?.ubicacion?.lat);
+      const lng = Number(r?.ubicacion?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      const label = r?.nomenclatura || "";
+      if (!label) return null;
+      return { provider: "GEOREF", label, address: label, latitude: lat, longitude: lng };
+    })
+    .filter(Boolean);
+}
+
 async function searchWithTomTom(query) {
   const key = process.env.TOMTOM_API_KEY;
   if (!key) return [];
@@ -171,6 +197,16 @@ router.get(
     if (req.query.provider === "google") {
       let results = [];
       try { results = await searchWithGoogle(q); } catch { results = []; }
+      return res.json(results);
+    }
+
+    // Cross-street query: GeoRef first (official AR data), TomTom as fallback
+    if (looksLikeCrossStreet(q)) {
+      let results = [];
+      try { results = await searchWithGeoRef(q); } catch { results = []; }
+      if (!results.length) {
+        try { results = await searchWithTomTom(q); } catch { results = []; }
+      }
       return res.json(results);
     }
 
