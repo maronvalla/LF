@@ -171,7 +171,10 @@ router.get(
     } catch {
       results = [];
     }
-    if (!results.length) {
+    const numberMatch = q.match(/\b(\d{2,5})\b/);
+    const queriedNumber = numberMatch ? numberMatch[1] : null;
+    const tomtomHasNumber = !queriedNumber || results.some((r) => String(r.label).includes(queriedNumber));
+    if (!results.length || (queriedNumber && !tomtomHasNumber)) {
       try {
         results = await searchWithGoogle(q);
       } catch {
