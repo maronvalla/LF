@@ -79,121 +79,49 @@ async function loadDefaultPriceListKey() {
   return defaultKey || "MAYORISTA";
 }
 
-async function searchWithMapbox(query) {
-  const token = process.env.MAPBOX_ACCESS_TOKEN;
-  if (!token) return [];
-
-  const endpoint = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`;
-  const { data } = await axios.get(endpoint, {
-    params: {
-      access_token: token,
-      autocomplete: true,
-      limit: 6,
-      country: "AR",
-      language: "es",
-      proximity: `${AGUILARES_BIAS.lng},${AGUILARES_BIAS.lat}`,
-      bbox: AGUILARES_BIAS.bbox.join(","),
-    },
-    ...AXIOS_BASE_CONFIG,
-  });
-
-  const features = Array.isArray(data?.features) ? data.features : [];
-  return filterTucumanResults(
-    features
-    .map((f) => {
-      const center = Array.isArray(f.center) ? f.center : [];
-      const lng = Number(center[0]);
-      const lat = Number(center[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      const label = f.place_name || f.text || "";
-      return {
-        provider: "MAPBOX",
-        label,
-        address: label,
-        latitude: lat,
-        longitude: lng,
-      };
-    })
-    .filter(Boolean)
-  );
-}
-
-async function searchWithGoogle(query) {
-  const key = process.env.GOOGLE_MAPS_API_KEY;
+async function searchWithTomTom(query) {
+  const key = process.env.TOMTOM_API_KEY;
   if (!key) return [];
 
-  // Prefer Places API (New).
-  const autocompleteUrl = "https://places.googleapis.com/v1/places:autocomplete";
-  const { data } = await axios.post(
-    autocompleteUrl,
-    {
-      input: query,
-      languageCode: "es",
-      includedRegionCodes: ["AR"],
-      locationRestriction: {
-        rectangle: {
-          low: {
-            latitude: TUCUMAN_BOUNDS.south,
-            longitude: TUCUMAN_BOUNDS.west,
-          },
-          high: {
-            latitude: TUCUMAN_BOUNDS.north,
-            longitude: TUCUMAN_BOUNDS.east,
-          },
-        },
-      },
-    },
-    {
-      headers: {
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask":
-          "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text",
-      },
-      ...AXIOS_BASE_CONFIG,
-    }
-  );
-
-  const suggestions = Array.isArray(data?.suggestions) ? data.suggestions.slice(0, 6) : [];
-  return suggestions
-    .map((s) => {
-      const placeId = s?.placePrediction?.placeId;
-      const label = s?.placePrediction?.text?.text || "";
-      if (!placeId || !label) return null;
-      return { provider: "GOOGLE", label, address: label, placeId, latitude: null, longitude: null };
-    })
-    .filter(Boolean);
-}
-
-async function reverseWithMapbox(lat, lng) {
-  const token = process.env.MAPBOX_ACCESS_TOKEN;
-  if (!token) return "";
-  const endpoint = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json`;
+  const endpoint = `https://api.tomtom.com/search/2/search/${encodeURIComponent(query)}.json`;
   const { data } = await axios.get(endpoint, {
     params: {
-      access_token: token,
-      limit: 1,
-      language: "es",
-    },
-    ...AXIOS_BASE_CONFIG,
-  });
-  const feature = Array.isArray(data?.features) ? data.features[0] : null;
-  return feature?.place_name || feature?.text || "";
-}
-
-async function reverseWithGoogle(lat, lng) {
-  const key = process.env.GOOGLE_MAPS_API_KEY;
-  if (!key) return "";
-  const endpoint = "https://maps.googleapis.com/maps/api/geocode/json";
-  const { data } = await axios.get(endpoint, {
-    params: {
-      latlng: `${lat},${lng}`,
       key,
-      language: "es",
+      limit: 6,
+      countrySet: "AR",
+      lat: AGUILARES_BIAS.lat,
+      lon: AGUILARES_BIAS.lng,
+      radius: 80000,
+      language: "es-AR",
     },
     ...AXIOS_BASE_CONFIG,
   });
-  const first = Array.isArray(data?.results) ? data.results[0] : null;
-  return first?.formatted_address || "";
+
+  const results = Array.isArray(data?.results) ? data.results : [];
+  return filterTucumanResults(
+    results
+      .map((r) => {
+        const lat = Number(r?.position?.lat);
+        const lng = Number(r?.position?.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const label = r?.address?.freeformAddress || r?.address?.streetNameAndNumber || "";
+        if (!label) return null;
+        return { provider: "TOMTOM", label, address: label, latitude: lat, longitude: lng };
+      })
+      .filter(Boolean)
+  );
+}
+
+async function reverseWithTomTom(lat, lng) {
+  const key = process.env.TOMTOM_API_KEY;
+  if (!key) return "";
+  const endpoint = `https://api.tomtom.com/search/2/reverseGeocode/${lat},${lng}.json`;
+  const { data } = await axios.get(endpoint, {
+    params: { key, language: "es-AR" },
+    ...AXIOS_BASE_CONFIG,
+  });
+  const first = Array.isArray(data?.addresses) ? data.addresses[0] : null;
+  return first?.address?.freeformAddress || "";
 }
 
 router.get(
@@ -216,75 +144,12 @@ router.get(
   asyncHandler(async (req, res) => {
     const q = String(req.query.q || "").trim();
     if (q.length < 5) return res.json([]);
-    const preferred = String(req.query.provider || "").toUpperCase();
-
-    let results = [];
-    if (preferred === "MAPBOX") {
-      try {
-        results = await searchWithMapbox(q);
-      } catch {
-        results = [];
-      }
-    } else if (preferred === "GOOGLE") {
-      try {
-        results = await searchWithGoogle(q);
-      } catch {
-        results = [];
-      }
-      if (!results.length) {
-        try {
-          results = await searchWithMapbox(q);
-        } catch {
-          results = [];
-        }
-      }
-    } else {
-      try {
-        results = await searchWithGoogle(q);
-      } catch {
-        results = [];
-      }
-      if (!results.length) {
-        try {
-          results = await searchWithMapbox(q);
-        } catch {
-          results = [];
-        }
-      }
+    try {
+      const results = await searchWithTomTom(q);
+      res.json(results);
+    } catch {
+      res.json([]);
     }
-
-    res.json(results);
-  })
-);
-
-router.get(
-  "/place-details",
-  requirePermission("customers.manage"),
-  asyncHandler(async (req, res) => {
-    const placeId = String(req.query.placeId || "").trim();
-    if (!placeId) return res.status(400).json({ ok: false, message: "placeId requerido" });
-    const key = process.env.GOOGLE_MAPS_API_KEY;
-    if (!key) return res.status(503).json({ ok: false, message: "Google Maps no configurado" });
-
-    const { data } = await axios.get(
-      `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
-      {
-        params: { languageCode: "es", regionCode: "AR" },
-        headers: {
-          "X-Goog-Api-Key": key,
-          "X-Goog-FieldMask": "location,formattedAddress,displayName",
-        },
-        ...AXIOS_BASE_CONFIG,
-      }
-    );
-
-    const lat = Number(data?.location?.latitude);
-    const lng = Number(data?.location?.longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(404).json({ ok: false, message: "No se encontraron coordenadas" });
-    }
-    const address = data?.formattedAddress || data?.displayName?.text || "";
-    return res.json({ ok: true, latitude: lat, longitude: lng, address });
   })
 );
 
@@ -298,40 +163,11 @@ router.get(
       return res.status(400).json({ message: "lat/lng invalidos" });
     }
 
-    const preferred = String(req.query.provider || "").toUpperCase();
     let address = "";
-    if (preferred === "MAPBOX") {
-      try {
-        address = await reverseWithMapbox(lat, lng);
-      } catch {
-        address = "";
-      }
-    } else if (preferred === "GOOGLE") {
-      try {
-        address = await reverseWithGoogle(lat, lng);
-      } catch {
-        address = "";
-      }
-      if (!address) {
-        try {
-          address = await reverseWithMapbox(lat, lng);
-        } catch {
-          address = "";
-        }
-      }
-    } else {
-      try {
-        address = await reverseWithGoogle(lat, lng);
-      } catch {
-        address = "";
-      }
-      if (!address) {
-        try {
-          address = await reverseWithMapbox(lat, lng);
-        } catch {
-          address = "";
-        }
-      }
+    try {
+      address = await reverseWithTomTom(lat, lng);
+    } catch {
+      address = "";
     }
 
     return res.json({

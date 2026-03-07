@@ -1387,23 +1387,14 @@ export default function Ventas({
     }
   };
 
-  const applyQuickClientAddressOption = async (option) => {
-    let resolved = option;
-    if (option?.placeId && option.latitude == null) {
-      try {
-        const { data } = await api.get("/customers/place-details", { params: { placeId: option.placeId } });
-        resolved = { ...option, latitude: data.latitude, longitude: data.longitude, address: data.address || option.address };
-      } catch {
-        resolved = option;
-      }
-    }
+  const applyQuickClientAddressOption = (option) => {
     setQuickClientDraft((prev) => ({
       ...prev,
-      address: resolved.address || resolved.label || prev.address,
-      latitude: String(resolved.latitude ?? ""),
-      longitude: String(resolved.longitude ?? ""),
+      address: option.address || option.label || prev.address,
+      latitude: String(option.latitude ?? ""),
+      longitude: String(option.longitude ?? ""),
     }));
-    setQuickClientAddressSearch(resolved.address || resolved.label || "");
+    setQuickClientAddressSearch(option.address || option.label || "");
     setQuickClientAddressOptions([]);
     setQuickClientAddressDropdownOpen(false);
   };
