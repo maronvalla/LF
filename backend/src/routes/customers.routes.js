@@ -92,7 +92,7 @@ async function searchWithTomTom(query) {
       lat: AGUILARES_BIAS.lat,
       lon: AGUILARES_BIAS.lng,
       radius: 80000,
-      language: "es-AR",
+      language: "es-ES",
       idxSet: "PAD,Addr,Str,Geo,POI",
     },
     ...AXIOS_BASE_CONFIG,
@@ -118,7 +118,7 @@ async function reverseWithTomTom(lat, lng) {
   if (!key) return "";
   const endpoint = `https://api.tomtom.com/search/2/reverseGeocode/${lat},${lng}.json`;
   const { data } = await axios.get(endpoint, {
-    params: { key, language: "es-AR" },
+    params: { key, language: "es-ES" },
     ...AXIOS_BASE_CONFIG,
   });
   const first = Array.isArray(data?.addresses) ? data.addresses[0] : null;
