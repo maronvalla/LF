@@ -65,6 +65,48 @@ function buildRowsByRubro(rows, priorityRubros) {
     }));
 }
 
+function wrapTicketText(text, maxChars, prefix = "") {
+  const normalized = String(text || "").trim().replace(/\s+/g, " ");
+  const width = Math.max(8, Number(maxChars || 0) || 32);
+  const safePrefix = String(prefix || "");
+  if (!normalized) return [];
+
+  const lines = [];
+  const words = normalized.split(" ");
+  let current = safePrefix;
+  const baseWidth = Math.max(4, width - safePrefix.length);
+
+  words.forEach((word) => {
+    const token = String(word || "");
+    const next = current.trim().length
+      ? `${current} ${token}`.trimEnd()
+      : `${safePrefix}${token}`;
+
+    if (next.length <= width) {
+      current = next;
+      return;
+    }
+
+    if (current.trim().length) {
+      lines.push(current.slice(0, width));
+      current = safePrefix;
+    }
+
+    let remaining = token;
+    while (remaining.length > baseWidth) {
+      lines.push(`${safePrefix}${remaining.slice(0, baseWidth)}`.slice(0, width));
+      remaining = remaining.slice(baseWidth);
+    }
+    current = remaining ? `${safePrefix}${remaining}` : safePrefix;
+  });
+
+  if (current.trim().length) {
+    lines.push(current.slice(0, width));
+  }
+
+  return lines;
+}
+
 function SignaturePad({ label, onChange, initialDataUrl }) {
   const canvasRef = useRef(null);
   const drawingRef = useRef(false);
@@ -837,6 +879,10 @@ export default function Consolidado({ user, setToast }) {
     lines.push(repeat("-", separatorLength));
     if (ticketConfig.includeClient) {
       lines.push(`Cliente: ${String(sale.customer_name || "CONSUMIDOR FINAL").slice(0, MAX - 9)}`);
+      const deliveryAddress = String(sale.delivery_address || "").trim();
+      if (deliveryAddress) {
+        lines.push(...wrapTicketText(deliveryAddress, MAX, "Dir: "));
+      }
       lines.push(repeat("-", separatorLength));
     }
 
