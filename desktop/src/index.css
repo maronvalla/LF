@@ -13,11 +13,39 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  .pt-safe-top {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  }
+
+  .pb-safe-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+  }
+
+  .pb-safe-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 5.75rem);
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  overscroll-behavior: none;
+  background: #090b11;
 }
 
 body {
   @apply bg-graphite-950 text-zinc-100;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  min-height: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  touch-action: manipulation;
 }
 
 .card {

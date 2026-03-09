@@ -52,7 +52,7 @@ export default function NotificationBell({ alerts, onDismiss, onDismissAll, isDa
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-zinc-200 rounded-xl shadow-2xl z-[100]">
+        <div className="absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] bg-white border border-zinc-200 rounded-xl shadow-2xl z-[100]">
           <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-100">
             <span className="text-xs font-black uppercase text-zinc-700">Notificaciones</span>
             {count > 0 && (

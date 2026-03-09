@@ -6,6 +6,7 @@ const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
 const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
+const { createInboundLayer } = require("../services/inventory-fifo");
 
 const router = express.Router();
 
@@ -204,6 +205,17 @@ router.post(
           `,
             [rows[0].id, localId, Number(d.initialStock), req.user.id]
           );
+          await createInboundLayer(client, {
+            productId: rows[0].id,
+            locationId: localId,
+            qty: Number(d.initialStock),
+            unitCost: Number(d.cost || 0),
+            sourceType: "AJUSTE_INICIAL",
+            sourceId: rows[0].id,
+            receivedAt: new Date().toISOString(),
+            notes: "Stock inicial al crear producto",
+            createdBy: req.user.id,
+          });
         }
       }
 

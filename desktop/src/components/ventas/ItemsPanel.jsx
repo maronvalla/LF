@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function ItemsPanel({
+  panelRef,
   codeInputRef,
   search,
   filteredProducts,
@@ -30,7 +31,10 @@ export default function ItemsPanel({
   }, [draftItems.length, selectedIdx]);
 
   return (
-    <div className="bg-[#ededee] border border-[#d1d1d4] rounded-xl flex-[1_1_auto] min-h-0 flex flex-col relative shrink overflow-hidden">
+    <div
+      ref={panelRef}
+      className="bg-[#ededee] border border-[#d1d1d4] rounded-xl flex flex-col relative overflow-visible min-h-[18rem] md:flex-[1_1_auto] md:min-h-0 md:shrink md:overflow-hidden"
+    >
       <div className="p-1 border-b border-[#d8d8dc] flex flex-col gap-1 shrink-0">
         <div className="flex xl:grid xl:grid-cols-[1fr_auto_auto] gap-1 items-stretch">
           <div className="relative flex gap-1 flex-1 items-center">
@@ -139,7 +143,7 @@ export default function ItemsPanel({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="overflow-visible md:flex-1 md:min-h-0 md:overflow-auto">
         <table className="w-full text-[11px] md:text-xs text-left min-w-[520px]">
           <thead className="text-[9px] uppercase text-zinc-600 tracking-wide bg-[#f5f5f6] border-b border-[#d8d8dc] sticky top-0 z-10">
             <tr>

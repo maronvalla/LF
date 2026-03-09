@@ -1,8 +1,24 @@
 import { useEffect, useState } from "react";
 import api from "../api";
 
+function getLocalDashboardDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDashboardDate(value) {
+  if (!value) return "Sin fecha";
+  const [year, month, day] = String(value).split("-");
+  if (!year || !month || !day) return String(value);
+  return `${day}/${month}/${year}`;
+}
+
 export default function Dashboard({ user, setToast }) {
   const [metrics, setMetrics] = useState({
+    date: "",
     totalSales: 0,
     cashAmount: 0,
     totalOrders: 0,
@@ -15,9 +31,10 @@ export default function Dashboard({ user, setToast }) {
       setLoading(true);
 
       try {
+        const today = getLocalDashboardDate();
         const [dashboardRes, salesRes] = await Promise.all([
-          api.get("/dashboard").catch(() => ({ data: null })),
-          api.get("/sales").catch(() => ({ data: [] })),
+          api.get("/dashboard/summary").catch(() => ({ data: null })),
+          api.get(`/sales?from=${today}&to=${today}`).catch(() => ({ data: [] })),
         ]);
 
         const dashboard = dashboardRes.data || {};
@@ -35,6 +52,7 @@ export default function Dashboard({ user, setToast }) {
         ).length;
 
         setMetrics({
+          date: String(dashboard.date || today),
           totalSales: Number(dashboard.total_sales ?? fallbackTotalSales ?? 0),
           cashAmount: Number(dashboard.cash_amount ?? dashboard.cash_in_box ?? fallbackCash ?? 0),
           totalOrders: Number(dashboard.total_orders ?? fallbackOrders ?? 0),
@@ -55,6 +73,9 @@ export default function Dashboard({ user, setToast }) {
       <div className="card p-5">
         <div className="text-2xl font-black text-burnt-500 uppercase">Dashboard</div>
         <div className="text-zinc-400 mt-2">Usuario: {user?.fullName || user?.username}</div>
+        <div className="text-zinc-500 mt-1 text-xs uppercase tracking-[0.28em]">
+          Fecha operativa: {loading ? "-" : formatDashboardDate(metrics.date)}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-4 gap-4">

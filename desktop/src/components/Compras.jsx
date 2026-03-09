@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import api from "../api";
+import api, { isAndroidApk } from "../api";
 import SearchableSelect from "./SearchableSelect";
 import ProductSearchModal from "./ProductSearchModal";
 import QtyEditModal from "./ventas/QtyEditModal";
@@ -17,6 +17,8 @@ const isPriceShortcut = (event) =>
 
 const normalizeActiveProducts = (rows) =>
   (Array.isArray(rows) ? rows : []).filter((product) => product?.is_active !== false);
+const isMobileKeyboardViewport = () =>
+  isAndroidApk || (typeof window !== "undefined" && window.innerWidth < 960);
 
 export default function Compras({ user, setToast }) {
   const role = String(user?.role || "").toUpperCase();
@@ -41,6 +43,7 @@ export default function Compras({ user, setToast }) {
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [attachingReceiptId, setAttachingReceiptId] = useState("");
   const codeInputRef = useRef(null);
+  const itemsPanelRef = useRef(null);
   const supplierSelectRef = useRef(null);
   const purchaseReceiptInputRef = useRef(null);
   const historyReceiptInputRef = useRef(null);
@@ -168,6 +171,22 @@ export default function Compras({ user, setToast }) {
     [draft.items]
   );
 
+  const restoreCodeFocusAfterModal = () => {
+    if (isMobileKeyboardViewport()) return;
+    window.setTimeout(() => codeInputRef.current?.focus(), 50);
+  };
+
+  const revealItemsForMobile = () => {
+    if (!isMobileKeyboardViewport()) return;
+    if (typeof document !== "undefined" && typeof document.activeElement?.blur === "function") {
+      document.activeElement.blur();
+    }
+    codeInputRef.current?.blur?.();
+    window.setTimeout(() => {
+      itemsPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 90);
+  };
+
   const applyQtyEdit = () => {
     const parsed = Number(qtyEditValue);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -232,6 +251,7 @@ export default function Compras({ user, setToast }) {
     setSearch("");
     setQty(1);
     setUnitCost("");
+    revealItemsForMobile();
   };
 
   const addCurrentSearchItem = async () => {
@@ -391,7 +411,7 @@ export default function Compras({ user, setToast }) {
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-xl bg-[#ededee] p-1 text-zinc-900">
+    <div className="min-h-full md:h-full md:min-h-0 flex flex-col gap-1 overflow-visible md:overflow-hidden rounded-xl bg-[#ededee] p-1 pb-20 md:pb-1 text-zinc-900">
       <div className="px-1 flex items-center justify-between gap-3 shrink-0">
         <button
           type="button"
@@ -565,7 +585,10 @@ export default function Compras({ user, setToast }) {
         </button>
       </div>
 
-      <div className="bg-[#ededee] border border-[#d1d1d4] rounded flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div
+        ref={itemsPanelRef}
+        className="bg-[#ededee] border border-[#d1d1d4] rounded flex flex-col overflow-visible md:flex-1 min-h-[18rem] md:min-h-0 md:overflow-hidden"
+      >
         <div className="p-1 border-b border-[#d8d8dc] flex flex-col gap-1 shrink-0">
           <div className="flex flex-col xl:flex-row gap-1 items-end">
             <div className="flex-1 flex gap-1 w-full items-center">
@@ -630,7 +653,7 @@ export default function Compras({ user, setToast }) {
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div className="overflow-visible md:flex-1 md:min-h-0 md:overflow-auto">
           <table className="w-full text-[11px] md:text-xs text-left min-w-[560px]">
             <thead className="text-[9px] uppercase text-zinc-600 tracking-wide bg-[#f5f5f6] border-b border-[#d8d8dc] sticky top-0 z-10">
               <tr>
@@ -712,12 +735,12 @@ export default function Compras({ user, setToast }) {
             products={products}
             onClose={() => {
               setShowProductModal(false);
-              setTimeout(() => codeInputRef.current?.focus(), 50);
+              restoreCodeFocusAfterModal();
             }}
             onSelect={(product) => {
               addItem(product);
               setShowProductModal(false);
-              setTimeout(() => codeInputRef.current?.focus(), 50);
+              restoreCodeFocusAfterModal();
             }}
           />
         ) : null

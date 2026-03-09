@@ -6,6 +6,10 @@ const { blockDuringStockControl } = require("../middleware/stock-control");
 const { asyncHandler } = require("../utils/async-handler");
 const { logAudit } = require("../services/audit");
 const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
+const {
+    createInboundLayer,
+    ensureBalanceRow,
+} = require("../services/inventory-fifo");
 
 const router = express.Router();
 
@@ -71,17 +75,6 @@ async function getLocationId(client, code) {
     const { rows } = await client.query("SELECT id FROM locations WHERE code = $1 LIMIT 1", [code]);
     if (!rows[0]) throw new Error(`Location ${code} no inicializada`);
     return rows[0].id;
-}
-
-async function ensureBalance(client, productId, locationId) {
-    await client.query(
-        `
-      INSERT INTO inventory_balances(product_id, location_id, quantity)
-      VALUES ($1, $2, 0)
-      ON CONFLICT (product_id, location_id) DO NOTHING
-    `,
-        [productId, locationId]
-    );
 }
 
 router.get(
@@ -168,16 +161,17 @@ router.post(
                 const lineTotal = item.qty * item.unitCost;
                 totalAmount += lineTotal;
 
-                await client.query(
+                const purchaseItemRes = await client.query(
                     `
           INSERT INTO purchase_items(purchase_id, product_id, qty, unit_price, line_total)
           VALUES($1, $2, $3, $4, $5)
+          RETURNING *
         `,
                     [purchase.rows[0].id, item.productId, item.qty, item.unitCost, lineTotal]
                 );
 
                 // Update inventory
-                await ensureBalance(client, item.productId, locationId);
+                await ensureBalanceRow(client, item.productId, locationId);
                 await client.query(
                     `
           UPDATE inventory_balances
@@ -194,6 +188,19 @@ router.post(
         `,
                     [item.productId, locationId, item.qty, purchase.rows[0].id, req.user.id]
                 );
+
+                await createInboundLayer(client, {
+                    productId: item.productId,
+                    locationId,
+                    qty: item.qty,
+                    unitCost: item.unitCost,
+                    sourceType: "PURCHASE_ENTRY",
+                    sourceId: purchase.rows[0].id,
+                    sourceLineId: purchaseItemRes.rows[0]?.id || null,
+                    receivedAt: purchase.rows[0]?.purchase_date || null,
+                    notes: `Compra ${data.invoiceNumber || purchase.rows[0].id}`,
+                    createdBy: req.user.id,
+                });
 
                 // Update product cost if requested
                 if (data.updateCost) {

@@ -4,6 +4,7 @@ export const DEFAULT_DELIVERY_CONDITIONS = [
   { value: "PAGADO_LOCAL", label: "PAGADO EN LOCAL" },
   { value: "TRANSFER_PREVIA", label: "TRANSFERENCIA PREVIA" },
   { value: "COBRAR_EN_ENTREGA", label: "COBRAR EN ENTREGA" },
+  { value: "PAGO_PARCIAL", label: "PAGO PARCIAL" },
   { value: "PAGO_ENTREGA_TRANSFERENCIA", label: "PAGO ENTREGA TRANSFERENCIA" },
 ];
 
@@ -22,7 +23,17 @@ export function normalizeDeliveryConditions(raw) {
   const input = Array.isArray(raw) ? raw : [];
   const normalized = input.map(normalizeCondition).filter(Boolean);
   if (!normalized.length) return [...DEFAULT_DELIVERY_CONDITIONS];
-  return normalized;
+
+  const byValue = new Map();
+  for (const condition of normalized) {
+    byValue.set(condition.value, condition);
+  }
+  for (const condition of DEFAULT_DELIVERY_CONDITIONS) {
+    if (!byValue.has(condition.value)) {
+      byValue.set(condition.value, condition);
+    }
+  }
+  return Array.from(byValue.values());
 }
 
 export function loadDeliveryConditions() {
@@ -40,4 +51,3 @@ export function saveDeliveryConditions(rows) {
   localStorage.setItem(DELIVERY_CONDITIONS_KEY, JSON.stringify(normalized));
   return normalized;
 }
-

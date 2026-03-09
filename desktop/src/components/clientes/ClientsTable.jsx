@@ -8,10 +8,109 @@ export default function ClientsTable({
   onEdit,
   onDelete,
 }) {
+  const emptyMessage = rows.length === 0 ? "No hay clientes registrados." : "No se encontraron clientes.";
+
   return (
     <div className="flex-1 bg-[#121212] border border-zinc-800/80 rounded-xl flex flex-col min-h-0 overflow-hidden relative">
-      <div className="flex-1 overflow-auto">
-        <table className="w-full table-fixed text-left text-sm">
+      <div className="md:hidden flex-1 overflow-auto p-3 space-y-3">
+        {filteredRows.length === 0 ? (
+          <div className="flex h-full min-h-[14rem] items-center justify-center rounded-2xl border border-dashed border-zinc-800 bg-zinc-950/40 px-6 text-center text-sm text-zinc-500">
+            {emptyMessage}
+          </div>
+        ) : (
+          filteredRows.map((client) => {
+            const hasCurrentAccount = client.enable_current_account || client.enableCurrentAccount;
+            const hasGps = client.latitude && client.longitude;
+            const priceListLabel = getPriceListLabel(
+              priceLists,
+              client.preferred_price_list || getDefaultPriceListKey(priceListsConfig)
+            );
+
+            return (
+              <article
+                key={client.id}
+                className="rounded-2xl border border-zinc-800 bg-[linear-gradient(180deg,rgba(26,26,26,0.96),rgba(18,18,18,0.98))] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onEdit(client)}>
+                    <div className="truncate text-sm font-black uppercase tracking-[0.08em] text-white">
+                      {client.name}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="inline-flex rounded-full border border-blue-500/20 bg-blue-500/15 px-2 py-1 text-[10px] font-bold text-blue-300">
+                        {priceListLabel}
+                      </span>
+                      {hasCurrentAccount ? (
+                        <span className="inline-flex rounded-full border border-emerald-500/20 bg-emerald-500/15 px-2 py-1 text-[10px] font-bold text-emerald-300">
+                          Cta. cte.
+                        </span>
+                      ) : null}
+                      {hasGps ? (
+                        <span className="inline-flex rounded-full border border-cyan-500/20 bg-cyan-500/15 px-2 py-1 text-[10px] font-bold text-cyan-300">
+                          GPS
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => onEdit(client)}
+                      className="rounded-xl bg-zinc-800 p-2 text-zinc-300 transition-colors hover:bg-[#e85d04] hover:text-white"
+                      title="Editar"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => onDelete(client.id)}
+                      className="rounded-xl bg-zinc-800 p-2 text-zinc-300 transition-colors hover:bg-rose-500 hover:text-white"
+                      title="Eliminar"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="col-span-2 rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+                      Direccion
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-200 break-words">
+                      {client.address || "-"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+                      Telefono
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-200 break-all">
+                      {client.phone || "-"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+                    <div className="text-[10px] font-black uppercase tracking-[0.16em] text-zinc-500">
+                      Codigo
+                    </div>
+                    <div className="mt-1 text-sm font-mono text-zinc-200 break-all">
+                      {client.code || "-"}
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })
+        )}
+      </div>
+
+      <div className="hidden md:block flex-1 overflow-auto">
+        <table className="w-full table-fixed text-left text-sm min-w-[68rem]">
           <thead className="bg-[#1a1a1a] text-zinc-400 text-[10px] uppercase tracking-widest sticky top-0 z-10 shadow-sm border-b border-zinc-800/80">
             <tr>
               <th className="px-5 py-4 font-bold w-[24%]">Nombre / Razon Social</th>
@@ -25,10 +124,10 @@ export default function ClientsTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/50">
-            {rows.length === 0 ? (
+            {filteredRows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="text-center py-10 text-zinc-600">
-                  No hay clientes registrados.
+                  {emptyMessage}
                 </td>
               </tr>
             ) : (
@@ -80,7 +179,7 @@ export default function ClientsTable({
                     )}
                   </td>
                   <td className="px-5 py-3 text-center">
-                    <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(event) => {
                           event.stopPropagation();

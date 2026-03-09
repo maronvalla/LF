@@ -195,6 +195,22 @@ export default function Clientes({ setToast }) {
     );
   }, [rows, search]);
 
+  const customerSummary = useMemo(() => {
+    const visible = filteredRows.length;
+    const total = rows.length;
+    const withCurrentAccount = filteredRows.filter(
+      (client) => client.enable_current_account || client.enableCurrentAccount
+    ).length;
+    const geolocated = filteredRows.filter((client) => client.latitude && client.longitude).length;
+
+    return {
+      total,
+      visible,
+      withCurrentAccount,
+      geolocated,
+    };
+  }, [filteredRows, rows]);
+
   useEffect(() => {
     const onKeyDown = (event) => {
       const key = String(event.key || "");
@@ -608,41 +624,72 @@ export default function Clientes({ setToast }) {
   };
 
   return (
-    <div className="h-full flex flex-col space-y-4">
-      <div className="flex justify-between items-end px-2">
-        <div>
-          <h1 className="text-3xl font-bold leading-none text-white tracking-tight">Clientes</h1>
-          <p className="text-xs text-zinc-400 mt-1">Directorio y gestion de cuentas</p>
-        </div>
-        <div className="flex gap-2">
-          <input
-            className="bg-[#1a1a1a] border border-zinc-800/80 rounded-lg px-3 py-2.5 text-sm text-white outline-none focus:border-[#e85d04]"
-            placeholder="Buscar cliente..."
-            title="Busca por nombre, codigo, CUIT, telefono, email o direccion"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <button
-            onClick={() => setShowImportExport(true)}
-            className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            Importar / Exportar
-          </button>
-          <button
-            onClick={startBulkEdit}
-            className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition-colors"
-          >
-            Editar varios
-          </button>
-          <button
-            onClick={openNew}
-            className="bg-[#e85d04] hover:bg-[#d14f00] text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-colors flex items-center gap-2"
-          >
-            <span>Nuevo Cliente</span>
-          </button>
+    <div className="h-full min-h-0 flex flex-col gap-3 sm:gap-4">
+      <div className="px-1 sm:px-2">
+        <div className="rounded-2xl border border-zinc-800/80 bg-[#121212] px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-bold leading-none text-white tracking-tight">
+                  Clientes
+                </h1>
+                <span className="inline-flex items-center rounded-full border border-[#e85d04]/30 bg-[#e85d04]/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-[#ff9f5a]">
+                  {customerSummary.visible} visibles
+                </span>
+              </div>
+              <p className="mt-1 text-xs sm:text-sm text-zinc-400">
+                Directorio, cuentas corrientes y ubicaciones en una vista mas compacta.
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="inline-flex items-center rounded-full border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
+                  Total {customerSummary.total}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
+                  Cta. cte. {customerSummary.withCurrentAccount}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-semibold text-cyan-300">
+                  GPS {customerSummary.geolocated}
+                </span>
+              </div>
+            </div>
+
+            <div className="w-full xl:w-auto xl:min-w-[42rem]">
+              <div className="flex flex-col gap-2">
+                <input
+                  className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded-xl px-3 py-3 text-sm text-white outline-none focus:border-[#e85d04]"
+                  placeholder="Buscar cliente..."
+                  title="Busca por nombre, codigo, CUIT, telefono, email o direccion"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-[auto_auto_auto]">
+                  <button
+                    onClick={() => setShowImportExport(true)}
+                    className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span className="truncate">Importar / Exportar</span>
+                  </button>
+                  <button
+                    onClick={startBulkEdit}
+                    className="bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-3 rounded-xl text-sm font-bold transition-colors"
+                  >
+                    Editar varios
+                  </button>
+                  <button
+                    onClick={openNew}
+                    className="col-span-2 lg:col-span-1 bg-[#e85d04] hover:bg-[#d14f00] text-white px-6 py-3 rounded-xl text-sm font-bold shadow-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    <span>Nuevo Cliente</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

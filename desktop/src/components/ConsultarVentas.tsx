@@ -21,6 +21,7 @@ interface Venta {
   comprobanteUrl?: string;
   isDelivery?: boolean;
   deliveryStatus?: string;
+  hasApprovedConsolidatedControl?: boolean;
 }
 
 type ApiSale = Record<string, any>;
@@ -79,6 +80,7 @@ const mapSale = (row: ApiSale): Venta => {
     estado: resolveEstado(row),
     isDelivery: Boolean(row.is_delivery) || String(row.sale_type || "").toUpperCase() === "ENVIO",
     deliveryStatus: String(row.delivery_status || "").toUpperCase(),
+    hasApprovedConsolidatedControl: Boolean(row.has_approved_consolidated_control),
     comprobanteUrl: hasProof ? `data:${mimeType};base64,${proofData}` : "",
   };
 };
@@ -222,7 +224,11 @@ const sendToPrinter = async (
   w.close();
 };
 
-export default function ConsultarVentas() {
+export default function ConsultarVentas({
+  user,
+}: {
+  user?: { role?: string } | null;
+} = {}) {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -234,6 +240,8 @@ export default function ConsultarVentas() {
   const [cancelReason, setCancelReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const role = String(user?.role || "").toUpperCase();
+  const isAdmin = role === "ADMIN";
 
   // Reprint state
   const [showReprintModal, setShowReprintModal] = useState(false);
@@ -256,6 +264,11 @@ export default function ConsultarVentas() {
     }
     return Array.from(map.entries());
   }, [ventas]);
+
+  const cancelTargetSale = useMemo(
+    () => ventas.find((venta) => venta.id === cancelTargetId) || null,
+    [ventas, cancelTargetId]
+  );
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -319,8 +332,26 @@ export default function ConsultarVentas() {
     }
   };
 
-  const handleAnular = (id: string) => {
-    setCancelTargetId(id);
+  const getCancelBlockedReason = (venta: Venta) => {
+    if (venta.estado === "ENTREGADO") {
+      return "No se puede anular esta venta porque el envio ya fue marcado como entregado.";
+    }
+    if (venta.hasApprovedConsolidatedControl && venta.isDelivery && !isAdmin) {
+      return "No se puede anular esta venta porque pertenece a un consolidado aprobado y la mercaderia ya fue cargada en el camion. Solo ADMIN puede hacerlo.";
+    }
+    return "";
+  };
+
+  const handleAnular = (venta: Venta) => {
+    const blockedReason = getCancelBlockedReason(venta);
+    if (blockedReason) {
+      setErrorMessage(blockedReason);
+      setCancelTargetId(null);
+      setCancelReason("");
+      return;
+    }
+
+    setCancelTargetId(venta.id);
     setCancelReason("");
     setErrorMessage("");
   };
@@ -334,7 +365,12 @@ export default function ConsultarVentas() {
     }
 
     try {
-      await api.post(`/sales/${cancelTargetId}/anular`, { reason });
+      await api.post(`/sales/${cancelTargetId}/anular`, {
+        reason,
+        overrideApprovedConsolidated: Boolean(
+          cancelTargetSale?.hasApprovedConsolidatedControl && cancelTargetSale?.isDelivery && isAdmin
+        ),
+      });
       await fetchVentas();
       setCancelTargetId(null);
       setCancelReason("");
@@ -565,7 +601,7 @@ export default function ConsultarVentas() {
                         {venta.estado !== "ANULADO" ? (
                           <button
                             title="Anular Venta"
-                            onClick={() => handleAnular(venta.id)}
+                            onClick={() => handleAnular(venta)}
                             className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-300 bg-white text-lg font-black text-zinc-700 shadow-sm transition-all hover:border-rose-500 hover:bg-rose-600 hover:text-white"
                           >
                             <span>X</span>
@@ -644,6 +680,11 @@ export default function ConsultarVentas() {
         <div className="fixed inset-0 z-[520] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-graphite-950 border border-zinc-800 rounded-2xl w-full max-w-lg p-5 space-y-4">
             <div className="text-sm font-black uppercase tracking-wider text-rose-400">Anular venta {cancelTargetId}</div>
+            {cancelTargetSale?.hasApprovedConsolidatedControl && cancelTargetSale?.isDelivery && isAdmin ? (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100">
+                Esta venta pertenece a un consolidado aprobado. Si confirmas la anulacion, se modificara ese consolidado y la orden se quitara de todos lados. Los repartidores ya no deberan rendir esa mercaderia.
+              </div>
+            ) : null}
             <div>
               <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">Motivo obligatorio</label>
               <textarea
@@ -660,7 +701,9 @@ export default function ConsultarVentas() {
                 className="btn bg-rose-600 hover:bg-rose-500 text-white"
                 onClick={confirmAnular}
               >
-                Confirmar anulacion
+                {cancelTargetSale?.hasApprovedConsolidatedControl && cancelTargetSale?.isDelivery && isAdmin
+                  ? "Aceptar y anular"
+                  : "Confirmar anulacion"}
               </button>
             </div>
           </div>

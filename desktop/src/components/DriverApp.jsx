@@ -319,6 +319,9 @@ export default function DriverApp({ onLogout, user }) {
       saleTotal: Number(row.sale_total || 0),
       deliveryPayment: row.delivery_payment || null,
       deliveryPaymentMethod: row.delivery_payment_method || null,
+      expectedCashAmount: Number(row.delivery_expected_cash_amount || 0),
+      expectedTransferAmount: Number(row.delivery_expected_transfer_amount || 0),
+      deliveryPaymentConfiguredAt: row.delivery_payment_configured_at || null,
       finalMethod: row.delivery_final_payment_method || null,
       finalCashAmount: Number(row.delivery_final_cash_amount || 0),
       finalTransferAmount: Number(row.delivery_final_transfer_amount || 0),
@@ -352,6 +355,7 @@ export default function DriverApp({ onLogout, user }) {
           const inferredMethod =
             row.finalMethod ||
             row.deliveryPaymentMethod ||
+            ((row.expectedCashAmount > 0 || row.expectedTransferAmount > 0) ? 'MIXTO' : null) ||
             (['PAGO_LOCAL_TRANSFERENCIA', 'PAGO_ENTREGA_TRANSFERENCIA'].includes(
               String(row.deliveryPayment || '').toUpperCase()
             )
@@ -361,8 +365,18 @@ export default function DriverApp({ onLogout, user }) {
             next[row.id] = {
               ...DEFAULT_FINAL_PAYMENT,
               method: inferredMethod,
-              cashAmount: row.finalCashAmount > 0 ? String(row.finalCashAmount) : '',
-              transferAmount: row.finalTransferAmount > 0 ? String(row.finalTransferAmount) : '',
+              cashAmount:
+                row.finalCashAmount > 0
+                  ? String(row.finalCashAmount)
+                  : row.expectedCashAmount > 0
+                    ? String(row.expectedCashAmount)
+                    : '',
+              transferAmount:
+                row.finalTransferAmount > 0
+                  ? String(row.finalTransferAmount)
+                  : row.expectedTransferAmount > 0
+                    ? String(row.expectedTransferAmount)
+                    : '',
             };
           }
         }
@@ -998,6 +1012,9 @@ export default function DriverApp({ onLogout, user }) {
           const submitState = submitStateByDelivery[delivery.id] || { loading: false, error: '' };
           const returnablesForOrder = getDeliveryReturnables(delivery);
           const prepaid = isPrepaidDeliveryPayment(delivery.deliveryPayment);
+          const hasExpectedPartialPlan =
+            String(delivery.deliveryPayment || '').toUpperCase() === 'PAGO_PARCIAL' &&
+            (delivery.expectedCashAmount > 0 || delivery.expectedTransferAmount > 0);
           const prepaidMethodLabel = getPaymentMethodLabel(
             delivery.deliveryPaymentMethod || finalPayment.method
           );
@@ -1075,6 +1092,20 @@ export default function DriverApp({ onLogout, user }) {
                         </div>
                       ) : (
                         <>
+                          {hasExpectedPartialPlan ? (
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-3">
+                              <p className="text-[11px] uppercase tracking-wider font-bold text-amber-300">
+                                Configurado por caja
+                              </p>
+                              <p className="mt-1 text-sm font-semibold text-white">
+                                Efectivo ${delivery.expectedCashAmount.toFixed(2)} / Transferencia ${delivery.expectedTransferAmount.toFixed(2)}
+                              </p>
+                              <p className="mt-1 text-xs text-zinc-400">
+                                Puedes ajustarlo si el cobro real cambia al entregar.
+                              </p>
+                            </div>
+                          ) : null}
+
                           <label className="text-[11px] uppercase tracking-wider font-bold text-zinc-400 block">
                             Metodo de pago final
                           </label>

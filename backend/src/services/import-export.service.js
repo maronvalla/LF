@@ -1,6 +1,7 @@
 const { pool } = require("../db");
 const { format, parseString } = require("fast-csv");
 const XLSX = require("xlsx");
+const { createInboundLayer } = require("./inventory-fifo");
 
 const DEFAULT_PRICE_LISTS = [
   { key: "MINORISTA", label: "Minorista" },
@@ -675,6 +676,17 @@ async function importProduct(client, row, categoryMap, brandMap, rubroMap, suppl
        VALUES ($1, NULL, $2, $3, 'AJUSTE_INICIAL')`,
       [productResult.rows[0].id, localLocation.id, stockLocal]
     );
+    await createInboundLayer(client, {
+      productId: productResult.rows[0].id,
+      locationId: localLocation.id,
+      qty: stockLocal,
+      unitCost: parseFlexibleInteger(row.costo) || 0,
+      sourceType: "AJUSTE_INICIAL",
+      sourceId: productResult.rows[0].id,
+      receivedAt: new Date().toISOString(),
+      notes: "Stock inicial importado",
+      createdBy: null,
+    });
   }
 }
 

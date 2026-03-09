@@ -32,7 +32,6 @@ const DEFAULT_ROLE_DEFINITIONS = [
     permissions: [
       "settings.manage",
       "customers.manage",
-      "products.manage",
       "sales.manage",
       "sales.checkout",
       "purchases.manage",
@@ -150,7 +149,9 @@ async function getPermissionsForRole(roleKey, client = pool) {
   const role = roles.find((item) => item.key === normalizedRole);
   const permissions = ensureRequiredPermissions(normalizedRole, role ? role.permissions : []);
   if (normalizedRole === "CAJERO") {
-    return permissions.filter((permission) => permission !== "reports.view");
+    return permissions.filter(
+      (permission) => permission !== "reports.view" && permission !== "products.manage"
+    );
   }
   return permissions;
 }

@@ -14,6 +14,14 @@ const {
 } = require("../services/stock-control");
 const { loadTransferPairs } = require("../services/inventory-transfer-settings");
 const { notifyCriticalStockForProductIds } = require("../services/telegram-alerts");
+const {
+  EPSILON_QTY,
+  consumeFifoLayers,
+  createInboundLayer,
+  ensureBalanceRow: ensureFifoBalanceRow,
+  getProductCost,
+  transferFifoLayers,
+} = require("../services/inventory-fifo");
 
 const router = express.Router();
 
@@ -29,6 +37,14 @@ const adjustSchema = z.object({
   qtyDelta: z.number().int().refine((v) => v !== 0, "qtyDelta no puede ser 0"),
   locationCode: z.enum(["GALPON", "LOCAL"]),
   reason: z.enum(["AJUSTE_INICIAL", "AJUSTE"]),
+});
+
+const expireSchema = z.object({
+  productId: z.string().uuid(),
+  qty: z.coerce.number().positive(),
+  locationCode: z.string().trim().min(2).max(60),
+  expirationDate: z.string().date().optional().nullable(),
+  notes: z.string().trim().max(300).optional().nullable(),
 });
 
 const startStockControlSchema = z.object({
@@ -60,14 +76,7 @@ async function getLocationIds(client, codes) {
 }
 
 async function ensureBalanceRow(client, productId, locationId) {
-  await client.query(
-    `
-    INSERT INTO inventory_balances(product_id, location_id, quantity)
-    VALUES ($1, $2, 0)
-    ON CONFLICT (product_id, location_id) DO NOTHING
-  `,
-    [productId, locationId]
-  );
+  return ensureFifoBalanceRow(client, productId, locationId);
 }
 
 function validationError(res, parsed) {
@@ -384,6 +393,16 @@ async function transferHandler(req, res, payload) {
       [productId, locations[fromCode], locations[toCode], qty, req.user.id]
     );
 
+    await transferFifoLayers(client, {
+      productId,
+      fromLocationId: locations[fromCode],
+      toLocationId: locations[toCode],
+      qty,
+      refType: "inventory_movement",
+      refId: movement.rows[0].id,
+      createdBy: req.user.id,
+    });
+
     await logAudit({
       actorUserId: req.user.id,
       action: "INVENTORY_TRANSFER",
@@ -488,7 +507,7 @@ router.post(
       const movement = await client.query(
         `
         INSERT INTO inventory_movements(product_id, from_location_id, to_location_id, qty, reason, created_by)
-        VALUES ($1, $2, $3, $4, 'AJUSTE', $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
       `,
         [
@@ -496,9 +515,35 @@ router.post(
           qtyDelta < 0 ? locationId : null,
           qtyDelta > 0 ? locationId : null,
           qtyAbs,
+          reason,
           req.user.id,
         ]
       );
+
+      if (qtyDelta > 0) {
+        const productCost = await getProductCost(client, productId);
+        await createInboundLayer(client, {
+          productId,
+          locationId,
+          qty: qtyAbs,
+          unitCost: productCost,
+          sourceType: reason,
+          sourceId: movement.rows[0].id,
+          receivedAt: new Date().toISOString(),
+          notes: `Ajuste positivo en ${locationCode}`,
+          createdBy: req.user.id,
+        });
+      } else {
+        await consumeFifoLayers(client, {
+          productId,
+          locationId,
+          qty: qtyAbs,
+          movementReason: reason,
+          refType: "inventory_movement",
+          refId: movement.rows[0].id,
+          createdBy: req.user.id,
+        });
+      }
 
       await logAudit({
         actorUserId: req.user.id,
@@ -521,6 +566,125 @@ router.post(
         ok: true,
         movement: movement.rows[0],
         balance: balanceUpdate.rows[0],
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  })
+);
+
+router.post(
+  "/expired",
+  requirePermission("inventory.transfer"),
+  blockDuringStockControl,
+  asyncHandler(async (req, res) => {
+    if (String(req.user?.role || "").toUpperCase() !== "ADMIN") {
+      return res.status(403).json({ ok: false, message: "Solo ADMIN puede registrar productos vencidos" });
+    }
+
+    const parsed = expireSchema.safeParse(req.body || {});
+    if (!parsed.success) return validationError(res, parsed);
+
+    const { productId, qty, locationCode, expirationDate, notes } = parsed.data;
+    const normalizedLocationCode = String(locationCode || "").trim().toUpperCase();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locations = await getLocationIds(client, [normalizedLocationCode]);
+      const locationId = locations[normalizedLocationCode];
+      await ensureBalanceRow(client, productId, locationId);
+
+      const balanceUpdate = await client.query(
+        `
+          UPDATE inventory_balances
+          SET quantity = quantity - $1, updated_at = now()
+          WHERE product_id = $2 AND location_id = $3 AND quantity >= $1
+          RETURNING *
+        `,
+        [qty, productId, locationId]
+      );
+      if (!balanceUpdate.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          message: `Stock insuficiente en ${normalizedLocationCode} para registrar vencimiento`,
+        });
+      }
+
+      const movement = await client.query(
+        `
+          INSERT INTO inventory_movements(product_id, from_location_id, to_location_id, qty, reason, created_by)
+          VALUES ($1, $2, NULL, $3, 'VENCIMIENTO', $4)
+          RETURNING *
+        `,
+        [productId, locationId, qty, req.user.id]
+      );
+
+      const fifoResult = await consumeFifoLayers(client, {
+        productId,
+        locationId,
+        qty,
+        movementReason: "VENCIMIENTO",
+        refType: "inventory_movement",
+        refId: movement.rows[0].id,
+        createdBy: req.user.id,
+      });
+
+      const expiredItem = await client.query(
+        `
+          INSERT INTO inventory_expired_items(
+            product_id,
+            location_id,
+            movement_id,
+            qty,
+            total_cost,
+            expiration_date,
+            notes,
+            created_by
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING *
+        `,
+        [
+          productId,
+          locationId,
+          movement.rows[0].id,
+          qty,
+          Number(fifoResult.totalCost || 0),
+          expirationDate || null,
+          notes || null,
+          req.user.id,
+        ]
+      );
+
+      await logAudit({
+        actorUserId: req.user.id,
+        action: "INVENTORY_EXPIRED_REGISTER",
+        entity: "inventory_expired_items",
+        entityId: expiredItem.rows[0].id,
+        metadata: {
+          productId,
+          qty,
+          locationCode: normalizedLocationCode,
+          expirationDate: expirationDate || null,
+          notes: notes || null,
+          balanceAfter: balanceUpdate.rows[0].quantity,
+          totalCost: Number(fifoResult.totalCost || 0),
+        },
+        client,
+      });
+
+      await client.query("COMMIT");
+      await notifyCriticalStockForProductIds([productId]);
+      return res.status(201).json({
+        ok: true,
+        movement: movement.rows[0],
+        expiredItem: expiredItem.rows[0],
+        balance: balanceUpdate.rows[0],
+        fifoCost: Number(fifoResult.totalCost || 0),
       });
     } catch (err) {
       await client.query("ROLLBACK");

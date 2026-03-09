@@ -101,6 +101,12 @@ function getTabAppearance(tab, isDark) {
   }
 }
 
+function getPendingOrderActionLabel(order) {
+  return String(order?.pending_action || "").toUpperCase() === "CONFIGURAR_PAGO_PARCIAL"
+    ? "Definir pago parcial"
+    : "Cobrar orden";
+}
+
 export default function HomeNavigation({
   user,
   allowedTabs,
@@ -250,7 +256,7 @@ export default function HomeNavigation({
                   Ordenes pendientes de caja
                 </div>
                 <div className={`text-xs ${isDark ? "text-zinc-300" : "text-zinc-600"}`}>
-                  {pendingCashOrders.length} orden{pendingCashOrders.length === 1 ? "" : "es"} esperando cobro
+                  {pendingCashOrders.length} orden{pendingCashOrders.length === 1 ? "" : "es"} esperando accion de caja
                 </div>
               </div>
             </div>
@@ -279,6 +285,9 @@ export default function HomeNavigation({
                     </div>
                     <div className={`mt-1 text-[11px] font-bold uppercase tracking-[0.12em] ${isDark ? "text-zinc-300" : "text-zinc-600"}`}>
                       Vendedor: {order.created_by_name || order.created_by_username || "N/A"}
+                    </div>
+                    <div className={`mt-1 text-[11px] font-black uppercase tracking-[0.16em] ${isDark ? "text-amber-300" : "text-amber-700"}`}>
+                      {getPendingOrderActionLabel(order)}
                     </div>
                     <div className={`mt-2 text-lg font-black ${isDark ? "text-amber-300" : "text-amber-700"}`}>
                       ${Number(order.total_amount || 0).toFixed(2)}

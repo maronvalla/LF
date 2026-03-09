@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import api from "../api";
+import api, { isAndroidApk } from "../api";
 import PaymentModal from "./PaymentModal";
 import ProductSearchModal from "./ProductSearchModal";
 import CustomerPanel from "./ventas/CustomerPanel";
@@ -51,6 +51,8 @@ const isQtyShortcut = (event) =>
 const isPriceShortcut = (event) =>
   event.key === "/" || event.key === "Divide" || event.code === "NumpadDivide";
 const DEFAULT_MAP_CENTER = { lat: -27.432028, lng: -65.616528 };
+const isPartialDeliveryCondition = (value) =>
+  String(value || "").trim().toUpperCase() === "PAGO_PARCIAL";
 const parseOptionalCoordinate = (value) => {
   if (value === null || value === undefined) return NaN;
   const text = String(value).trim();
@@ -76,6 +78,8 @@ const parseSellerSelectionKey = (value) => {
     sellerName: rest.join(SELLER_SELECTION_SEPARATOR).trim(),
   };
 };
+const isMobileKeyboardViewport = () =>
+  isAndroidApk || (typeof window !== "undefined" && window.innerWidth < 960);
 const buildEmptySaleDraft = (schedule, sellerId = "", sellerName = "") => ({
   customerId: "",
   customerName: "CONSUMIDOR FINAL",
@@ -152,12 +156,17 @@ export default function Ventas({
   const [canOverrideLinePrice, setCanOverrideLinePrice] = useState(
     ["ADMIN", "CAJERO"].includes(role)
   );
+  const [activeDeliveryPartialPlan, setActiveDeliveryPartialPlan] = useState({
+    cashAmount: "",
+    transferAmount: "",
+  });
 
   const [confirmState, setConfirmState] = useState(null);
   const confirmResolverRef = useRef(null);
 
   const customerSelectRef = useRef(null);
   const codeInputRef = useRef(null);
+  const itemsPanelRef = useRef(null);
   const printPromptResolverRef = useRef(null);
   const selectedPrinterRef = useRef("");
   const [showProductModal, setShowProductModal] = useState(false);
@@ -346,11 +355,13 @@ export default function Ventas({
     setQty("1");
     setSelectedIdx(0);
     setActiveOrderId("");
+    setActiveDeliveryPartialPlan({ cashAmount: "", transferAmount: "" });
     onPendingOrderHandled?.();
   };
 
   const clearPendingOrderContext = () => {
     setActiveOrderId("");
+    setActiveDeliveryPartialPlan({ cashAmount: "", transferAmount: "" });
     onPendingOrderHandled?.();
   };
 
@@ -374,6 +385,22 @@ export default function Ventas({
   const focusCodeSearch = () => {
     if (hasVentasModalOpen) return;
     codeInputRef.current?.focus();
+  };
+
+  const restoreCodeFocusAfterModal = () => {
+    if (isMobileKeyboardViewport()) return;
+    window.setTimeout(() => focusCodeSearch(), 50);
+  };
+
+  const revealItemsForMobile = () => {
+    if (!isMobileKeyboardViewport()) return;
+    if (typeof document !== "undefined" && typeof document.activeElement?.blur === "function") {
+      document.activeElement.blur();
+    }
+    codeInputRef.current?.blur?.();
+    window.setTimeout(() => {
+      itemsPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 90);
   };
 
   const openProductSearch = () => {
@@ -448,6 +475,12 @@ export default function Ventas({
         customer?.preferred_price_list || customer?.preferredPriceList || getDefaultPriceListKey(priceListsConfig)
       );
 
+      const isPartialDeliveryOrder =
+        String(data?.sale_type || "").toUpperCase() === "ENVIO" &&
+        isPartialDeliveryCondition(data?.payment_condition || data?.delivery_payment);
+      const expectedCashAmount = Number(data?.delivery_expected_cash_amount || 0);
+      const expectedTransferAmount = Number(data?.delivery_expected_transfer_amount || 0);
+
       setDraft({
         customerId,
         customerName,
@@ -463,6 +496,10 @@ export default function Ventas({
         paymentCondition: data?.payment_condition || "PAGADO_LOCAL",
         deliveryAddress: data?.delivery_address || "",
       });
+      setActiveDeliveryPartialPlan({
+        cashAmount: expectedCashAmount > 0 ? String(expectedCashAmount) : "",
+        transferAmount: expectedTransferAmount > 0 ? String(expectedTransferAmount) : "",
+      });
       setListaActiva(customerList);
       setListaClienteOriginal(customerList);
       setCambioManualLista(false);
@@ -470,7 +507,12 @@ export default function Ventas({
       setActiveOrderId(orderId);
       setSelectedIdx(0);
       setShowPaymentModal(false);
-      setToast?.({ message: "Orden cargada para cobro", type: "success" });
+      setToast?.({
+        message: isPartialDeliveryOrder
+          ? "Orden cargada para definir pago parcial"
+          : "Orden cargada para cobro",
+        type: "success",
+      });
     } catch (err) {
       setToast?.({
         message: err.response?.data?.message || "No se pudo abrir la orden pendiente",
@@ -809,6 +851,12 @@ export default function Ventas({
     () => draft.items.reduce((acc, i) => acc + Number(i.qty) * Number(i.unitPrice), 0),
     [draft.items]
   );
+  const isActivePartialDeliveryOrder = Boolean(
+    activeOrderId &&
+      readOnlyPendingOrder &&
+      isDelivery &&
+      isPartialDeliveryCondition(draft.paymentCondition)
+  );
 
   const filteredProducts = useMemo(() => {
     const q = search.trim();
@@ -881,6 +929,7 @@ export default function Ventas({
     setSelectedIdx(existingIndex >= 0 ? existingIndex : draft.items.length);
     setSearch("");
     setQty("1");
+    revealItemsForMobile();
   };
 
   const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
@@ -1167,6 +1216,19 @@ export default function Ventas({
 
   const submit = async (paymentData) => {
     try {
+      if (isActivePartialDeliveryOrder) {
+        await api.post(`/sales/${activeOrderId}/delivery-payment-plan`, {
+          paymentMethod: paymentData.paymentMethod,
+          cashAmount: Number(paymentData.cashAmount || 0),
+          transferAmount: Number(paymentData.transferAmount || 0),
+        });
+        setShowPaymentModal(false);
+        setToast?.({ message: "Pago parcial registrado para el envio", type: "success" });
+        resetSaleState();
+        onOrdersChanged?.();
+        return;
+      }
+
       const payload = buildSalePayload();
       const orderResponse = activeOrderId
         ? { data: { id: activeOrderId } }
@@ -1554,11 +1616,13 @@ export default function Ventas({
   );
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-1 overflow-hidden rounded-xl bg-[#ededee] p-1 text-zinc-900">
+    <div className="min-h-full md:h-full md:min-h-0 flex flex-col gap-1 overflow-visible md:overflow-hidden rounded-xl bg-[#ededee] p-1 pb-20 md:pb-1 text-zinc-900">
       {readOnlyPendingOrder ? (
         <div className="mx-1 shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 flex items-center justify-between gap-2">
           <span className="text-sm font-bold text-amber-800">
-            Orden cargada para cobro. Items y cliente bloqueados.
+            {isActivePartialDeliveryOrder
+              ? "Orden cargada para definir pago parcial. Items y cliente bloqueados."
+              : "Orden cargada para cobro. Items y cliente bloqueados."}
           </span>
           <button
             type="button"
@@ -1600,7 +1664,7 @@ export default function Ventas({
         onCustomerChange={handleCustomerChange}
         onToggleDelivery={handleToggleDelivery}
         onOpenCustomerSearch={openCustomerSearch}
-        onCustomerCommit={() => setTimeout(() => focusCodeSearch(), 50)}
+        onCustomerCommit={restoreCodeFocusAfterModal}
         onOpenQuickClient={() => setShowQuickClientModal(true)}
         onCustomerNameChange={(value) => {
           if (readOnlyPendingOrder) return;
@@ -1629,6 +1693,7 @@ export default function Ventas({
       />
       {/* Row 3: Items Grid */}
       <ItemsPanel
+        panelRef={itemsPanelRef}
         codeInputRef={codeInputRef}
         search={search}
         filteredProducts={filteredProducts}
@@ -1653,7 +1718,15 @@ export default function Ventas({
         onRemoveSelected={removeSelectedItem}
         onSubmitBudget={submitBudget}
         onPrimaryAction={triggerPrimarySalesAction}
-        primaryLabel={isSellerOnly ? "Enviar orden" : activeOrderId ? "Cobrar orden" : "Registrar venta"}
+        primaryLabel={
+          isSellerOnly
+            ? "Enviar orden"
+            : isActivePartialDeliveryOrder
+              ? "Registrar pago parcial"
+              : activeOrderId
+                ? "Cobrar orden"
+                : "Registrar venta"
+        }
         disableRemove={readOnlyPendingOrder}
         disableBudget={readOnlyPendingOrder}
       />
@@ -1663,8 +1736,23 @@ export default function Ventas({
           total={subtotal}
           onClose={() => setShowPaymentModal(false)}
           onConfirm={submit}
-          requireCashGiven={role !== "VENDEDOR"}
-          allowCurrentAccount={customerHasCurrentAccount}
+          title={isActivePartialDeliveryOrder ? "Registrar Pago Parcial" : "Confirmar Cobro"}
+          confirmLabel={isActivePartialDeliveryOrder ? "Guardar plan" : "Confirmar"}
+          requireCashGiven={!isActivePartialDeliveryOrder && role !== "VENDEDOR"}
+          requireProof={!isActivePartialDeliveryOrder}
+          allowCurrentAccount={!isActivePartialDeliveryOrder && customerHasCurrentAccount}
+          allowedMethods={
+            isActivePartialDeliveryOrder
+              ? ["MIXTO"]
+              : customerHasCurrentAccount
+                ? ["EFECTIVO", "TRANSFERENCIA", "MIXTO", "CUENTA_CORRIENTE"]
+                : ["EFECTIVO", "TRANSFERENCIA", "MIXTO"]
+          }
+          initialMethod={isActivePartialDeliveryOrder ? "MIXTO" : "EFECTIVO"}
+          initialCashAmount={isActivePartialDeliveryOrder ? activeDeliveryPartialPlan.cashAmount : ""}
+          initialTransferAmount={
+            isActivePartialDeliveryOrder ? activeDeliveryPartialPlan.transferAmount : ""
+          }
         />
       )}
       {showPrintPrompt ? (
@@ -1684,12 +1772,12 @@ export default function Ventas({
           products={products}
           onClose={() => {
             setShowProductModal(false);
-            setTimeout(() => focusCodeSearch(), 50);
+            restoreCodeFocusAfterModal();
           }}
           onSelect={(product) => {
             addItem(product);
             setShowProductModal(false);
-            setTimeout(() => focusCodeSearch(), 50);
+            restoreCodeFocusAfterModal();
           }}
         />
       )}

@@ -110,7 +110,7 @@ router.get(
           COALESCE(pr.name, '-') AS rubro_name,
           COALESCE(SUM(si.qty), 0)::int AS units,
           COALESCE(SUM(si.line_total), 0)::int AS amount,
-          COALESCE(SUM(si.qty * COALESCE(p.cost, 0)), 0)::int AS cost_amount,
+          COALESCE(SUM(si.cost_amount), 0)::numeric AS cost_amount,
           COALESCE(SUM(CASE WHEN s.sale_type = 'ENVIO' THEN si.qty ELSE 0 END), 0)::int AS envio_units,
           COALESCE(SUM(CASE WHEN s.sale_type = 'MOSTRADOR' THEN si.qty ELSE 0 END), 0)::int AS mostrador_units
         FROM sale_items si
@@ -154,10 +154,9 @@ router.get(
       `
         SELECT
           COALESCE(SUM(si.line_total), 0)::int AS sold_amount,
-          COALESCE(SUM(si.qty * COALESCE(p.cost, 0)), 0)::int AS cost_amount
+          COALESCE(SUM(si.cost_amount), 0)::numeric AS cost_amount
         FROM sales s
         JOIN sale_items si ON si.sale_id = s.id
-        JOIN products p ON p.id = si.product_id
         ${salesBaseWhere}
           AND COALESCE(s.charged_at, s.created_at)::date = CURRENT_DATE
       `
@@ -167,10 +166,9 @@ router.get(
       `
         SELECT
           COALESCE(SUM(si.line_total), 0)::int AS sold_amount,
-          COALESCE(SUM(si.qty * COALESCE(p.cost, 0)), 0)::int AS cost_amount
+          COALESCE(SUM(si.cost_amount), 0)::numeric AS cost_amount
         FROM sales s
         JOIN sale_items si ON si.sale_id = s.id
-        JOIN products p ON p.id = si.product_id
         ${salesBaseWhere}
           AND DATE_TRUNC('month', COALESCE(s.charged_at, s.created_at)) = DATE_TRUNC('month', CURRENT_DATE)
       `
@@ -181,10 +179,9 @@ router.get(
       `
         SELECT
           COALESCE(SUM(si.line_total), 0)::int AS sold_amount,
-          COALESCE(SUM(si.qty * COALESCE(p.cost, 0)), 0)::int AS cost_amount
+          COALESCE(SUM(si.cost_amount), 0)::numeric AS cost_amount
         FROM sales s
         JOIN sale_items si ON si.sale_id = s.id
-        JOIN products p ON p.id = si.product_id
         ${salesBaseWhere}
         ${customProfitDate.whereSql}
       `,

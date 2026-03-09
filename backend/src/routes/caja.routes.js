@@ -505,14 +505,13 @@ router.get(
         ), 0)::numeric as cash_total,
         COALESCE(SUM(
           CASE
-            WHEN s.payment_method = 'EFECTIVO' THEN (COALESCE(p.cost, 0) * si.qty)
-            WHEN s.payment_method = 'MIXTO' THEN (COALESCE(p.cost, 0) * si.qty) * 0.5
+            WHEN s.payment_method = 'EFECTIVO' THEN COALESCE(si.cost_amount, 0)
+            WHEN s.payment_method = 'MIXTO' THEN COALESCE(si.cost_amount, 0) * 0.5
             ELSE 0
           END
         ), 0)::numeric as recovered_capital
        FROM sales s
        JOIN sale_items si ON si.sale_id = s.id
-       JOIN products p ON p.id = si.product_id
        WHERE DATE(s.created_at) = $1
        AND s.status != 'ANULADO'
        AND s.sale_type = 'MOSTRADOR'
@@ -593,14 +592,13 @@ router.post(
           ), 0)::numeric as cash_total,
           COALESCE(SUM(
             CASE
-              WHEN s.payment_method = 'EFECTIVO' THEN (COALESCE(p.cost, 0) * si.qty)
-              WHEN s.payment_method = 'MIXTO' THEN (COALESCE(p.cost, 0) * si.qty) * 0.5
+              WHEN s.payment_method = 'EFECTIVO' THEN COALESCE(si.cost_amount, 0)
+              WHEN s.payment_method = 'MIXTO' THEN COALESCE(si.cost_amount, 0) * 0.5
               ELSE 0
             END
           ), 0)::numeric as recovered_capital
          FROM sales s
          JOIN sale_items si ON si.sale_id = s.id
-         JOIN products p ON p.id = si.product_id
          WHERE DATE(s.created_at) = $1
          AND s.status != 'ANULADO'
          AND s.sale_type = 'MOSTRADOR'

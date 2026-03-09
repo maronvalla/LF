@@ -13,17 +13,33 @@ const parseMoneyInput = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const closeEnoughMoney = (left, right) => Math.abs(Number(left || 0) - Number(right || 0)) <= 0.01;
+
 export default function PaymentModal({
   total,
   onClose,
   onConfirm,
+  title = "Confirmar Cobro",
+  confirmLabel = "Confirmar",
   requireCashGiven = true,
+  requireProof = true,
   allowCurrentAccount = false,
+  allowedMethods = ["EFECTIVO", "TRANSFERENCIA", "MIXTO"],
+  initialMethod = "EFECTIVO",
+  initialCashAmount = "",
+  initialTransferAmount = "",
 }) {
-  const [method, setMethod] = useState("EFECTIVO");
+  const resolvedAllowedMethods = Array.isArray(allowedMethods) && allowedMethods.length
+    ? allowedMethods
+    : ["EFECTIVO", "TRANSFERENCIA", "MIXTO"];
+  const resolvedInitialMethod = resolvedAllowedMethods.includes(initialMethod)
+    ? initialMethod
+    : resolvedAllowedMethods[0];
+
+  const [method, setMethod] = useState(resolvedInitialMethod);
   const [cashGiven, setCashGiven] = useState("");
-  const [mixedCash, setMixedCash] = useState("");
-  const [mixedTransfer, setMixedTransfer] = useState("");
+  const [mixedCash, setMixedCash] = useState(String(initialCashAmount || ""));
+  const [mixedTransfer, setMixedTransfer] = useState(String(initialTransferAmount || ""));
   const [proofDataUrl, setProofDataUrl] = useState("");
   const [proofName, setProofName] = useState("");
 
@@ -38,9 +54,10 @@ export default function PaymentModal({
   const mixedCashValue = parseMoneyInput(mixedCash);
   const mixedTransferValue = parseMoneyInput(mixedTransfer);
   const change = method === "EFECTIVO" && cashGiven ? cashGivenValue - total : 0;
-  const isMixedValid = method === "MIXTO" && mixedCashValue + mixedTransferValue === total;
+  const isMixedValid =
+    method === "MIXTO" && closeEnoughMoney(mixedCashValue + mixedTransferValue, total);
   const transferNeedsProof =
-    method === "TRANSFERENCIA" || (method === "MIXTO" && mixedTransferValue > 0);
+    requireProof && (method === "TRANSFERENCIA" || (method === "MIXTO" && mixedTransferValue > 0));
 
   const canConfirm =
     method === "TRANSFERENCIA" ||
@@ -59,6 +76,15 @@ export default function PaymentModal({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  useEffect(() => {
+    setMethod(resolvedInitialMethod);
+    setCashGiven("");
+    setMixedCash(String(initialCashAmount || ""));
+    setMixedTransfer(String(initialTransferAmount || ""));
+    setProofDataUrl("");
+    setProofName("");
+  }, [resolvedInitialMethod, initialCashAmount, initialTransferAmount]);
 
   const handleProofChange = (event) => {
     const file = event.target.files?.[0];
@@ -114,7 +140,7 @@ export default function PaymentModal({
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-graphite-950 border border-zinc-800 rounded-xl p-6 w-full max-w-sm">
         <h2 className="text-xl font-black text-burnt-500 mb-4 uppercase text-center">
-          Confirmar Cobro
+          {title}
         </h2>
 
         <div className="text-center mb-6">
@@ -131,16 +157,22 @@ export default function PaymentModal({
               value={method}
               onChange={(e) => setMethod(e.target.value)}
             >
-              <option value="EFECTIVO" style={lightOptionStyle}>
-                EFECTIVO
-              </option>
-              <option value="TRANSFERENCIA" style={lightOptionStyle}>
-                TRANSFERENCIA
-              </option>
-              <option value="MIXTO" style={lightOptionStyle}>
-                MIXTO
-              </option>
-              {allowCurrentAccount ? (
+              {resolvedAllowedMethods.includes("EFECTIVO") ? (
+                <option value="EFECTIVO" style={lightOptionStyle}>
+                  EFECTIVO
+                </option>
+              ) : null}
+              {resolvedAllowedMethods.includes("TRANSFERENCIA") ? (
+                <option value="TRANSFERENCIA" style={lightOptionStyle}>
+                  TRANSFERENCIA
+                </option>
+              ) : null}
+              {resolvedAllowedMethods.includes("MIXTO") ? (
+                <option value="MIXTO" style={lightOptionStyle}>
+                  MIXTO
+                </option>
+              ) : null}
+              {allowCurrentAccount && resolvedAllowedMethods.includes("CUENTA_CORRIENTE") ? (
                 <option value="CUENTA_CORRIENTE" style={lightOptionStyle}>
                   CUENTA CORRIENTE
                 </option>
@@ -291,7 +323,7 @@ export default function PaymentModal({
               disabled={!canConfirm}
               className="btn btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Confirmar
+              {confirmLabel}
             </button>
           </div>
         </form>

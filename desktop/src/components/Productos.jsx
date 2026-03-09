@@ -97,6 +97,8 @@ function normalizePayload(payload) {
 
 export default function Productos({ user, setToast }) {
   const CREATE_OPTION_VALUE = "__create_new__";
+  const role = String(user?.role || "").toUpperCase();
+  const canManageProducts = role === "ADMIN";
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [brands, setBrands] = useState([]);
@@ -120,7 +122,7 @@ export default function Productos({ user, setToast }) {
   const [deletingProductId, setDeletingProductId] = useState(null);
   const [bulkEditPage, setBulkEditPage] = useState(1);
   const [bulkEditModeLabel, setBulkEditModeLabel] = useState("Edicion masiva de productos");
-  const canImportExport = String(user?.role || "").toUpperCase() === "ADMIN";
+  const canImportExport = canManageProducts;
 
   const [form, setForm] = useState(createFormState());
   const [confirmState, setConfirmState] = useState(null);
@@ -248,17 +250,26 @@ export default function Productos({ user, setToast }) {
     setProducts(data || []);
   };
 
+  const ensureCanManageProducts = () => {
+    if (canManageProducts) return true;
+    setToast?.({ message: "Solo administrador puede modificar articulos", type: "error" });
+    return false;
+  };
+
   const openCreate = () => {
+    if (!ensureCanManageProducts()) return;
     resetForm();
     setShowNewProduct(true);
   };
 
   const openBulkCreate = () => {
+    if (!ensureCanManageProducts()) return;
     resetBulkCreate();
     setShowBulkCreate(true);
   };
 
   const openEdit = (product) => {
+    if (!ensureCanManageProducts()) return;
     setEditingProductId(product.id);
     setForm(buildEditDraftFromProduct(product));
     setManualMargin(true);
@@ -271,6 +282,7 @@ export default function Productos({ user, setToast }) {
   );
 
   const startBulkEdit = () => {
+    if (!ensureCanManageProducts()) return;
     const nextDrafts = {};
     const nextOriginals = {};
     activeProducts.forEach((product) => {
@@ -316,7 +328,7 @@ export default function Productos({ user, setToast }) {
 
       if (!isPlusShortcut) return;
 
-      if (showNewProduct || showBulkCreate) return;
+      if (showNewProduct || showBulkCreate || !canManageProducts) return;
 
       if (isTypingTarget(event.target) && !isTextEditingTarget(event.target)) return;
 
@@ -326,7 +338,7 @@ export default function Productos({ user, setToast }) {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showBulkCreate, showNewProduct]);
+  }, [canManageProducts, showBulkCreate, showNewProduct]);
 
   const addCustomUnit = () => {
     const cleaned = String(newUnitName || "").trim();
@@ -560,6 +572,7 @@ export default function Productos({ user, setToast }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!ensureCanManageProducts()) return;
     if (!form.name.trim()) {
       setToast?.({ message: "Nombre requerido", type: "error" });
       return;
@@ -588,6 +601,7 @@ export default function Productos({ user, setToast }) {
   };
 
   const saveBulkCreate = async () => {
+    if (!ensureCanManageProducts()) return;
     const rowsToCreate = bulkCreateRows.filter(
       (row) => row.name.trim() || row.sku.trim() || Number(row.cost || 0) > 0
     );
@@ -634,6 +648,7 @@ export default function Productos({ user, setToast }) {
   };
 
   const saveBulkEdit = async () => {
+    if (!ensureCanManageProducts()) return;
     const changedEntries = products
       .map((product) => {
         const draft = bulkEditDrafts[product.id];
@@ -687,6 +702,7 @@ export default function Productos({ user, setToast }) {
   };
 
   const problematicProducts = useMemo(() => {
+    if (!canManageProducts) return [];
     return activeProducts
       .filter((product) => !dismissedAlertIds.includes(product.id))
       .map((product) => {
@@ -703,7 +719,7 @@ export default function Productos({ user, setToast }) {
         return { product, cost, prices };
       })
       .filter(Boolean);
-  }, [activeProducts, dismissedAlertIds]);
+  }, [activeProducts, canManageProducts, dismissedAlertIds]);
 
   const currentProblem = problematicProducts[0] || null;
 
@@ -720,12 +736,14 @@ export default function Productos({ user, setToast }) {
   };
 
   const reviewProblematicProduct = () => {
+    if (!canManageProducts) return;
     if (!currentProblem?.product) return;
     openEdit(currentProblem.product);
     setDismissedAlertIds((prev) => [...prev, currentProblem.product.id]);
   };
 
   const reviewAllProblematicProducts = () => {
+    if (!canManageProducts) return;
     if (!problematicProducts.length) return;
     const nextDrafts = {};
     const nextOriginals = {};
@@ -751,6 +769,7 @@ export default function Productos({ user, setToast }) {
   }, [activeProducts, search]);
 
   const deleteProduct = async (product) => {
+    if (!ensureCanManageProducts()) return;
     if (!product?.id) return;
     const confirmed = await showConfirm(`Vas a borrar "${product.name}".\n¿El producto dejará de aparecer en el sistema. Deseas continuar?`);
     if (!confirmed) return;
@@ -803,7 +822,14 @@ export default function Productos({ user, setToast }) {
     <div className="space-y-4 text-zinc-100">
       <div className="card p-4 rounded-lg bg-zinc-900 border-zinc-800">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black text-[#e85d04] uppercase">Productos</h2>
+          <div>
+            <h2 className="text-xl font-black text-[#e85d04] uppercase">Productos</h2>
+            {!canManageProducts ? (
+              <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                Solo lectura para cajero
+              </div>
+            ) : null}
+          </div>
           <div className="flex flex-wrap justify-end gap-2">
             {canImportExport ? (
               <button
@@ -817,35 +843,39 @@ export default function Productos({ user, setToast }) {
                 Importar / Exportar
               </button>
             ) : null}
-            <button type="button" className="btn btn-muted rounded-lg" onClick={openBulkCreate}>
-              Carga masiva
-            </button>
-            {bulkEditMode ? (
+            {canManageProducts ? (
               <>
+                <button type="button" className="btn btn-muted rounded-lg" onClick={openBulkCreate}>
+                  Carga masiva
+                </button>
+                {bulkEditMode ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg"
+                      onClick={saveBulkEdit}
+                      disabled={bulkSaving}
+                    >
+                      {bulkSaving ? "Guardando..." : "Guardar edicion masiva"}
+                    </button>
+                    <button type="button" className="btn btn-muted rounded-lg" onClick={stopBulkEdit} disabled={bulkSaving}>
+                      Cancelar
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn btn-muted rounded-lg" onClick={startBulkEdit}>
+                    Editar varios
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg"
-                  onClick={saveBulkEdit}
-                  disabled={bulkSaving}
+                  onClick={openCreate}
                 >
-                  {bulkSaving ? "Guardando..." : "Guardar edicion masiva"}
-                </button>
-                <button type="button" className="btn btn-muted rounded-lg" onClick={stopBulkEdit} disabled={bulkSaving}>
-                  Cancelar
+                  + Nuevo producto
                 </button>
               </>
-            ) : (
-              <button type="button" className="btn btn-muted rounded-lg" onClick={startBulkEdit}>
-                Editar varios
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg"
-              onClick={openCreate}
-            >
-              + Nuevo producto
-            </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -878,15 +908,15 @@ export default function Productos({ user, setToast }) {
                 <th className="text-right py-2">Minorista</th>
                 <th className="text-right py-2">Mayorista</th>
                 <th className="text-left py-2">Otras listas</th>
-                <th className="text-right py-2">Acciones</th>
+                {canManageProducts ? <th className="text-right py-2">Acciones</th> : null}
               </tr>
             </thead>
             <tbody>
               {filtered.map((p) => (
                 <tr
                   key={p.id}
-                  className="border-t border-zinc-800 cursor-pointer hover:bg-zinc-800/40"
-                  onClick={() => openEdit(p)}
+                  className={`border-t border-zinc-800 ${canManageProducts ? "cursor-pointer hover:bg-zinc-800/40" : ""}`}
+                  onClick={canManageProducts ? () => openEdit(p) : undefined}
                 >
                   <td className="py-2 pr-3">
                     {p.image_data_url || p.imageDataUrl ? (
@@ -921,20 +951,22 @@ export default function Productos({ user, setToast }) {
                       .map(([key, value]) => `${getPriceListLabel(priceLists, key)}: $${Number(value || 0).toFixed(2)}`)
                       .join(" | ") || "-"}
                   </td>
-                  <td className="py-2 text-right">
-                    <button
-                      type="button"
-                      className="btn rounded-lg bg-rose-900/70 px-3 py-1 text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={deletingProductId === p.id}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        deleteProduct(p);
-                      }}
-                    >
-                      {deletingProductId === p.id ? "Borrando..." : "Borrar"}
-                    </button>
-                  </td>
+                  {canManageProducts ? (
+                    <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        className="btn rounded-lg bg-rose-900/70 px-3 py-1 text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={deletingProductId === p.id}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          deleteProduct(p);
+                        }}
+                      >
+                        {deletingProductId === p.id ? "Borrando..." : "Borrar"}
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
