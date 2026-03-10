@@ -43,6 +43,41 @@ const cancelSaleSchema = z.object({
   overrideApprovedConsolidated: z.boolean().optional(),
 });
 
+const saleReturnSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+  receiptPhotoBase64: z.string().optional().nullable(),
+  receiptPhotoMimeType: z.string().optional().nullable(),
+  receiptPhotoName: z.string().optional().nullable(),
+  returnedItems: z
+    .array(
+      z.object({
+        saleItemId: z.string().uuid(),
+        qty: z.number().positive(),
+      })
+    )
+    .min(1),
+  replacementItems: z
+    .array(
+      z.object({
+        productId: z.string().uuid(),
+        qty: z.number().positive(),
+        unitPrice: z.number().nonnegative(),
+      })
+    )
+    .min(1),
+  differencePayment: z
+    .object({
+      paymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "MIXTO"]),
+      cashAmount: z.number().nonnegative().optional().default(0),
+      transferAmount: z.number().nonnegative().optional().default(0),
+      proofImageBase64: z.string().optional().nullable(),
+      proofImageMimeType: z.string().optional().nullable(),
+      proofImageName: z.string().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+});
+
 const createBudgetSchema = z.object({
   customerId: z.string().uuid().nullable().optional(),
   customerName: z.string().trim().min(1).max(200),
@@ -87,6 +122,7 @@ const deliveryPartialPlanSchema = z.object({
 module.exports = {
   createSaleSchema,
   cancelSaleSchema,
+  saleReturnSchema,
   createBudgetSchema,
   checkoutSaleSchema,
   deliveryPartialPlanSchema,

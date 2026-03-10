@@ -5,6 +5,11 @@ const { requirePermission } = require("../middleware/rbac");
 const { asyncHandler } = require("../utils/async-handler");
 
 const router = express.Router();
+const BUSINESS_TIME_ZONE = "America/Argentina/Buenos_Aires";
+const SALES_BUSINESS_TS_SQL = `COALESCE(s.charged_at, s.created_at) AT TIME ZONE '${BUSINESS_TIME_ZONE}'`;
+const SALES_BUSINESS_DATE_SQL = `(${SALES_BUSINESS_TS_SQL})::date`;
+const BUSINESS_CURRENT_DATE_SQL = `(NOW() AT TIME ZONE '${BUSINESS_TIME_ZONE}')::date`;
+const BUSINESS_CURRENT_MONTH_SQL = `DATE_TRUNC('month', NOW() AT TIME ZONE '${BUSINESS_TIME_ZONE}')`;
 
 const filtersSchema = z.object({
   dateFrom: z.string().date().optional(),
@@ -38,7 +43,7 @@ function buildProductFilterClauses(parsedFilters) {
   return { params, whereSql: clauses.length ? ` AND ${clauses.join(" AND ")}` : "" };
 }
 
-function buildDateParams(dateFrom, dateTo, startIndex = 1, column = "COALESCE(s.charged_at, s.created_at)::date") {
+function buildDateParams(dateFrom, dateTo, startIndex = 1, column = SALES_BUSINESS_DATE_SQL) {
   const params = [];
   const clauses = [];
   if (dateFrom) {
@@ -70,8 +75,8 @@ router.get(
     const monthlySalesPromise = pool.query(
       `
         SELECT
-          TO_CHAR(DATE_TRUNC('month', COALESCE(s.charged_at, s.created_at)), 'YYYY-MM') AS month_key,
-          TO_CHAR(DATE_TRUNC('month', COALESCE(s.charged_at, s.created_at)), 'MM/YYYY') AS month_label,
+          TO_CHAR(DATE_TRUNC('month', ${SALES_BUSINESS_TS_SQL}), 'YYYY-MM') AS month_key,
+          TO_CHAR(DATE_TRUNC('month', ${SALES_BUSINESS_TS_SQL}), 'MM/YYYY') AS month_label,
           COUNT(DISTINCT s.id)::int AS sales_count,
           COALESCE(SUM(si.line_total), 0)::int AS sales_amount
         FROM sales s
@@ -86,8 +91,8 @@ router.get(
     const monthlyBudgetsPromise = pool.query(
       `
         SELECT
-          TO_CHAR(DATE_TRUNC('month', b.created_at), 'YYYY-MM') AS month_key,
-          TO_CHAR(DATE_TRUNC('month', b.created_at), 'MM/YYYY') AS month_label,
+          TO_CHAR(DATE_TRUNC('month', b.created_at AT TIME ZONE '${BUSINESS_TIME_ZONE}'), 'YYYY-MM') AS month_key,
+          TO_CHAR(DATE_TRUNC('month', b.created_at AT TIME ZONE '${BUSINESS_TIME_ZONE}'), 'MM/YYYY') AS month_label,
           COUNT(DISTINCT b.id)::int AS budgets_count,
           COALESCE(SUM(b.total_amount), 0)::int AS budgets_amount
         FROM budgets b
@@ -158,7 +163,7 @@ router.get(
         FROM sales s
         JOIN sale_items si ON si.sale_id = s.id
         ${salesBaseWhere}
-          AND COALESCE(s.charged_at, s.created_at)::date = CURRENT_DATE
+          AND ${SALES_BUSINESS_DATE_SQL} = ${BUSINESS_CURRENT_DATE_SQL}
       `
     );
 
@@ -170,7 +175,7 @@ router.get(
         FROM sales s
         JOIN sale_items si ON si.sale_id = s.id
         ${salesBaseWhere}
-          AND DATE_TRUNC('month', COALESCE(s.charged_at, s.created_at)) = DATE_TRUNC('month', CURRENT_DATE)
+          AND DATE_TRUNC('month', ${SALES_BUSINESS_TS_SQL}) = ${BUSINESS_CURRENT_MONTH_SQL}
       `
     );
 
@@ -233,6 +238,13 @@ router.get(
 
     res.json({
       ok: true,
+      businessDate: new Intl.DateTimeFormat("en-CA", {
+        timeZone: BUSINESS_TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date()),
+      businessTimeZone: BUSINESS_TIME_ZONE,
       monthlySales: monthlySales.rows.map((row) => ({
         monthKey: row.month_key,
         monthLabel: row.month_label,

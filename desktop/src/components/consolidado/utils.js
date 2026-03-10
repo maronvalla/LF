@@ -56,18 +56,20 @@ export function wrapTicketText(text, maxChars, prefix = "") {
   const normalized = String(text || "").trim().replace(/\s+/g, " ");
   const width = Math.max(8, Number(maxChars || 0) || 32);
   const safePrefix = String(prefix || "");
+  const continuationPrefix = safePrefix ? " ".repeat(safePrefix.length) : "";
   if (!normalized) return [];
 
   const lines = [];
   const words = normalized.split(" ");
-  let current = safePrefix;
-  const baseWidth = Math.max(4, width - safePrefix.length);
+  let currentPrefix = safePrefix;
+  let current = currentPrefix;
 
   words.forEach((word) => {
     const token = String(word || "");
+    const tokenWidth = Math.max(4, width - currentPrefix.length);
     const next = current.trim().length
       ? `${current} ${token}`.trimEnd()
-      : `${safePrefix}${token}`;
+      : `${currentPrefix}${token}`;
 
     if (next.length <= width) {
       current = next;
@@ -76,15 +78,17 @@ export function wrapTicketText(text, maxChars, prefix = "") {
 
     if (current.trim().length) {
       lines.push(current.slice(0, width));
-      current = safePrefix;
+      currentPrefix = continuationPrefix;
+      current = currentPrefix;
     }
 
     let remaining = token;
-    while (remaining.length > baseWidth) {
-      lines.push(`${safePrefix}${remaining.slice(0, baseWidth)}`.slice(0, width));
-      remaining = remaining.slice(baseWidth);
+    while (remaining.length > tokenWidth) {
+      lines.push(`${currentPrefix}${remaining.slice(0, tokenWidth)}`.slice(0, width));
+      remaining = remaining.slice(tokenWidth);
+      currentPrefix = continuationPrefix;
     }
-    current = remaining ? `${safePrefix}${remaining}` : safePrefix;
+    current = remaining ? `${currentPrefix}${remaining}` : currentPrefix;
   });
 
   if (current.trim().length) {
@@ -92,6 +96,68 @@ export function wrapTicketText(text, maxChars, prefix = "") {
   }
 
   return lines;
+}
+
+const ARGENTINA_PROVINCES = new Set([
+  "BUENOS AIRES",
+  "CATAMARCA",
+  "CHACO",
+  "CHUBUT",
+  "CORDOBA",
+  "CORRIENTES",
+  "ENTRE RIOS",
+  "FORMOSA",
+  "JUJUY",
+  "LA PAMPA",
+  "LA RIOJA",
+  "MENDOZA",
+  "MISIONES",
+  "NEUQUEN",
+  "RIO NEGRO",
+  "SALTA",
+  "SAN JUAN",
+  "SAN LUIS",
+  "SANTA CRUZ",
+  "SANTA FE",
+  "SANTIAGO DEL ESTERO",
+  "TIERRA DEL FUEGO",
+  "TUCUMAN",
+]);
+
+function normalizeAddressPart(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
+function isPostalCodePart(value) {
+  const compact = normalizeAddressPart(value).replace(/\s+/g, "");
+  return /^[A-Z]?\d{4}[A-Z]{0,3}$/i.test(compact);
+}
+
+function isProvincePart(value) {
+  const normalized = normalizeAddressPart(value);
+  if (!normalized) return false;
+  if (normalized === "ARGENTINA") return true;
+  if (normalized.startsWith("PROVINCIA DE ")) return true;
+  return ARGENTINA_PROVINCES.has(normalized);
+}
+
+export function sanitizeTicketAddress(address) {
+  const normalized = String(address || "").trim().replace(/\s+/g, " ");
+  if (!normalized) return "";
+
+  const parts = normalized
+    .split(",")
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .filter((part) => !isPostalCodePart(part))
+    .filter((part) => !isProvincePart(part));
+
+  if (!parts.length) return normalized;
+  return parts.slice(0, 2).join(", ");
 }
 
 export function toAmount(value) {

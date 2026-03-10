@@ -19,7 +19,16 @@
       "Bash(cd \"C:/Users/exequ/Desktop/LF/desktop/android\" && ./gradlew assembleDebug 2>&1)",
       "Bash(tail:*)",
       "Bash(echo Could not parse jsonl:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(ssh:*)",
+      "Bash(head:*)",
+      "Bash(gcloud config:*)",
+      "Bash(gcloud services api-keys list --project=financiera-95144 2>&1 | grep -A 20 \"AIzaSyDG20Tn8AhWfvGsu-WhO1pYMdAx__r5MqY\" || gcloud services api-keys list --project=financiera-95144 --filter=\"keyString=AIzaSyDG20Tn8AhWfvGsu-WhO1pYMdAx__r5MqY\" 2>&1)",
+      "Bash(gcloud services:*)",
+      "Bash(gcloud projects:*)",
+      "Bash(cd /c/Users/exequ/Desktop/LF/desktop && npm run dist:win 2>&1)",
+      "Bash(taskkill:*)",
+      "Bash(powershell:*)"
     ]
   }
 }

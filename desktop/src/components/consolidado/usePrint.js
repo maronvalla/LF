@@ -6,7 +6,7 @@ import {
   getTicketPaperWidthMm,
   loadTicketConfig,
 } from "../../utils/ticketConfig";
-import { wrapTicketText } from "./utils";
+import { sanitizeTicketAddress, wrapTicketText } from "./utils";
 
 function renderTicketLinesHtml(lines = []) {
   return (Array.isArray(lines) ? lines : [])
@@ -305,7 +305,7 @@ export function usePrint({
     lines.push(repeat("-", separatorLength));
     if (ticketConfig.includeClient) {
       lines.push(`Cliente: ${String(sale.customer_name || "CONSUMIDOR FINAL").slice(0, MAX - 9)}`);
-      const deliveryAddress = String(sale.delivery_address || "").trim();
+      const deliveryAddress = sanitizeTicketAddress(sale.delivery_address);
       if (deliveryAddress) lines.push(...wrapTicketText(deliveryAddress, MAX, "Dir: "));
       const customerZone = String(sale.customer_zone || "").trim();
       if (customerZone) lines.push(...wrapTicketText(customerZone, MAX, "Zona: "));

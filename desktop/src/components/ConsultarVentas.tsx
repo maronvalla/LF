@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api";
 import PrintPromptModal from "./ventas/PrintPromptModal";
+import SaleReturnModal from "./ventas/SaleReturnModal";
 import {
   DEFAULT_TICKET_CONFIG,
   getTicketMaxChars,
@@ -237,11 +238,13 @@ export default function ConsultarVentas({
 
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
   const [cancelTargetId, setCancelTargetId] = useState<string | null>(null);
+  const [returnTargetSale, setReturnTargetSale] = useState<Venta | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const role = String(user?.role || "").toUpperCase();
   const isAdmin = role === "ADMIN";
+  const canManageReturns = role === "ADMIN" || role === "CAJERO";
 
   // Reprint state
   const [showReprintModal, setShowReprintModal] = useState(false);
@@ -448,6 +451,11 @@ export default function ConsultarVentas({
     );
   };
 
+  const handleReturn = (venta: Venta) => {
+    setReturnTargetSale(venta);
+    setErrorMessage("");
+  };
+
   return (
     <div className="h-full flex flex-col space-y-4 text-zinc-900 animate-in fade-in duration-300">
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shrink-0 shadow-sm">
@@ -514,7 +522,7 @@ export default function ConsultarVentas({
                 <th className="w-32 border-r border-zinc-800 p-4 text-right">Monto Total</th>
                 <th className="w-36 border-r border-zinc-800 p-4 text-center">Metodo Pago</th>
                 <th className="w-32 border-r border-zinc-800 p-4 text-center">Estado</th>
-                <th className="p-4 text-center w-36">Acciones</th>
+                <th className="p-4 text-center w-48">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -597,6 +605,23 @@ export default function ConsultarVentas({
                           <div className="w-8 h-8" />
                         )}
 
+                        {canManageReturns && venta.estado !== "ANULADO" ? (
+                          <button
+                            title="Gestionar devolucion"
+                            onClick={() => handleReturn(venta)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 shadow-sm transition-all hover:border-emerald-500 hover:bg-emerald-600 hover:text-white"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 7h6" />
+                              <path d="M3 12h12" />
+                              <path d="M3 17h18" />
+                              <path d="m19 4 3 3-3 3" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <div className="w-8 h-8" />
+                        )}
+
                         {/* Anular venta */}
                         {venta.estado !== "ANULADO" ? (
                           <button
@@ -672,6 +697,18 @@ export default function ConsultarVentas({
           onPrinterChange={setReprintSelectedPrinter}
           onCancel={() => setShowReprintModal(false)}
           onConfirm={confirmReprint}
+        />
+      ) : null}
+
+      {returnTargetSale ? (
+        <SaleReturnModal
+          sale={returnTargetSale}
+          user={user}
+          onClose={() => setReturnTargetSale(null)}
+          onSaved={async () => {
+            setReturnTargetSale(null);
+            await fetchVentas();
+          }}
         />
       ) : null}
 
