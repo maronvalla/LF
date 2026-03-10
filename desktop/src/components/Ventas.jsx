@@ -51,6 +51,7 @@ const isQtyShortcut = (event) =>
 const isPriceShortcut = (event) =>
   event.key === "/" || event.key === "Divide" || event.code === "NumpadDivide";
 const DEFAULT_MAP_CENTER = { lat: -27.432028, lng: -65.616528 };
+const DEFAULT_DELIVERY_PAYMENT_CONDITION = "COBRAR_EN_ENTREGA";
 const isPartialDeliveryCondition = (value) =>
   String(value || "").trim().toUpperCase() === "PAGO_PARCIAL";
 const parseOptionalCoordinate = (value) => {
@@ -91,7 +92,7 @@ const buildEmptySaleDraft = (schedule, sellerId = "", sellerName = "") => ({
   items: [],
   shift: schedule.shift,
   scheduledDate: schedule.scheduledDate,
-  paymentCondition: "PAGADO_LOCAL",
+  paymentCondition: DEFAULT_DELIVERY_PAYMENT_CONDITION,
   deliveryAddress: "",
 });
 
@@ -193,6 +194,16 @@ export default function Ventas({
     showPrintPrompt ||
     showProductModal ||
     Boolean(confirmState);
+
+  const getPreferredDeliveryCondition = (conditions = deliveryConditions) => {
+    if (!Array.isArray(conditions) || !conditions.length) {
+      return DEFAULT_DELIVERY_PAYMENT_CONDITION;
+    }
+    return (
+      conditions.find((condition) => condition.value === DEFAULT_DELIVERY_PAYMENT_CONDITION)?.value ||
+      conditions[0].value
+    );
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -325,7 +336,7 @@ export default function Ventas({
     if (!deliveryConditions.length) return;
     const exists = deliveryConditions.some((c) => c.value === draft.paymentCondition);
     if (!exists) {
-      setDraft((prev) => ({ ...prev, paymentCondition: deliveryConditions[0].value }));
+      setDraft((prev) => ({ ...prev, paymentCondition: getPreferredDeliveryCondition(deliveryConditions) }));
     }
   }, [deliveryConditions, draft.paymentCondition]);
 
@@ -493,7 +504,7 @@ export default function Ventas({
         shift: data?.shift || getSuggestedDeliverySchedule(deliveryShiftConfig).shift,
         scheduledDate:
           data?.scheduled_date || getSuggestedDeliverySchedule(deliveryShiftConfig).scheduledDate,
-        paymentCondition: data?.payment_condition || "PAGADO_LOCAL",
+        paymentCondition: data?.payment_condition || getPreferredDeliveryCondition(deliveryConditions),
         deliveryAddress: data?.delivery_address || "",
       });
       setActiveDeliveryPartialPlan({
@@ -1139,7 +1150,9 @@ export default function Ventas({
     const sellerName = String(
       draft.sellerName || persistedSeller.sellerName || getUserDisplayName(user)
     ).trim();
-    const selectedCondition = String(draft.paymentCondition || "PAGADO_LOCAL").toUpperCase();
+    const selectedCondition = String(
+      draft.paymentCondition || getPreferredDeliveryCondition(deliveryConditions)
+    ).toUpperCase();
 
     return {
       ...draft,
@@ -1480,7 +1493,15 @@ export default function Ventas({
       const next = !prev;
       if (next) {
         const schedule = getSuggestedDeliverySchedule(deliveryShiftConfig);
-        setDraft((current) => ({ ...current, shift: schedule.shift, scheduledDate: schedule.scheduledDate }));
+        setDraft((current) => ({
+          ...current,
+          shift: schedule.shift,
+          scheduledDate: schedule.scheduledDate,
+          paymentCondition:
+            !current.paymentCondition || current.paymentCondition === "PAGADO_LOCAL"
+              ? getPreferredDeliveryCondition(deliveryConditions)
+              : current.paymentCondition,
+        }));
       }
       return next;
     });

@@ -44,9 +44,11 @@ function registerSalesTransactionRoutes(router) {
       const deliveryPayment = normalizeDeliveryCondition(data.deliveryPayment) || normalizedPaymentCondition || null;
       const deliveryPaymentMethod =
         data.deliveryPaymentMethod ||
-        (deliveryPayment === "PAGO_ENTREGA_TRANSFERENCIA" || deliveryPayment === "PAGO_LOCAL_TRANSFERENCIA"
-          ? "TRANSFERENCIA"
-          : null);
+        (deliveryPayment === "COBRAR_EN_ENTREGA"
+          ? "EFECTIVO"
+          : deliveryPayment === "PAGO_ENTREGA_TRANSFERENCIA" || deliveryPayment === "PAGO_LOCAL_TRANSFERENCIA"
+            ? "TRANSFERENCIA"
+            : null);
       const scheduledDate = data.scheduledDate || new Date().toISOString().slice(0, 10);
       const sellerId = data.vendedorId || data.sellerId || req.user.id;
       const sellerNameSnapshot =

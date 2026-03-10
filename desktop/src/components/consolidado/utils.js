@@ -170,7 +170,14 @@ export function resolveCashExpectedForOrder(order) {
   const finalMethod = String(order?.delivery_final_payment_method || "").trim().toUpperCase();
   const finalCash = toAmount(order?.delivery_final_cash_amount);
   const configuredPayment = String(order?.delivery_payment || "").trim().toUpperCase();
-  const configuredMethod = String(order?.delivery_payment_method || "").trim().toUpperCase();
+  const configuredMethodRaw = String(order?.delivery_payment_method || "").trim().toUpperCase();
+  const configuredMethod =
+    configuredMethodRaw ||
+    (configuredPayment === "COBRAR_EN_ENTREGA"
+      ? "EFECTIVO"
+      : configuredPayment === "PAGO_ENTREGA_TRANSFERENCIA"
+        ? "TRANSFERENCIA"
+        : "");
   const expectedCash = toAmount(order?.delivery_expected_cash_amount);
 
   if (finalMethod === "MIXTO") return finalCash > 0 ? finalCash : 0;

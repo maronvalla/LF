@@ -8,6 +8,8 @@ const router = express.Router();
 const BUSINESS_TIME_ZONE = "America/Argentina/Buenos_Aires";
 const SALES_BUSINESS_TS_SQL = `COALESCE(s.charged_at, s.created_at) AT TIME ZONE '${BUSINESS_TIME_ZONE}'`;
 const SALES_BUSINESS_DATE_SQL = `(${SALES_BUSINESS_TS_SQL})::date`;
+const RETURNS_BUSINESS_TS_SQL = `sr.created_at AT TIME ZONE '${BUSINESS_TIME_ZONE}'`;
+const RETURNS_BUSINESS_DATE_SQL = `(${RETURNS_BUSINESS_TS_SQL})::date`;
 const BUSINESS_CURRENT_DATE_SQL = `(NOW() AT TIME ZONE '${BUSINESS_TIME_ZONE}')::date`;
 const BUSINESS_CURRENT_MONTH_SQL = `DATE_TRUNC('month', NOW() AT TIME ZONE '${BUSINESS_TIME_ZONE}')`;
 
@@ -166,6 +168,25 @@ router.get(
           AND ${SALES_BUSINESS_DATE_SQL} = ${BUSINESS_CURRENT_DATE_SQL}
       `
     );
+    const dayReturnsAdjustmentsPromise = pool.query(
+      `
+        SELECT
+          COALESCE(SUM(sr.replacement_total_amount - sr.return_credit_amount), 0)::numeric AS sold_adjustment_amount,
+          COALESCE(SUM(COALESCE(repl.total_cost, 0) - COALESCE(ret.total_cost, 0)), 0)::numeric AS cost_adjustment_amount
+        FROM sale_returns sr
+        LEFT JOIN (
+          SELECT sale_return_id, COALESCE(SUM(total_cost), 0) AS total_cost
+          FROM sale_return_replacement_items
+          GROUP BY sale_return_id
+        ) repl ON repl.sale_return_id = sr.id
+        LEFT JOIN (
+          SELECT sale_return_id, COALESCE(SUM(total_cost), 0) AS total_cost
+          FROM sale_return_items
+          GROUP BY sale_return_id
+        ) ret ON ret.sale_return_id = sr.id
+        WHERE ${RETURNS_BUSINESS_DATE_SQL} = ${BUSINESS_CURRENT_DATE_SQL}
+      `
+    );
 
     const monthProfitPromise = pool.query(
       `
@@ -176,6 +197,25 @@ router.get(
         JOIN sale_items si ON si.sale_id = s.id
         ${salesBaseWhere}
           AND DATE_TRUNC('month', ${SALES_BUSINESS_TS_SQL}) = ${BUSINESS_CURRENT_MONTH_SQL}
+      `
+    );
+    const monthReturnsAdjustmentsPromise = pool.query(
+      `
+        SELECT
+          COALESCE(SUM(sr.replacement_total_amount - sr.return_credit_amount), 0)::numeric AS sold_adjustment_amount,
+          COALESCE(SUM(COALESCE(repl.total_cost, 0) - COALESCE(ret.total_cost, 0)), 0)::numeric AS cost_adjustment_amount
+        FROM sale_returns sr
+        LEFT JOIN (
+          SELECT sale_return_id, COALESCE(SUM(total_cost), 0) AS total_cost
+          FROM sale_return_replacement_items
+          GROUP BY sale_return_id
+        ) repl ON repl.sale_return_id = sr.id
+        LEFT JOIN (
+          SELECT sale_return_id, COALESCE(SUM(total_cost), 0) AS total_cost
+          FROM sale_return_items
+          GROUP BY sale_return_id
+        ) ret ON ret.sale_return_id = sr.id
+        WHERE DATE_TRUNC('month', ${RETURNS_BUSINESS_TS_SQL}) = ${BUSINESS_CURRENT_MONTH_SQL}
       `
     );
 
@@ -192,6 +232,33 @@ router.get(
       `,
       customProfitDate.params
     );
+    const customReturnsAdjustmentsDate = buildDateParams(
+      filters.dateFrom,
+      filters.dateTo,
+      1,
+      RETURNS_BUSINESS_DATE_SQL
+    );
+    const customReturnsAdjustmentsPromise = pool.query(
+      `
+        SELECT
+          COALESCE(SUM(sr.replacement_total_amount - sr.return_credit_amount), 0)::numeric AS sold_adjustment_amount,
+          COALESCE(SUM(COALESCE(repl.total_cost, 0) - COALESCE(ret.total_cost, 0)), 0)::numeric AS cost_adjustment_amount
+        FROM sale_returns sr
+        LEFT JOIN (
+          SELECT sale_return_id, COALESCE(SUM(total_cost), 0) AS total_cost
+          FROM sale_return_replacement_items
+          GROUP BY sale_return_id
+        ) repl ON repl.sale_return_id = sr.id
+        LEFT JOIN (
+          SELECT sale_return_id, COALESCE(SUM(total_cost), 0) AS total_cost
+          FROM sale_return_items
+          GROUP BY sale_return_id
+        ) ret ON ret.sale_return_id = sr.id
+        WHERE 1 = 1
+        ${customReturnsAdjustmentsDate.whereSql}
+      `,
+      customReturnsAdjustmentsDate.params
+    );
 
     const [
       monthlySales,
@@ -199,16 +266,22 @@ router.get(
       productRanking,
       clientRanking,
       dayProfit,
+      dayReturnsAdjustments,
       monthProfit,
+      monthReturnsAdjustments,
       customProfit,
+      customReturnsAdjustments,
     ] = await Promise.all([
       monthlySalesPromise,
       monthlyBudgetsPromise,
       productRankingPromise,
       clientRankingPromise,
       dayProfitPromise,
+      dayReturnsAdjustmentsPromise,
       monthProfitPromise,
+      monthReturnsAdjustmentsPromise,
       customProfitPromise,
+      customReturnsAdjustmentsPromise,
     ]);
 
     const productRows = productRanking.rows.map((row) => ({
@@ -226,10 +299,19 @@ router.get(
       mostradorUnits: toInt(row.mostrador_units),
     }));
 
-    const buildProfitBlock = (row) => {
-      const sold = toInt(row?.sold_amount);
-      const cost = toInt(row?.cost_amount);
+    const buildProfitBlock = (salesRow, returnsRow) => {
+      const grossSold = toInt(salesRow?.sold_amount);
+      const grossCost = toInt(salesRow?.cost_amount);
+      const soldAdjustment = toInt(returnsRow?.sold_adjustment_amount);
+      const costAdjustment = toInt(returnsRow?.cost_adjustment_amount);
+      const sold = grossSold + soldAdjustment;
+      const cost = grossCost + costAdjustment;
       return {
+        grossSoldAmount: grossSold,
+        grossCostAmount: grossCost,
+        returnAdjustmentSoldAmount: soldAdjustment,
+        returnAdjustmentCostAmount: costAdjustment,
+        returnAdjustmentProfit: soldAdjustment - costAdjustment,
         soldAmount: sold,
         costAmount: cost,
         profit: sold - cost,
@@ -270,9 +352,9 @@ router.get(
         salesCount: toInt(row.sales_count),
       })),
       profits: {
-        day: buildProfitBlock(dayProfit.rows[0]),
-        month: buildProfitBlock(monthProfit.rows[0]),
-        range: buildProfitBlock(customProfit.rows[0]),
+        day: buildProfitBlock(dayProfit.rows[0], dayReturnsAdjustments.rows[0]),
+        month: buildProfitBlock(monthProfit.rows[0], monthReturnsAdjustments.rows[0]),
+        range: buildProfitBlock(customProfit.rows[0], customReturnsAdjustments.rows[0]),
       },
     });
   })

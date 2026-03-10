@@ -226,8 +226,15 @@ function resolveCashToRender(order) {
   const finalMethod = String(order.delivery_final_payment_method || "").toUpperCase();
   const finalCash = Number(order.delivery_final_cash_amount || 0);
   const saleTotal = Number(order.sale_total || 0);
-  const configuredMethod = String(order.delivery_payment_method || "").toUpperCase();
   const configuredPayment = String(order.delivery_payment || "").toUpperCase();
+  const configuredMethodRaw = String(order.delivery_payment_method || "").toUpperCase();
+  const configuredMethod =
+    configuredMethodRaw ||
+    (configuredPayment === "COBRAR_EN_ENTREGA"
+      ? "EFECTIVO"
+      : configuredPayment === "PAGO_ENTREGA_TRANSFERENCIA"
+        ? "TRANSFERENCIA"
+        : "");
 
   if (finalMethod === "MIXTO") return finalCash > 0 ? finalCash : 0;
   if (finalMethod === "EFECTIVO") return finalCash > 0 ? finalCash : saleTotal;

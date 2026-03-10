@@ -42,9 +42,36 @@ function formatMonthLabel(value) {
 
 function buildEmptyProfits() {
   return {
-    day: { soldAmount: 0, costAmount: 0, profit: 0 },
-    month: { soldAmount: 0, costAmount: 0, profit: 0 },
-    range: { soldAmount: 0, costAmount: 0, profit: 0 },
+    day: {
+      grossSoldAmount: 0,
+      grossCostAmount: 0,
+      returnAdjustmentSoldAmount: 0,
+      returnAdjustmentCostAmount: 0,
+      returnAdjustmentProfit: 0,
+      soldAmount: 0,
+      costAmount: 0,
+      profit: 0,
+    },
+    month: {
+      grossSoldAmount: 0,
+      grossCostAmount: 0,
+      returnAdjustmentSoldAmount: 0,
+      returnAdjustmentCostAmount: 0,
+      returnAdjustmentProfit: 0,
+      soldAmount: 0,
+      costAmount: 0,
+      profit: 0,
+    },
+    range: {
+      grossSoldAmount: 0,
+      grossCostAmount: 0,
+      returnAdjustmentSoldAmount: 0,
+      returnAdjustmentCostAmount: 0,
+      returnAdjustmentProfit: 0,
+      soldAmount: 0,
+      costAmount: 0,
+      profit: 0,
+    },
   };
 }
 
@@ -91,6 +118,29 @@ function TableSection({ title, subtitle, rows, renderTable, emptyLabel }) {
         {rows.length ? renderTable() : <EmptyState label={emptyLabel} />}
       </div>
     </section>
+  );
+}
+
+function ProfitSubtitle({ block }) {
+  const adjustmentProfit = Number(block?.returnAdjustmentProfit || 0);
+  const hasAdjustment = Math.abs(adjustmentProfit) > 0.009;
+
+  return (
+    <>
+      <div>
+        Neto vendido {formatMoney(block?.soldAmount)} / Costo neto {formatMoney(block?.costAmount)}
+      </div>
+      <div className="mt-1 text-xs font-semibold text-zinc-400">
+        Ajuste por devoluciones/cambios {formatMoney(adjustmentProfit)}
+        {hasAdjustment ? (
+          <span>
+            {" "}
+            (ventas {formatMoney(block?.returnAdjustmentSoldAmount)} / costo{" "}
+            {formatMoney(block?.returnAdjustmentCostAmount)})
+          </span>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -210,21 +260,21 @@ export default function Informes({ setToast }) {
           title="Ganancia del dia"
           meta={`Fecha operativa ${operationalDateLabel}`}
           value={formatMoney(report.profits.day.profit)}
-          subtitle={`Vendido ${formatMoney(report.profits.day.soldAmount)} / Costo ${formatMoney(report.profits.day.costAmount)}`}
+          subtitle={<ProfitSubtitle block={report.profits.day} />}
           accentClass="text-emerald-700"
         />
         <StatCard
           title="Ganancia del mes"
           meta={`Mes operativo ${monthLabel}`}
           value={formatMoney(report.profits.month.profit)}
-          subtitle={`Vendido ${formatMoney(report.profits.month.soldAmount)} / Costo ${formatMoney(report.profits.month.costAmount)}`}
+          subtitle={<ProfitSubtitle block={report.profits.month} />}
           accentClass="text-zinc-900"
         />
         <StatCard
           title="Ganancia del rango"
           meta={rangeLabel}
           value={formatMoney(report.profits.range.profit)}
-          subtitle={`Vendido ${formatMoney(report.profits.range.soldAmount)} / Costo ${formatMoney(report.profits.range.costAmount)}`}
+          subtitle={<ProfitSubtitle block={report.profits.range} />}
           accentClass="text-[#e85d04]"
         />
       </div>

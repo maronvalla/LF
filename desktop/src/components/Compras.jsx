@@ -19,15 +19,121 @@ const normalizeActiveProducts = (rows) =>
   (Array.isArray(rows) ? rows : []).filter((product) => product?.is_active !== false);
 const isMobileKeyboardViewport = () =>
   isAndroidApk || (typeof window !== "undefined" && window.innerWidth < 960);
+const PURCHASE_DRAFT_STORAGE_PREFIX = "lf_purchase_draft_v1";
+const MAX_PERSISTED_RECEIPT_SIZE = 350000;
+
+const buildEmptyPurchaseDraft = () => ({
+  supplierId: "",
+  supplierName: "",
+  invoiceNumber: "",
+  invoiceType: "Factura A",
+  paymentMethod: "EFECTIVO",
+  location: "LOCAL",
+  items: [],
+  date: new Date().toISOString().split("T")[0],
+  receiptImageDataUrl: "",
+  receiptImageName: "",
+});
+
+const buildEmptyPurchaseUiState = () => ({
+  search: "",
+  qty: "1",
+  unitCost: "",
+  selectedIdx: 0,
+});
+
+const getPurchaseDraftStorageKey = (user) =>
+  `${PURCHASE_DRAFT_STORAGE_PREFIX}:${String(user?.id || user?.username || user?.role || "anon")}`;
+
+const sanitizeDraftItems = (items) =>
+  (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      productId: String(item?.productId || "").trim(),
+      codigo: String(item?.codigo || "").trim(),
+      name: String(item?.name || "").trim(),
+      qty: Number(item?.qty || 0),
+      unitCost: Number(item?.unitCost || 0),
+    }))
+    .filter(
+      (item) =>
+        item.productId &&
+        item.name &&
+        Number.isFinite(item.qty) &&
+        item.qty > 0 &&
+        Number.isFinite(item.unitCost) &&
+        item.unitCost >= 0
+    );
+
+const loadPersistedPurchaseState = (storageKey) => {
+  const emptyDraft = buildEmptyPurchaseDraft();
+  const emptyUi = buildEmptyPurchaseUiState();
+  if (typeof window === "undefined" || !storageKey) {
+    return { draft: emptyDraft, ...emptyUi };
+  }
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return { draft: emptyDraft, ...emptyUi };
+    }
+    const parsed = JSON.parse(raw);
+    const draft = {
+      ...emptyDraft,
+      ...(parsed?.draft && typeof parsed.draft === "object" ? parsed.draft : {}),
+      items: sanitizeDraftItems(parsed?.draft?.items),
+    };
+    const selectedIdx = Math.min(
+      Math.max(0, Number(parsed?.selectedIdx || 0) || 0),
+      Math.max(draft.items.length - 1, 0)
+    );
+    return {
+      draft,
+      search: String(parsed?.search || ""),
+      qty: String(parsed?.qty || "1"),
+      unitCost: String(parsed?.unitCost || ""),
+      selectedIdx,
+    };
+  } catch {
+    return { draft: emptyDraft, ...emptyUi };
+  }
+};
+
+const persistPurchaseState = ({ storageKey, draft, search, qty, unitCost, selectedIdx }) => {
+  if (typeof window === "undefined" || !storageKey) return;
+  const draftToPersist = {
+    ...draft,
+    items: sanitizeDraftItems(draft.items),
+  };
+  if (String(draftToPersist.receiptImageDataUrl || "").length > MAX_PERSISTED_RECEIPT_SIZE) {
+    draftToPersist.receiptImageDataUrl = "";
+    draftToPersist.receiptImageName = "";
+  }
+
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      draft: draftToPersist,
+      search: String(search || ""),
+      qty: String(qty || "1"),
+      unitCost: String(unitCost || ""),
+      selectedIdx: Math.min(
+        Math.max(0, Number(selectedIdx || 0) || 0),
+        Math.max(draftToPersist.items.length - 1, 0)
+      ),
+    })
+  );
+};
 
 export default function Compras({ user, setToast }) {
   const role = String(user?.role || "").toUpperCase();
+  const storageKey = getPurchaseDraftStorageKey(user);
   const [products, setProducts] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [search, setSearch] = useState("");
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState("1");
   const [unitCost, setUnitCost] = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [draftReady, setDraftReady] = useState(false);
   const [showQtyEditModal, setShowQtyEditModal] = useState(false);
   const [showCostEditModal, setShowCostEditModal] = useState(false);
   const [qtyEditValue, setQtyEditValue] = useState("");
@@ -48,18 +154,7 @@ export default function Compras({ user, setToast }) {
   const purchaseReceiptInputRef = useRef(null);
   const historyReceiptInputRef = useRef(null);
 
-  const [draft, setDraft] = useState({
-    supplierId: "",
-    supplierName: "",
-    invoiceNumber: "",
-    invoiceType: "Factura A",
-    paymentMethod: "EFECTIVO",
-    location: "LOCAL",
-    items: [],
-    date: new Date().toISOString().split("T")[0],
-    receiptImageDataUrl: "",
-    receiptImageName: "",
-  });
+  const [draft, setDraft] = useState(buildEmptyPurchaseDraft);
   const hasComprasModalOpen =
     showQtyEditModal || showCostEditModal || showProductModal || showHistoryModal;
 
@@ -117,21 +212,68 @@ export default function Compras({ user, setToast }) {
   }, [role, user?.id]);
 
   useEffect(() => {
+    setDraftReady(false);
+    const restored = loadPersistedPurchaseState(storageKey);
+    setDraft(restored.draft);
+    setSearch(restored.search);
+    setQty(restored.qty);
+    setUnitCost(restored.unitCost);
+    setSelectedIdx(restored.selectedIdx);
+    setDraftReady(true);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    try {
+      persistPurchaseState({
+        storageKey,
+        draft,
+        search,
+        qty,
+        unitCost,
+        selectedIdx,
+      });
+    } catch {
+      // Ignore storage quota and browser storage failures; purchase entry still stays in memory.
+    }
+  }, [draft, draftReady, search, qty, unitCost, selectedIdx, storageKey]);
+
+  useEffect(() => {
     const onKeyDown = (e) => {
       if (hasComprasModalOpen) return;
       const typing = isTypingTarget(e.target);
       const qtyShortcut = isQtyShortcut(e);
       const priceShortcut = isPriceShortcut(e);
+      const supplierShortcut = e.key === "F2";
+      const productShortcut = e.key === "F5";
+      const removeShortcut =
+        (e.ctrlKey || e.metaKey) && String(e.key || "").toLowerCase() === "x";
+      const navigationShortcut = e.key === "ArrowDown" || e.key === "ArrowUp";
+      const allowNavigationWhileTyping = e.target === codeInputRef.current;
 
-      if (typing && !qtyShortcut && !priceShortcut) return;
+      if (
+        typing &&
+        !qtyShortcut &&
+        !priceShortcut &&
+        !supplierShortcut &&
+        !productShortcut &&
+        !removeShortcut &&
+        !(navigationShortcut && allowNavigationWhileTyping)
+      ) {
+        return;
+      }
 
-      if (e.key === "F2") {
+      if (supplierShortcut) {
         e.preventDefault();
         supplierSelectRef.current?.focus();
       }
-      if (e.key === "F5") {
+      if (productShortcut) {
         e.preventDefault();
         openProductSearch();
+      }
+      if (removeShortcut) {
+        e.preventDefault();
+        removeSelected();
       }
       if (qtyShortcut) {
         e.preventDefault();
@@ -149,9 +291,17 @@ export default function Compras({ user, setToast }) {
         setCostEditValue(String(currentItem.unitCost || 0));
         setShowCostEditModal(true);
       }
+      if (navigationShortcut && draft.items.length > 0 && (!typing || allowNavigationWhileTyping)) {
+        e.preventDefault();
+        setSelectedIdx((idx) =>
+          e.key === "ArrowDown"
+            ? Math.min(idx + 1, draft.items.length - 1)
+            : Math.max(idx - 1, 0)
+        );
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canOverrideLinePrice, draft.items, hasComprasModalOpen, selectedIdx]);
 
   const subtotal = useMemo(
@@ -307,18 +457,7 @@ export default function Compras({ user, setToast }) {
       await api.post("/purchases", payload);
 
       setToast?.({ message: "Compra registrada correctamente", type: "success" });
-      setDraft({
-        supplierId: "",
-        supplierName: "",
-        invoiceNumber: "",
-        invoiceType: "Factura A",
-        paymentMethod: "EFECTIVO",
-        location: "LOCAL",
-        items: [],
-        date: new Date().toISOString().split("T")[0],
-        receiptImageDataUrl: "",
-        receiptImageName: "",
-      });
+      clearDraftEntry({ silent: true });
     } catch (err) {
       setToast?.({
         message: err.response?.data?.message || "Error al registrar compra",
@@ -328,8 +467,27 @@ export default function Compras({ user, setToast }) {
   };
 
   const removeSelected = () => {
+    if (!draft.items.length || selectedIdx < 0 || selectedIdx >= draft.items.length) return;
     setDraft((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== selectedIdx) }));
-    setSelectedIdx((x) => Math.max(0, x - 1));
+    setSelectedIdx((current) => Math.min(current, Math.max(draft.items.length - 2, 0)));
+  };
+
+  const clearDraftEntry = ({ silent = false } = {}) => {
+    setDraft(buildEmptyPurchaseDraft());
+    setSearch("");
+    setQty("1");
+    setUnitCost("");
+    setSelectedIdx(0);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        // Ignore storage cleanup failures; in-memory draft was already reset.
+      }
+    }
+    if (!silent) {
+      setToast?.({ message: "Borrador de compra limpiado", type: "success" });
+    }
   };
 
   const readImageFile = (file, onLoad) => {
@@ -708,6 +866,13 @@ export default function Compras({ user, setToast }) {
           </div>
 
           <div className="flex flex-col sm:flex-row lg:justify-end gap-2 lg:min-w-[360px]">
+            <button
+              className="bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-300 font-black px-3 py-2 rounded-lg transition-colors text-[10px] md:text-[11px] uppercase"
+              onClick={() => clearDraftEntry()}
+              type="button"
+            >
+              Limpiar borrador
+            </button>
             {selectedIdx >= 0 && draft.items.length > 0 ? (
               <button
                 className="bg-white hover:bg-zinc-50 text-rose-600 border border-rose-300 font-black px-3 py-2 rounded-lg transition-colors text-[10px] md:text-[11px] uppercase"
