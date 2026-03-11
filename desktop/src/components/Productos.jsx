@@ -122,6 +122,9 @@ export default function Productos({ user, setToast }) {
   const [deletingProductId, setDeletingProductId] = useState(null);
   const [bulkEditPage, setBulkEditPage] = useState(1);
   const [bulkEditModeLabel, setBulkEditModeLabel] = useState("Edicion masiva de productos");
+  const [stockAdjustProduct, setStockAdjustProduct] = useState(null);
+  const [stockAdjustValue, setStockAdjustValue] = useState("");
+  const [adjustingStock, setAdjustingStock] = useState(false);
   const canImportExport = canManageProducts;
 
   const [form, setForm] = useState(createFormState());
@@ -794,6 +797,48 @@ export default function Productos({ user, setToast }) {
     }
   };
 
+  const openStockAdjust = (e, product) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!canManageProducts) return;
+    setStockAdjustProduct(product);
+    setStockAdjustValue(String(Number(product.stock_local || product.stockLocal || 0)));
+  };
+
+  const saveStockAdjust = async () => {
+    if (!stockAdjustProduct) return;
+    const currentStock = Number(stockAdjustProduct.stock_local ?? stockAdjustProduct.stockLocal ?? 0);
+    const newStock = Number(stockAdjustValue);
+    if (!Number.isFinite(newStock) || newStock < 0) {
+      setToast?.({ message: "Ingrese una cantidad válida", type: "error" });
+      return;
+    }
+    const qtyDelta = newStock - currentStock;
+    if (qtyDelta === 0) {
+      setStockAdjustProduct(null);
+      return;
+    }
+    setAdjustingStock(true);
+    try {
+      await api.post("/inventory/adjust", {
+        productId: stockAdjustProduct.id,
+        qtyDelta,
+        locationCode: "LOCAL",
+        reason: "AJUSTE",
+      });
+      await loadProductsOnly();
+      setToast?.({ message: `Stock de "${stockAdjustProduct.name}" actualizado a ${newStock}`, type: "success" });
+      setStockAdjustProduct(null);
+    } catch (err) {
+      setToast?.({
+        message: err.response?.data?.message || "No se pudo ajustar el stock",
+        type: "error",
+      });
+    } finally {
+      setAdjustingStock(false);
+    }
+  };
+
   const bulkEditableRows = bulkEditMode
     ? filtered.filter((product) => Boolean(bulkEditDrafts[product.id]))
     : filtered;
@@ -941,7 +986,16 @@ export default function Productos({ user, setToast }) {
                       : "-"}
                   </td>
                   <td className="py-2 text-right">${Number(p.cost || 0).toFixed(2)}</td>
-                  <td className="py-2 text-right">{Number(p.stock_local || p.stockLocal || 0)}</td>
+                  <td
+                    className={`py-2 text-right ${canManageProducts ? "cursor-pointer hover:text-[#e85d04] group" : ""}`}
+                    onClick={canManageProducts ? (e) => openStockAdjust(e, p) : undefined}
+                    title={canManageProducts ? "Clic para ajustar stock" : undefined}
+                  >
+                    {Number(p.stock_local || p.stockLocal || 0)}
+                    {canManageProducts ? (
+                      <span className="ml-1 opacity-0 group-hover:opacity-60 text-[10px]">✎</span>
+                    ) : null}
+                  </td>
                   <td className="py-2 text-right">{Number(p.min_stock || p.minStock || 0)}</td>
                   <td className="py-2 text-right">${Number(p.price_minorista || p.priceMinorista || 0).toFixed(2)}</td>
                   <td className="py-2 text-right">${Number(p.price_mayorista || p.priceMayorista || 0).toFixed(2)}</td>
@@ -1723,6 +1777,66 @@ export default function Productos({ user, setToast }) {
           }}
         />
       )}
+      {stockAdjustProduct ? (
+        <div className="fixed inset-0 z-[130] bg-black/70 backdrop-blur-[1px] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-xl space-y-4">
+            <div className="text-base font-black uppercase text-[#e85d04] tracking-tight">
+              Ajustar stock
+            </div>
+            <div className="text-sm text-zinc-300 font-bold truncate">
+              {stockAdjustProduct.name}
+            </div>
+            <div className="text-xs text-zinc-500">
+              Stock actual: <span className="font-black text-zinc-300">{Number(stockAdjustProduct.stock_local ?? stockAdjustProduct.stockLocal ?? 0)}</span>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">
+                Nuevo stock LOCAL
+              </label>
+              <input
+                className="input w-full text-right font-bold text-lg focus:border-[#e85d04]"
+                type="number"
+                min="0"
+                step="0.001"
+                value={stockAdjustValue}
+                onChange={(e) => setStockAdjustValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveStockAdjust();
+                  if (e.key === "Escape") setStockAdjustProduct(null);
+                }}
+                autoFocus
+              />
+              {stockAdjustValue !== "" && Number.isFinite(Number(stockAdjustValue)) ? (
+                <div className="mt-1.5 text-xs text-zinc-500">
+                  Delta:{" "}
+                  <span className={`font-black ${Number(stockAdjustValue) - Number(stockAdjustProduct.stock_local ?? stockAdjustProduct.stockLocal ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {Number(stockAdjustValue) - Number(stockAdjustProduct.stock_local ?? stockAdjustProduct.stockLocal ?? 0) >= 0 ? "+" : ""}
+                    {(Number(stockAdjustValue) - Number(stockAdjustProduct.stock_local ?? stockAdjustProduct.stockLocal ?? 0)).toLocaleString("es-AR", { maximumFractionDigits: 3 })}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                className="btn btn-muted rounded-lg"
+                onClick={() => setStockAdjustProduct(null)}
+                disabled={adjustingStock}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn bg-[#e85d04] hover:bg-[#d14f00] text-white rounded-lg"
+                onClick={saveStockAdjust}
+                disabled={adjustingStock}
+              >
+                {adjustingStock ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {confirmState ? (
         <ConfirmModal
           message={confirmState.message}

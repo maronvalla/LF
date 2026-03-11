@@ -1,6 +1,5 @@
 export const TABS = [
   "Dashboard",
-  "CRM",
   "📦 Productos",
   "👥 Clientes",
   "🛒 Compras",
@@ -32,9 +31,8 @@ export const SHORTCUTS = {
 };
 
 export const ROLE_TABS = {
-  ADMIN: TABS.filter((tab) => tab !== "Dashboard"),
+  ADMIN: TABS.filter((tab) => tab !== "Dashboard" && tab !== "CRM"),
   CAJERO: [
-    "CRM",
     "📦 Productos",
     "👥 Clientes",
     "🛒 Compras",
@@ -48,3 +46,4 @@ export const ROLE_TABS = {
   ],
   VENDEDOR: ["🏷️ Ventas", "🗺️ Rutas", "📋 ConsultarOrdenes"],
 };
+

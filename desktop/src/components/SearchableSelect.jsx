@@ -79,6 +79,21 @@ export default function SearchableSelect({
         setHighlightedIndex(0);
     }, [forceOpenSignal, inputRef]);
 
+    const commitFreeText = (nextQuery) => {
+        onChange("");
+        onFreeTextChange?.(nextQuery);
+        setOpen(false);
+        setQuery("");
+        onCommit?.();
+    };
+
+    const commitSelectedOption = (option) => {
+        onChange(option.id);
+        setOpen(false);
+        setQuery("");
+        onCommit?.();
+    };
+
     const handleKeyDown = (e) => {
         if (!open) {
             if (e.key === "Enter" || e.key === "ArrowDown" || e.key === " ") {
@@ -100,25 +115,15 @@ export default function SearchableSelect({
         } else if (e.key === "Enter") {
             e.preventDefault();
             if (showFreeTextOption && highlightedIndex === 0) {
-                onChange("");
-                onFreeTextChange(query);
-                setOpen(false);
-                onCommit?.();
+                commitFreeText(query);
                 return;
             }
 
             const optionIndex = showFreeTextOption ? highlightedIndex - 1 : highlightedIndex;
             if (filtered[optionIndex]) {
-                onChange(filtered[optionIndex].id);
-                if (onFreeTextChange) onFreeTextChange(filtered[optionIndex].label);
-                setOpen(false);
-                setQuery("");
-                onCommit?.();
+                commitSelectedOption(filtered[optionIndex]);
             } else if (onFreeTextChange) {
-                onChange("");
-                onFreeTextChange(query);
-                setOpen(false);
-                onCommit?.();
+                commitFreeText(query);
             }
         }
     };
@@ -161,14 +166,8 @@ export default function SearchableSelect({
                                 <div
                                     data-option-index={0}
                                     className={`p-2.5 cursor-pointer text-xs flex justify-between items-center border-b ${isLight ? "border-[#ececf1]" : "border-zinc-800/50"} ${highlightedIndex === 0 ? activeOptionClass : idleOptionClass} ${optionClassName}`}
-                                    onClick={() => {
-                                    onChange("");
-                                    onFreeTextChange(query);
-                                    setOpen(false);
-                                    setQuery("");
-                                    onCommit?.();
-                                }}
-                            >
+                                    onClick={() => commitFreeText(query)}
+                                >
                                     <div className="font-bold truncate">Usar "{query}" como cliente de mostrador</div>
                                 </div>
                             ) : null}
@@ -180,13 +179,7 @@ export default function SearchableSelect({
                                 key={opt.id}
                                 data-option-index={optionHighlightedIndex}
                                 className={`p-2.5 cursor-pointer text-xs flex justify-between items-center border-b ${isLight ? "border-[#ececf1]" : "border-zinc-800/50"} last:border-0 ${optionHighlightedIndex === highlightedIndex ? activeOptionClass : idleOptionClass} ${optionClassName}`}
-                                onClick={() => {
-                                    onChange(opt.id);
-                                    if (onFreeTextChange) onFreeTextChange(opt.label);
-                                    setOpen(false);
-                                    setQuery("");
-                                    onCommit?.();
-                                }}
+                                onClick={() => commitSelectedOption(opt)}
                                 onMouseEnter={() => setHighlightedIndex(optionHighlightedIndex)}
                             >
                                 <div className="font-bold truncate">{opt.label}</div>

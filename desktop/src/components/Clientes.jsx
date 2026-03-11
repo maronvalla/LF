@@ -66,7 +66,7 @@ function buildEmptyDraft(defaultPriceListKey) {
   };
 }
 
-export default function Clientes({ setToast }) {
+export default function Clientes({ user, setToast, onOpenCRM }) {
   const [rows, setRows] = useState([]);
   const [priceLists, setPriceLists] = useState(DEFAULT_PRICE_LISTS);
   const [priceListsConfig, setPriceListsConfig] = useState({
@@ -99,6 +99,7 @@ export default function Clientes({ setToast }) {
   const [draft, setDraft] = useState(buildEmptyDraft(DEFAULT_PRICE_LIST_KEY));
   const [confirmState, setConfirmState] = useState(null);
   const confirmResolverRef = useRef(null);
+  const isAdmin = String(user?.role || "").toUpperCase() === "ADMIN";
 
   const showConfirm = (message) =>
     new Promise((resolve) => {
@@ -656,6 +657,31 @@ export default function Clientes({ setToast }) {
 
             <div className="w-full xl:w-auto xl:min-w-[42rem]">
               <div className="flex flex-col gap-2">
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenCRM?.()}
+                    className="w-full rounded-2xl border border-[#e85d04]/30 bg-[linear-gradient(180deg,rgba(232,93,4,0.18),rgba(26,26,26,0.96))] px-4 py-3 text-left transition-colors hover:border-[#e85d04]/60 hover:bg-[linear-gradient(180deg,rgba(232,93,4,0.24),rgba(26,26,26,0.98))]"
+                  >
+                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-[#ffb07a]">
+                      Herramienta comercial
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-black uppercase tracking-[0.16em] text-white sm:text-base">
+                          Acceder al CRM
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-400">
+                          Pipeline, ficha del cliente y seguimiento comercial.
+                        </div>
+                      </div>
+                      <svg className="h-5 w-5 shrink-0 text-[#ff9f5a]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </button>
+                ) : null}
+
                 <input
                   className="w-full bg-[#1a1a1a] border border-zinc-800/80 rounded-xl px-3 py-3 text-sm text-white outline-none focus:border-[#e85d04]"
                   placeholder="Buscar cliente..."

@@ -92,6 +92,7 @@ export default function App() {
 
   const role = String(user?.role || "").toUpperCase();
   const allowedTabs = useMemo(() => ROLE_TABS[role] || [], [role]);
+  const canAccessCRM = role === "ADMIN";
   const canManageCashOrders = role === "ADMIN" || role === "CAJERO";
 
   useEffect(() => {
@@ -109,11 +110,13 @@ export default function App() {
 
   useEffect(() => {
     if (!user || role === "REPARTIDOR") return;
-    if (activeTab !== "Dashboard" && !allowedTabs.includes(activeTab)) {
+    const canAccessActiveTab =
+      allowedTabs.includes(activeTab) || (activeTab === "CRM" && canAccessCRM);
+    if (activeTab !== "Dashboard" && !canAccessActiveTab) {
       setActiveTab("Dashboard");
     }
     setIsMobileMenuOpen(false);
-  }, [activeTab, allowedTabs, role, user]);
+  }, [activeTab, allowedTabs, canAccessCRM, role, user]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -271,9 +274,9 @@ export default function App() {
       case "📦 Productos":
         return <Productos user={user} setToast={setToast} />;
       case "CRM":
-        return <CRM setToast={setToast} />;
+        return canAccessCRM ? <CRM setToast={setToast} /> : null;
       case "👥 Clientes":
-        return <Clientes setToast={setToast} />;
+        return <Clientes user={user} setToast={setToast} onOpenCRM={() => setActiveTab("CRM")} />;
       case "🛒 Compras":
         return <Compras setToast={setToast} />;
       case "🚚 Proveedores":
@@ -385,3 +388,4 @@ export default function App() {
     </>
   );
 }
+
