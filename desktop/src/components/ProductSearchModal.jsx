@@ -2,6 +2,29 @@ import { useEffect, useRef, useState } from "react";
 import { productMatchesSearch } from "../utils/productSearch";
 
 const getProductLocalStock = (product) => Number(product?.stock_local ?? product?.stockLocal ?? 0);
+const getNestedPriceLists = (product) =>
+  (product?.priceLists && typeof product.priceLists === "object" ? product.priceLists : null) ||
+  (product?.price_lists && typeof product.price_lists === "object" ? product.price_lists : null);
+const getProductMinoristaPrice = (product) => {
+  const nestedPriceLists = getNestedPriceLists(product);
+  const value =
+    product?.priceMinorista ??
+    product?.price_minorista ??
+    nestedPriceLists?.MINORISTA ??
+    nestedPriceLists?.minorista;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+const getProductMayoristaPrice = (product) => {
+  const nestedPriceLists = getNestedPriceLists(product);
+  const value =
+    product?.priceMayorista ??
+    product?.price_mayorista ??
+    nestedPriceLists?.MAYORISTA ??
+    nestedPriceLists?.mayorista;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 const normalizeSearchText = (value) =>
   String(value || "")
     .normalize("NFD")
@@ -206,7 +229,7 @@ export default function ProductSearchModal({ products, onClose, onSelect }) {
                           }`}
                         >
                           <span className="font-bold">
-                            ${Number(product.priceMinorista || 0).toLocaleString()}
+                            ${getProductMinoristaPrice(product).toLocaleString()}
                           </span>
                         </td>
                         <td
@@ -214,9 +237,9 @@ export default function ProductSearchModal({ products, onClose, onSelect }) {
                             isSelected ? "text-amber-700" : "text-emerald-600"
                           }`}
                         >
-                          {product.priceMayorista != null && product.priceMayorista > 0 ? (
+                          {getProductMayoristaPrice(product) > 0 ? (
                             <span className="font-bold">
-                              ${Number(product.priceMayorista).toLocaleString()}
+                              ${getProductMayoristaPrice(product).toLocaleString()}
                             </span>
                           ) : (
                             <span className="text-zinc-400">-</span>

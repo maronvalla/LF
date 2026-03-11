@@ -54,6 +54,40 @@ const formatQuantity = (value) =>
     maximumFractionDigits: 3,
   });
 
+const getProductMinoristaPrice = (product) => {
+  const nestedPriceLists =
+    (product?.priceLists && typeof product.priceLists === "object" ? product.priceLists : null) ||
+    (product?.price_lists && typeof product.price_lists === "object" ? product.price_lists : null);
+  const value =
+    product?.priceMinorista ??
+    product?.price_minorista ??
+    nestedPriceLists?.MINORISTA ??
+    nestedPriceLists?.minorista;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getProductMayoristaPrice = (product) => {
+  const nestedPriceLists =
+    (product?.priceLists && typeof product.priceLists === "object" ? product.priceLists : null) ||
+    (product?.price_lists && typeof product.price_lists === "object" ? product.price_lists : null);
+  const value =
+    product?.priceMayorista ??
+    product?.price_mayorista ??
+    nestedPriceLists?.MAYORISTA ??
+    nestedPriceLists?.mayorista;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getDefaultSalePrice = (product) => {
+  const minorista = getProductMinoristaPrice(product);
+  if (minorista > 0) return minorista;
+  const mayorista = getProductMayoristaPrice(product);
+  if (mayorista > 0) return mayorista;
+  return 0;
+};
+
 const getPurchaseDraftStorageKey = (user) =>
   `${PURCHASE_DRAFT_STORAGE_PREFIX}:${String(user?.id || user?.username || user?.role || "anon")}`;
 
@@ -145,6 +179,7 @@ const persistPurchaseState = ({ storageKey, draft, search, qty, unitCost, salePr
 
 export default function Compras({ user, setToast }) {
   const role = String(user?.role || "").toUpperCase();
+  const defaultCanOverrideLinePrice = ["ADMIN", "CAJERO"].includes(role);
   const storageKey = getPurchaseDraftStorageKey(user);
   const [products, setProducts] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -160,9 +195,7 @@ export default function Compras({ user, setToast }) {
   const [qtyEditValue, setQtyEditValue] = useState("");
   const [costEditValue, setCostEditValue] = useState("");
   const [salePriceEditValue, setSalePriceEditValue] = useState("");
-  const [canOverrideLinePrice, setCanOverrideLinePrice] = useState(
-    ["ADMIN", "CAJERO"].includes(role)
-  );
+  const [canOverrideLinePrice, setCanOverrideLinePrice] = useState(defaultCanOverrideLinePrice);
 
   const [showProductModal, setShowProductModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -224,10 +257,12 @@ export default function Compras({ user, setToast }) {
         const { data } = await api.get("/settings/price-overrides");
         if (cancelled) return;
         const allowedIds = Array.isArray(data?.userIds) ? data.userIds.map(String) : [];
-        setCanOverrideLinePrice(allowedIds.includes(String(user?.id || "")));
+        setCanOverrideLinePrice(
+          defaultCanOverrideLinePrice || allowedIds.includes(String(user?.id || ""))
+        );
       } catch {
         if (cancelled) return;
-        setCanOverrideLinePrice(["ADMIN", "CAJERO"].includes(role));
+        setCanOverrideLinePrice(defaultCanOverrideLinePrice);
       }
     };
 
@@ -235,7 +270,23 @@ export default function Compras({ user, setToast }) {
     return () => {
       cancelled = true;
     };
-  }, [role, user?.id]);
+  }, [defaultCanOverrideLinePrice, role, user?.id]);
+
+  const openSelectedCostEditor = () => {
+    if (!draft.items.length) return;
+    const currentItem = draft.items[selectedIdx];
+    if (!currentItem) return;
+    setCostEditValue(String(currentItem.unitCost || 0));
+    setShowCostEditModal(true);
+  };
+
+  const openSelectedSalePriceEditor = () => {
+    if (!draft.items.length) return;
+    const currentItem = draft.items[selectedIdx];
+    if (!currentItem) return;
+    setSalePriceEditValue(String(currentItem.salePrice ?? 0));
+    setShowSalePriceEditModal(true);
+  };
 
   useEffect(() => {
     setDraftReady(false);
@@ -313,11 +364,7 @@ export default function Compras({ user, setToast }) {
       }
       if (priceShortcut && canOverrideLinePrice) {
         e.preventDefault();
-        if (!draft.items.length) return;
-        const currentItem = draft.items[selectedIdx];
-        if (!currentItem) return;
-        setCostEditValue(String(currentItem.unitCost || 0));
-        setShowCostEditModal(true);
+        openSelectedSalePriceEditor();
       }
       if (navigationShortcut && draft.items.length > 0 && (!typing || allowNavigationWhileTyping)) {
         e.preventDefault();
@@ -421,7 +468,7 @@ export default function Compras({ user, setToast }) {
       const salePriceToUse =
         Number.isFinite(parsedSalePrice) && parsedSalePrice >= 0
           ? parsedSalePrice
-          : Number(product.priceMinorista || product.price_minorista || 0);
+          : getDefaultSalePrice(product);
       const idx = prev.items.findIndex((i) => i.productId === product.id);
       if (idx >= 0) {
         const next = [...prev.items];
@@ -432,7 +479,9 @@ export default function Compras({ user, setToast }) {
           salePrice:
             Number.isFinite(parsedSalePrice) && parsedSalePrice >= 0
               ? salePriceToUse
-              : next[idx].salePrice ?? salePriceToUse,
+              : Number(next[idx].salePrice) > 0
+                ? Number(next[idx].salePrice)
+                : salePriceToUse,
         };
         return { ...prev, items: next };
       }
@@ -954,13 +1003,17 @@ export default function Compras({ user, setToast }) {
             </button>
             {selectedIdx >= 0 && draft.items.length > 0 ? (
               <button
+                className="bg-white hover:bg-zinc-50 text-amber-700 border border-amber-300 font-black px-3 py-2 rounded-lg transition-colors text-[10px] md:text-[11px] uppercase"
+                onClick={openSelectedCostEditor}
+                type="button"
+              >
+                Editar costo
+              </button>
+            ) : null}
+            {selectedIdx >= 0 && draft.items.length > 0 ? (
+              <button
                 className="bg-white hover:bg-zinc-50 text-emerald-700 border border-emerald-300 font-black px-3 py-2 rounded-lg transition-colors text-[10px] md:text-[11px] uppercase"
-                onClick={() => {
-                  const currentItem = draft.items[selectedIdx];
-                  if (!currentItem) return;
-                  setSalePriceEditValue(String(currentItem.salePrice ?? 0));
-                  setShowSalePriceEditModal(true);
-                }}
+                onClick={openSelectedSalePriceEditor}
                 type="button"
               >
                 Editar venta
