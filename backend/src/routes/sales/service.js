@@ -208,10 +208,21 @@ async function getSaleTotalAmount(client, saleId) {
   return Number(totalRes.rows[0]?.total || 0);
 }
 
+function toISODateStr(value) {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const s = String(value).trim();
+  // already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // fallback: parse and re-format
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
 async function hasApprovedConsolidatedControl(client, sale) {
   const isDelivery =
     Boolean(sale?.is_delivery) || String(sale?.sale_type || "").toUpperCase() === "ENVIO";
-  const scheduledDate = String(sale?.scheduled_date || "").trim();
+  const scheduledDate = toISODateStr(sale?.scheduled_date);
   const deliverySlot = String(sale?.delivery_slot || "").trim();
   if (!isDelivery || !scheduledDate || !deliverySlot) return false;
 
@@ -232,7 +243,7 @@ async function hasApprovedConsolidatedControl(client, sale) {
 async function syncApprovedConsolidatedControl(client, sale) {
   const isDelivery =
     Boolean(sale?.is_delivery) || String(sale?.sale_type || "").toUpperCase() === "ENVIO";
-  const scheduledDate = String(sale?.scheduled_date || "").trim();
+  const scheduledDate = toISODateStr(sale?.scheduled_date);
   const deliverySlot = String(sale?.delivery_slot || "").trim();
   if (!isDelivery || !scheduledDate || !deliverySlot) {
     return { affected: false, removed: false, totalOrders: 0, totalItems: 0 };
