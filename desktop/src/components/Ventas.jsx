@@ -1131,6 +1131,9 @@ export default function Ventas({
     if (!draft.items.length) {
       throw new Error("Venta vacia");
     }
+    if (isDelivery && !draft.customerId) {
+      throw new Error("Para envio debes seleccionar o crear un cliente registrado");
+    }
     if (isDelivery && !String(draft.deliveryAddress || "").trim()) {
       throw new Error("Para envio la direccion es obligatoria");
     }

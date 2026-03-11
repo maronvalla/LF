@@ -260,6 +260,20 @@ router.post(
       await client.query("BEGIN");
 
       const locations = await getLocationIds(client, requiredLocations);
+      await client.query(
+        `
+          INSERT INTO inventory_balances(product_id, location_id, quantity)
+          SELECT p.id, l.id, 0
+          FROM products p
+          CROSS JOIN (
+            SELECT id
+            FROM locations
+            WHERE code = ANY($1::text[])
+          ) l
+          ON CONFLICT (product_id, location_id) DO NOTHING
+        `,
+        [requiredLocations]
+      );
       const { rows } = await client.query(
         `
           SELECT
@@ -268,14 +282,14 @@ router.post(
             p.sku,
             p.unit_label,
             l.code AS location_code,
-            COALESCE(b.quantity, 0) AS quantity
+            b.quantity
           FROM products p
           CROSS JOIN (
             SELECT id, code
             FROM locations
             WHERE code = ANY($1::text[])
           ) l
-          LEFT JOIN inventory_balances b ON b.product_id = p.id AND b.location_id = l.id
+          JOIN inventory_balances b ON b.product_id = p.id AND b.location_id = l.id
           ORDER BY p.name ASC, l.code ASC
           FOR UPDATE OF b
         `,

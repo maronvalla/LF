@@ -56,6 +56,9 @@ function registerSalesTransactionRoutes(router) {
         String(req.user?.fullName || req.user?.full_name || req.user?.username || "").trim() ||
         null;
       const invoiceType = String(data.invoiceType || "Factura B").trim() || "Factura B";
+      if (isDelivery && !data.customerId) {
+        return res.status(400).json({ message: "Para envio debes seleccionar un cliente registrado" });
+      }
       const saleNumber = buildSaleNumber();
       const customerName =
         String(data.customerName || "").trim() ||
@@ -165,6 +168,11 @@ function registerSalesTransactionRoutes(router) {
           await client.query("ROLLBACK");
           return res.status(400).json({ message: "La orden ya fue cobrada" });
         }
+        const resolvedCustomerId = parsed.data.customerId || sale.customer_id || null;
+        if (String(sale.sale_type || "").toUpperCase() === "ENVIO" && !resolvedCustomerId) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "Para envio debes seleccionar un cliente registrado" });
+        }
 
         const transferAmount =
           parsed.data.paymentMethod === "TRANSFERENCIA"
@@ -225,7 +233,7 @@ function registerSalesTransactionRoutes(router) {
           `,
           [
             sale.id,
-            parsed.data.customerId || sale.customer_id || null,
+            resolvedCustomerId,
             parsed.data.customerName,
             parsed.data.paymentMethod,
             parsed.data.notes ?? null,

@@ -8,35 +8,46 @@ const deliveryConditionSchema = z
   .nullable()
   .optional();
 
-const createSaleSchema = z.object({
-  customerId: z.string().uuid().nullable().optional(),
-  customerName: z.string().trim().min(1).max(200).nullable().optional(),
-  sellerId: z.string().uuid().nullable().optional(),
-  vendedorId: z.string().uuid().nullable().optional(),
-  sellerName: z.string().trim().min(1).max(200).nullable().optional(),
-  sellerNameSnapshot: z.string().trim().min(1).max(200).nullable().optional(),
-  saleType: z.enum(["MOSTRADOR", "ENVIO"]),
-  isDelivery: z.boolean().optional(),
-  shift: z.enum(["MANIANA", "TARDE"]).nullable().optional(),
-  deliverySlot: z.enum(["11", "19"]).nullable().optional(),
-  scheduledDate: z.string().date().optional(),
-  invoiceType: z.string().trim().min(1).max(80).optional(),
-  paymentMethod: z.string().nullable().optional(),
-  paymentCondition: deliveryConditionSchema,
-  deliveryPayment: deliveryConditionSchema,
-  deliveryPaymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "MIXTO"]).nullable().optional(),
-  deliveryAddress: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
-  items: z
-    .array(
-      z.object({
-        productId: z.string().uuid(),
-        qty: z.number().positive(),
-        unitPrice: z.number().nonnegative(),
-      })
-    )
-    .min(1),
-});
+const createSaleSchema = z
+  .object({
+    customerId: z.string().uuid().nullable().optional(),
+    customerName: z.string().trim().min(1).max(200).nullable().optional(),
+    sellerId: z.string().uuid().nullable().optional(),
+    vendedorId: z.string().uuid().nullable().optional(),
+    sellerName: z.string().trim().min(1).max(200).nullable().optional(),
+    sellerNameSnapshot: z.string().trim().min(1).max(200).nullable().optional(),
+    saleType: z.enum(["MOSTRADOR", "ENVIO"]),
+    isDelivery: z.boolean().optional(),
+    shift: z.enum(["MANIANA", "TARDE"]).nullable().optional(),
+    deliverySlot: z.enum(["11", "19"]).nullable().optional(),
+    scheduledDate: z.string().date().optional(),
+    invoiceType: z.string().trim().min(1).max(80).optional(),
+    paymentMethod: z.string().nullable().optional(),
+    paymentCondition: deliveryConditionSchema,
+    deliveryPayment: deliveryConditionSchema,
+    deliveryPaymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "MIXTO"]).nullable().optional(),
+    deliveryAddress: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
+    items: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          qty: z.number().positive(),
+          unitPrice: z.number().nonnegative(),
+        })
+      )
+      .min(1),
+  })
+  .superRefine((data, ctx) => {
+    const isDelivery = data.isDelivery ?? data.saleType === "ENVIO";
+    if (isDelivery && !data.customerId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customerId"],
+        message: "Para envio se requiere un cliente registrado",
+      });
+    }
+  });
 
 const cancelSaleSchema = z.object({
   reason: z.string().trim().min(3).max(300),
