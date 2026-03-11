@@ -8,6 +8,15 @@ const { getIO, getConnectedDriverUserIds } = require("../realtime");
 
 const router = express.Router();
 
+function toISODateStr(value) {
+  if (!value) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
 const deliveryQuerySchema = z.object({
   date: z.string().date(),
   slot: z.enum(["11", "19"]),
@@ -1002,7 +1011,7 @@ router.post(
               AND slot = $2
             LIMIT 1
           `,
-          [sale.scheduled_date, sale.delivery_slot]
+          [toISODateStr(sale.scheduled_date), sale.delivery_slot]
         );
         if (!consolidated.rows[0]) {
           await client.query("ROLLBACK");
