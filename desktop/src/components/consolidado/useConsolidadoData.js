@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../../api";
 import { loadConsolidadoConfig } from "../../utils/consolidadoConfig";
-import { buildRowsByRubro, resolveCashExpectedForOrder } from "./utils";
+import {
+  buildRowsByRubro,
+  quantitiesMatch,
+  resolveCashExpectedForOrder,
+  roundQuantity,
+  toAmount,
+} from "./utils";
 
 export function useConsolidadoData({ user, setToast }) {
   const [date, setDate] = useState(() => {
@@ -79,7 +85,7 @@ export function useConsolidadoData({ user, setToast }) {
       const defaultChecklist = {};
       const globalDefaultPick = loadConsolidadoConfig().defaultPickLocation;
       for (const row of nextConsolidated) {
-        const total = Number(row.total_qty || 0);
+        const total = toAmount(row.total_qty || 0);
         const pick = globalDefaultPick;
         defaultPlan[row.product_id] =
           pick === "LOCAL"
@@ -117,8 +123,8 @@ export function useConsolidadoData({ user, setToast }) {
             for (const item of savedPlan) {
               if (!item?.productId) continue;
               next[item.productId] = {
-                localQty: Number(item.localQty || 0),
-                galponQty: Number(item.galponQty || 0),
+                localQty: toAmount(item.localQty || 0),
+                galponQty: toAmount(item.galponQty || 0),
               };
             }
             return next;
@@ -152,17 +158,17 @@ export function useConsolidadoData({ user, setToast }) {
   // --- Derived values ---
 
   const totalBultos = useMemo(
-    () => consolidated.reduce((acc, row) => acc + Number(row.total_qty || 0), 0),
+    () => consolidated.reduce((acc, row) => acc + toAmount(row.total_qty || 0), 0),
     [consolidated]
   );
 
   const totalEnvasesRetornables = useMemo(
-    () => consolidated.reduce((acc, row) => acc + Number(row.total_returnable_units || 0), 0),
+    () => consolidated.reduce((acc, row) => acc + toAmount(row.total_returnable_units || 0), 0),
     [consolidated]
   );
 
   const totalMercaderiaDevuelta = useMemo(
-    () => rejectedReturns.reduce((acc, row) => acc + Number(row.qty_to_return || 0), 0),
+    () => rejectedReturns.reduce((acc, row) => acc + toAmount(row.qty_to_return || 0), 0),
     [rejectedReturns]
   );
 
@@ -193,16 +199,16 @@ export function useConsolidadoData({ user, setToast }) {
       consolidated.map((row) => {
         const plan = pickPlanByProduct[row.product_id] || {
           localQty: 0,
-          galponQty: Number(row.total_qty || 0),
+          galponQty: toAmount(row.total_qty || 0),
         };
-        const total = Number(row.total_qty || 0);
-        const assigned = Number(plan.localQty || 0) + Number(plan.galponQty || 0);
+        const total = toAmount(row.total_qty || 0);
+        const assigned = toAmount(plan.localQty || 0) + toAmount(plan.galponQty || 0);
         return {
           ...row,
-          localQty: Number(plan.localQty || 0),
-          galponQty: Number(plan.galponQty || 0),
-          assigned,
-          mismatch: assigned !== total,
+          localQty: toAmount(plan.localQty || 0),
+          galponQty: toAmount(plan.galponQty || 0),
+          assigned: roundQuantity(assigned),
+          mismatch: !quantitiesMatch(assigned, total),
         };
       }),
     [consolidated, pickPlanByProduct]
@@ -261,8 +267,8 @@ export function useConsolidadoData({ user, setToast }) {
         checklist: {},
         pickPlan: pickPlanRows.map((r) => ({
           productId: r.product_id,
-          localQty: Number(r.localQty || 0),
-          galponQty: Number(r.galponQty || 0),
+          localQty: toAmount(r.localQty || 0),
+          galponQty: toAmount(r.galponQty || 0),
         })),
       });
       const autoMarkedLoaded = Number(data?.autoMarkedLoaded || 0);
@@ -304,14 +310,15 @@ export function useConsolidadoData({ user, setToast }) {
   };
 
   const setPlan = (productId, field, value, totalQty) => {
-    const parsed = Math.max(0, Math.floor(Number(value || 0)));
+    const parsed = Math.max(0, roundQuantity(toAmount(value || 0)));
     setPickPlanByProduct((prev) => {
-      const base = prev[productId] || { localQty: 0, galponQty: Number(totalQty || 0) };
+      const total = roundQuantity(toAmount(totalQty || 0));
+      const base = prev[productId] || { localQty: 0, galponQty: total };
       const next = { ...base, [field]: parsed };
       if (field === "localQty") {
-        next.galponQty = Math.max(0, Number(totalQty || 0) - next.localQty);
+        next.galponQty = roundQuantity(Math.max(0, total - next.localQty));
       } else if (field === "galponQty") {
-        next.localQty = Math.max(0, Number(totalQty || 0) - next.galponQty);
+        next.localQty = roundQuantity(Math.max(0, total - next.galponQty));
       }
       return { ...prev, [productId]: next };
     });

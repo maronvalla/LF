@@ -27,14 +27,14 @@ const router = express.Router();
 
 const transferSchema = z.object({
   productId: z.string().uuid(),
-  qty: z.number().int().positive(),
+  qty: z.number().positive(),
   fromCode: z.string().trim().min(2).max(60),
   toCode: z.string().trim().min(2).max(60),
 });
 
 const adjustSchema = z.object({
   productId: z.string().uuid(),
-  qtyDelta: z.number().int().refine((v) => v !== 0, "qtyDelta no puede ser 0"),
+  qtyDelta: z.number().refine((v) => v !== 0, "qtyDelta no puede ser 0"),
   locationCode: z.enum(["GALPON", "LOCAL"]),
   reason: z.enum(["AJUSTE_INICIAL", "AJUSTE"]),
 });
@@ -58,7 +58,7 @@ const saveLocationCountsSchema = z.object({
     .array(
       z.object({
         productId: z.string().trim().min(1).max(120),
-        actualQty: z.coerce.number().int().nonnegative(),
+        actualQty: z.coerce.number().nonnegative(),
       })
     )
     .min(1),

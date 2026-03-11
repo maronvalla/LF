@@ -161,8 +161,45 @@ export function sanitizeTicketAddress(address) {
 }
 
 export function toAmount(value) {
-  const parsed = Number(value || 0);
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  const raw = String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[^0-9,.-]/g, "");
+  if (!raw) return 0;
+
+  const lastDot = raw.lastIndexOf(".");
+  const lastComma = raw.lastIndexOf(",");
+  const separatorIndex = Math.max(lastDot, lastComma);
+  if (separatorIndex >= 0) {
+    const intPart = raw.slice(0, separatorIndex).replace(/[.,]/g, "");
+    const decimalPart = raw.slice(separatorIndex + 1).replace(/[.,]/g, "");
+    const normalized = `${intPart || "0"}.${decimalPart || "0"}`;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  const parsed = Number(raw.replace(/[.,]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function roundQuantity(value, maxDecimals = 3) {
+  const factor = 10 ** Math.max(0, Number(maxDecimals || 0));
+  return Math.round(toAmount(value) * factor) / factor;
+}
+
+export function formatQuantity(value, maxDecimals = 3) {
+  const normalized = roundQuantity(value, maxDecimals);
+  return normalized.toLocaleString("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  });
+}
+
+export function quantitiesMatch(left, right, maxDecimals = 3) {
+  return Math.abs(roundQuantity(left, maxDecimals) - roundQuantity(right, maxDecimals)) <= 0.0001;
 }
 
 export function resolveCashExpectedForOrder(order) {

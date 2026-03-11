@@ -55,8 +55,8 @@ const consolidatedControlSchema = z.object({
     .array(
       z.object({
         productId: z.string(),
-        localQty: z.number().int().nonnegative(),
-        galponQty: z.number().int().nonnegative(),
+        localQty: z.number().nonnegative(),
+        galponQty: z.number().nonnegative(),
       })
     )
     .optional()
@@ -387,13 +387,13 @@ router.get(
         COALESCE(p.default_pick_location, 'GALPON') AS default_pick_location,
         COALESCE(p.has_returnable, false) AS has_returnable,
         COALESCE(p.returnable_units_per_item, 0) AS returnable_units_per_item,
-        SUM(si.qty)::int AS total_qty,
+        COALESCE(SUM(si.qty), 0)::numeric AS total_qty,
         SUM(
           CASE
             WHEN COALESCE(p.has_returnable, false) THEN si.qty * COALESCE(p.returnable_units_per_item, 0)
             ELSE 0
           END
-        )::int AS total_returnable_units
+        )::numeric AS total_returnable_units
       FROM sales s
       JOIN sale_items si ON si.sale_id = s.id
       JOIN products p ON p.id = si.product_id
@@ -427,7 +427,7 @@ router.get(
         p.unit_label,
         COALESCE(pr.name, pc.name, 'SIN RUBRO') AS rubro_name,
         COALESCE(pc.name, 'SIN CATEGORIA') AS category_name,
-        SUM(si.qty)::int AS qty_to_return
+        COALESCE(SUM(si.qty), 0)::numeric AS qty_to_return
       FROM sales s
       JOIN sale_items si ON si.sale_id = s.id
       JOIN products p ON p.id = si.product_id
@@ -1216,7 +1216,7 @@ router.get(
         si.product_id,
         p.name,
         p.sku,
-        SUM(si.qty)::int AS total_qty
+        COALESCE(SUM(si.qty), 0)::numeric AS total_qty
       FROM delivery_sales ds
       JOIN sales s ON s.id = ds.sale_id
       JOIN sale_items si ON si.sale_id = s.id

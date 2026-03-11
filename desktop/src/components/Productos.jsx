@@ -1084,11 +1084,11 @@ export default function Productos({ user, setToast }) {
               </div>
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-500">Precio Costo</label>
-                <input className="input mt-1" type="number" value={form.cost} onChange={(e) => handleCostChange(e.target.value)} />
+                <input className="input mt-1" type="number" step="0.01" value={form.cost} onChange={(e) => handleCostChange(e.target.value)} />
               </div>
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-500">% Ganancia</label>
-                <input className="input mt-1" type="number" value={form.margin} onChange={(e) => handleMarginChange(e.target.value)} />
+                <input className="input mt-1" type="number" step="0.01" value={form.margin} onChange={(e) => handleMarginChange(e.target.value)} />
               </div>
               <div>
                 <label className="text-[10px] uppercase font-bold text-zinc-500">IVA</label>
@@ -1103,6 +1103,7 @@ export default function Productos({ user, setToast }) {
                 <input
                   className="input mt-1 font-bold text-[#e85d04]"
                   type="number"
+                  step="0.01"
                   value={form.priceMinorista}
                   onChange={(e) => handlePriceMinoristaChange(e.target.value)}
                 />
@@ -1112,6 +1113,7 @@ export default function Productos({ user, setToast }) {
                 <input
                   className="input mt-1"
                   type="number"
+                  step="0.01"
                   value={form.priceMayorista}
                   onChange={(e) => setForm({ ...form, priceMayorista: e.target.value })}
                 />
@@ -1122,7 +1124,7 @@ export default function Productos({ user, setToast }) {
                   className="input mt-1"
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.01"
                   value={form.initialStock}
                   onChange={(e) => setForm({ ...form, initialStock: e.target.value })}
                 />
@@ -1133,7 +1135,7 @@ export default function Productos({ user, setToast }) {
                   className="input mt-1"
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.01"
                   value={form.minStock}
                   onChange={(e) => setForm({ ...form, minStock: e.target.value })}
                 />
@@ -1336,6 +1338,7 @@ export default function Productos({ user, setToast }) {
                           className="input w-28 text-right"
                           type="number"
                           min="0"
+                          step="0.01"
                           value={row.cost}
                           onChange={(e) => updateBulkCreateRow(row.id, { cost: e.target.value })}
                         />
@@ -1345,6 +1348,7 @@ export default function Productos({ user, setToast }) {
                           className="input w-28 text-right"
                           type="number"
                           min="0"
+                          step="0.01"
                           value={row.priceMinorista}
                           onChange={(e) => updateBulkCreateRow(row.id, { priceMinorista: e.target.value })}
                         />
@@ -1354,6 +1358,7 @@ export default function Productos({ user, setToast }) {
                           className="input w-28 text-right"
                           type="number"
                           min="0"
+                          step="0.01"
                           value={row.priceMayorista}
                           onChange={(e) => updateBulkCreateRow(row.id, { priceMayorista: e.target.value })}
                         />
@@ -1366,6 +1371,7 @@ export default function Productos({ user, setToast }) {
                               className="input w-28 text-right"
                               type="number"
                               min="0"
+                              step="0.01"
                               value={row.priceLists[list.key] || "0"}
                               onChange={(e) => handleBulkCreatePriceListChange(row.id, list.key, e.target.value)}
                             />
@@ -1376,6 +1382,7 @@ export default function Productos({ user, setToast }) {
                           className="input w-24 text-right"
                           type="number"
                           min="0"
+                          step="0.01"
                           value={row.initialStock}
                           onChange={(e) => updateBulkCreateRow(row.id, { initialStock: e.target.value })}
                         />
@@ -1385,6 +1392,7 @@ export default function Productos({ user, setToast }) {
                           className="input w-24 text-right"
                           type="number"
                           min="0"
+                          step="0.01"
                           value={row.minStock}
                           onChange={(e) => updateBulkCreateRow(row.id, { minStock: e.target.value })}
                         />
@@ -1579,6 +1587,7 @@ export default function Productos({ user, setToast }) {
                             className="input w-28 text-right"
                             type="number"
                             min="0"
+                            step="0.01"
                             value={draft.cost}
                             onChange={(e) => updateBulkEditDraft(p.id, { cost: e.target.value })}
                           />
@@ -1589,6 +1598,7 @@ export default function Productos({ user, setToast }) {
                             className="input w-24 text-right"
                             type="number"
                             min="0"
+                            step="0.01"
                             value={draft.minStock}
                             onChange={(e) => updateBulkEditDraft(p.id, { minStock: e.target.value })}
                           />
@@ -1598,6 +1608,7 @@ export default function Productos({ user, setToast }) {
                             className="input w-28 text-right"
                             type="number"
                             min="0"
+                            step="0.01"
                             value={draft.priceMinorista}
                             onChange={(e) => updateBulkEditDraft(p.id, { priceMinorista: e.target.value })}
                           />
@@ -1607,6 +1618,7 @@ export default function Productos({ user, setToast }) {
                             className="input w-28 text-right"
                             type="number"
                             min="0"
+                            step="0.01"
                             value={draft.priceMayorista}
                             onChange={(e) => updateBulkEditDraft(p.id, { priceMayorista: e.target.value })}
                           />
@@ -1621,6 +1633,7 @@ export default function Productos({ user, setToast }) {
                                   className="input w-28 text-right"
                                   type="number"
                                   min="0"
+                                  step="0.01"
                                   value={draft.priceLists[row.key] || "0"}
                                   onChange={(e) => handleBulkEditPriceListChange(p.id, row.key, e.target.value)}
                                 />

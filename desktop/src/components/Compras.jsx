@@ -39,8 +39,20 @@ const buildEmptyPurchaseUiState = () => ({
   search: "",
   qty: "1",
   unitCost: "",
+  salePrice: "",
   selectedIdx: 0,
 });
+
+const parseDecimal = (value, fallback = 0) => {
+  const parsed = Number(String(value ?? "").trim().replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const formatQuantity = (value) =>
+  parseDecimal(value).toLocaleString("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
 
 const getPurchaseDraftStorageKey = (user) =>
   `${PURCHASE_DRAFT_STORAGE_PREFIX}:${String(user?.id || user?.username || user?.role || "anon")}`;
@@ -53,6 +65,10 @@ const sanitizeDraftItems = (items) =>
       name: String(item?.name || "").trim(),
       qty: Number(item?.qty || 0),
       unitCost: Number(item?.unitCost || 0),
+      salePrice:
+        item?.salePrice === null || item?.salePrice === undefined || item?.salePrice === ""
+          ? null
+          : Number(item.salePrice || 0),
     }))
     .filter(
       (item) =>
@@ -61,7 +77,8 @@ const sanitizeDraftItems = (items) =>
         Number.isFinite(item.qty) &&
         item.qty > 0 &&
         Number.isFinite(item.unitCost) &&
-        item.unitCost >= 0
+        item.unitCost >= 0 &&
+        (item.salePrice === null || (Number.isFinite(item.salePrice) && item.salePrice >= 0))
     );
 
 const loadPersistedPurchaseState = (storageKey) => {
@@ -91,6 +108,7 @@ const loadPersistedPurchaseState = (storageKey) => {
       search: String(parsed?.search || ""),
       qty: String(parsed?.qty || "1"),
       unitCost: String(parsed?.unitCost || ""),
+      salePrice: String(parsed?.salePrice || ""),
       selectedIdx,
     };
   } catch {
@@ -98,7 +116,7 @@ const loadPersistedPurchaseState = (storageKey) => {
   }
 };
 
-const persistPurchaseState = ({ storageKey, draft, search, qty, unitCost, selectedIdx }) => {
+const persistPurchaseState = ({ storageKey, draft, search, qty, unitCost, salePrice, selectedIdx }) => {
   if (typeof window === "undefined" || !storageKey) return;
   const draftToPersist = {
     ...draft,
@@ -116,6 +134,7 @@ const persistPurchaseState = ({ storageKey, draft, search, qty, unitCost, select
       search: String(search || ""),
       qty: String(qty || "1"),
       unitCost: String(unitCost || ""),
+      salePrice: String(salePrice || ""),
       selectedIdx: Math.min(
         Math.max(0, Number(selectedIdx || 0) || 0),
         Math.max(draftToPersist.items.length - 1, 0)
@@ -132,12 +151,15 @@ export default function Compras({ user, setToast }) {
   const [search, setSearch] = useState("");
   const [qty, setQty] = useState("1");
   const [unitCost, setUnitCost] = useState("");
+  const [salePrice, setSalePrice] = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [draftReady, setDraftReady] = useState(false);
   const [showQtyEditModal, setShowQtyEditModal] = useState(false);
   const [showCostEditModal, setShowCostEditModal] = useState(false);
+  const [showSalePriceEditModal, setShowSalePriceEditModal] = useState(false);
   const [qtyEditValue, setQtyEditValue] = useState("");
   const [costEditValue, setCostEditValue] = useState("");
+  const [salePriceEditValue, setSalePriceEditValue] = useState("");
   const [canOverrideLinePrice, setCanOverrideLinePrice] = useState(
     ["ADMIN", "CAJERO"].includes(role)
   );
@@ -156,7 +178,11 @@ export default function Compras({ user, setToast }) {
 
   const [draft, setDraft] = useState(buildEmptyPurchaseDraft);
   const hasComprasModalOpen =
-    showQtyEditModal || showCostEditModal || showProductModal || showHistoryModal;
+    showQtyEditModal ||
+    showCostEditModal ||
+    showSalePriceEditModal ||
+    showProductModal ||
+    showHistoryModal;
 
   const fetchProductsFromDb = async ({ silent = false } = {}) => {
     try {
@@ -218,6 +244,7 @@ export default function Compras({ user, setToast }) {
     setSearch(restored.search);
     setQty(restored.qty);
     setUnitCost(restored.unitCost);
+    setSalePrice(restored.salePrice);
     setSelectedIdx(restored.selectedIdx);
     setDraftReady(true);
   }, [storageKey]);
@@ -231,12 +258,13 @@ export default function Compras({ user, setToast }) {
         search,
         qty,
         unitCost,
+        salePrice,
         selectedIdx,
       });
     } catch {
       // Ignore storage quota and browser storage failures; purchase entry still stays in memory.
     }
-  }, [draft, draftReady, search, qty, unitCost, selectedIdx, storageKey]);
+  }, [draft, draftReady, search, qty, unitCost, salePrice, selectedIdx, storageKey]);
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -338,7 +366,7 @@ export default function Compras({ user, setToast }) {
   };
 
   const applyQtyEdit = () => {
-    const parsed = Number(qtyEditValue);
+    const parsed = parseDecimal(qtyEditValue, NaN);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       setToast?.({ message: "Cantidad invalida", type: "error" });
       return;
@@ -346,14 +374,14 @@ export default function Compras({ user, setToast }) {
     setDraft((prev) => {
       if (selectedIdx < 0 || selectedIdx >= prev.items.length) return prev;
       const next = [...prev.items];
-      next[selectedIdx] = { ...next[selectedIdx], qty: Number(parsed) };
+      next[selectedIdx] = { ...next[selectedIdx], qty: parsed };
       return { ...prev, items: next };
     });
     setShowQtyEditModal(false);
   };
 
   const applyCostEdit = () => {
-    const parsed = Number(costEditValue);
+    const parsed = parseDecimal(costEditValue, NaN);
     if (!Number.isFinite(parsed) || parsed < 0) {
       setToast?.({ message: "Precio invalido", type: "error" });
       return;
@@ -361,18 +389,39 @@ export default function Compras({ user, setToast }) {
     setDraft((prev) => {
       if (selectedIdx < 0 || selectedIdx >= prev.items.length) return prev;
       const next = [...prev.items];
-      next[selectedIdx] = { ...next[selectedIdx], unitCost: Number(parsed) };
+      next[selectedIdx] = { ...next[selectedIdx], unitCost: parsed };
       return { ...prev, items: next };
     });
     setShowCostEditModal(false);
   };
 
+  const applySalePriceEdit = () => {
+    const parsed = parseDecimal(salePriceEditValue, NaN);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setToast?.({ message: "Precio de venta invalido", type: "error" });
+      return;
+    }
+    setDraft((prev) => {
+      if (selectedIdx < 0 || selectedIdx >= prev.items.length) return prev;
+      const next = [...prev.items];
+      next[selectedIdx] = { ...next[selectedIdx], salePrice: parsed };
+      return { ...prev, items: next };
+    });
+    setShowSalePriceEditModal(false);
+  };
+
   const addItem = (product) => {
-    const qtyToAdd = Number(String(qty || "1").replace(",", ".")) || 1;
+    const qtyToAdd = parseDecimal(qty || "1", 1) || 1;
     const existingIndex = draft.items.findIndex((item) => item.productId === product.id);
 
     setDraft((prev) => {
-      const costToUse = Number(unitCost) > 0 ? Number(unitCost) : Number(product.cost || 0);
+      const parsedUnitCost = parseDecimal(unitCost, NaN);
+      const parsedSalePrice = parseDecimal(salePrice, NaN);
+      const costToUse = Number.isFinite(parsedUnitCost) && parsedUnitCost >= 0 ? parsedUnitCost : Number(product.cost || 0);
+      const salePriceToUse =
+        Number.isFinite(parsedSalePrice) && parsedSalePrice >= 0
+          ? parsedSalePrice
+          : Number(product.priceMinorista || product.price_minorista || 0);
       const idx = prev.items.findIndex((i) => i.productId === product.id);
       if (idx >= 0) {
         const next = [...prev.items];
@@ -380,6 +429,10 @@ export default function Compras({ user, setToast }) {
           ...next[idx],
           qty: Number(next[idx].qty) + qtyToAdd,
           unitCost: costToUse,
+          salePrice:
+            Number.isFinite(parsedSalePrice) && parsedSalePrice >= 0
+              ? salePriceToUse
+              : next[idx].salePrice ?? salePriceToUse,
         };
         return { ...prev, items: next };
       }
@@ -393,14 +446,16 @@ export default function Compras({ user, setToast }) {
             name: product.name,
             qty: qtyToAdd,
             unitCost: costToUse,
+            salePrice: salePriceToUse,
           },
         ],
       };
     });
     setSelectedIdx(existingIndex >= 0 ? existingIndex : draft.items.length);
     setSearch("");
-    setQty(1);
+    setQty("1");
     setUnitCost("");
+    setSalePrice("");
     revealItemsForMobile();
   };
 
@@ -448,6 +503,10 @@ export default function Compras({ user, setToast }) {
           productId: i.productId,
           qty: Number(i.qty),
           unitCost: Number(i.unitCost),
+          salePrice:
+            i.salePrice === null || i.salePrice === undefined || i.salePrice === ""
+              ? null
+              : Number(i.salePrice),
         })),
         total: subtotal,
         receiptImageDataUrl: draft.receiptImageDataUrl || null,
@@ -477,6 +536,7 @@ export default function Compras({ user, setToast }) {
     setSearch("");
     setQty("1");
     setUnitCost("");
+    setSalePrice("");
     setSelectedIdx(0);
     if (typeof window !== "undefined") {
       try {
@@ -782,7 +842,8 @@ export default function Compras({ user, setToast }) {
               <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-0">Cant</label>
               <input
                 type="number"
-                min={1}
+                min="0.01"
+                step="0.01"
                 className="w-full bg-white border border-[#cfcfd4] rounded text-center text-xs font-bold py-0 h-[26px] text-zinc-900 outline-none focus:border-[#d97706]"
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
@@ -793,11 +854,25 @@ export default function Compras({ user, setToast }) {
               <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-0">Costo Unit</label>
               <input
                 type="number"
-                min={0}
+                min="0"
+                step="0.01"
                 placeholder="Auto"
                 className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[26px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
                 value={unitCost}
                 onChange={(e) => setUnitCost(e.target.value)}
+              />
+            </div>
+
+            <div className="w-full sm:w-28">
+              <label className="text-[9px] text-zinc-700 uppercase font-black tracking-wide block mb-0">Venta</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Minorista"
+                className="w-full bg-white border border-[#cfcfd4] rounded px-2 py-0 h-[26px] text-xs font-medium text-zinc-900 outline-none focus:border-[#d97706]"
+                value={salePrice}
+                onChange={(e) => setSalePrice(e.target.value)}
               />
             </div>
 
@@ -812,13 +887,14 @@ export default function Compras({ user, setToast }) {
         </div>
 
         <div className="overflow-visible md:flex-1 md:min-h-0 md:overflow-auto">
-          <table className="w-full text-[11px] md:text-xs text-left min-w-[560px]">
+          <table className="w-full text-[11px] md:text-xs text-left min-w-[660px]">
             <thead className="text-[9px] uppercase text-zinc-600 tracking-wide bg-[#f5f5f6] border-b border-[#d8d8dc] sticky top-0 z-10">
               <tr>
                 <th className="px-3 py-1 font-black w-16">CANT</th>
                 <th className="px-3 py-1 font-black w-24">CODIGO</th>
                 <th className="px-3 py-1 font-black">DESCRIPCION</th>
                 <th className="px-3 py-1 font-black w-24 text-right">COSTO UNIT.</th>
+                <th className="px-3 py-1 font-black w-24 text-right">VENTA</th>
                 <th className="px-3 py-1 font-black w-24 text-right">SUBTOTAL</th>
               </tr>
             </thead>
@@ -829,10 +905,13 @@ export default function Compras({ user, setToast }) {
                   onClick={() => setSelectedIdx(idx)}
                   className={`border-b border-[#e5e5e8] cursor-pointer ${selectedIdx === idx ? "bg-[#ffe9d2]" : "hover:bg-[#f8f8f9]"}`}
                 >
-                  <td className="px-3 py-1 text-zinc-800 font-medium">{it.qty}</td>
+                  <td className="px-3 py-1 text-zinc-800 font-medium">{formatQuantity(it.qty)}</td>
                   <td className="px-3 py-1 text-zinc-600">{it.codigo || "-"}</td>
                   <td className="px-3 py-1 font-semibold text-zinc-900 uppercase">{it.name}</td>
                   <td className="px-3 py-1 text-right text-zinc-700">${Number(it.unitCost).toFixed(2)}</td>
+                  <td className="px-3 py-1 text-right text-emerald-700 font-bold">
+                    ${Number(it.salePrice || 0).toFixed(2)}
+                  </td>
                   <td className="px-3 py-1 text-right font-bold text-zinc-900">
                     ${(Number(it.qty) * Number(it.unitCost)).toFixed(2)}
                   </td>
@@ -840,7 +919,7 @@ export default function Compras({ user, setToast }) {
               ))}
               {!draft.items.length ? (
                 <tr className="hover:bg-transparent">
-                  <td colSpan={5} className="text-center py-10 text-zinc-400 focus:outline-none" />
+                  <td colSpan={6} className="text-center py-10 text-zinc-400 focus:outline-none" />
                 </tr>
               ) : null}
             </tbody>
@@ -853,7 +932,7 @@ export default function Compras({ user, setToast }) {
           <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-2 items-center">
             <div>
               <div className="text-[9px] text-zinc-600 uppercase font-black tracking-wide">Total Articulos</div>
-              <div className="text-sm md:text-base font-bold text-zinc-900">{totalItems}</div>
+              <div className="text-sm md:text-base font-bold text-zinc-900">{formatQuantity(totalItems)}</div>
             </div>
             <div>
               <div className="text-[9px] text-zinc-600 uppercase font-black tracking-wide">Items cargados</div>
@@ -873,6 +952,20 @@ export default function Compras({ user, setToast }) {
             >
               Limpiar borrador
             </button>
+            {selectedIdx >= 0 && draft.items.length > 0 ? (
+              <button
+                className="bg-white hover:bg-zinc-50 text-emerald-700 border border-emerald-300 font-black px-3 py-2 rounded-lg transition-colors text-[10px] md:text-[11px] uppercase"
+                onClick={() => {
+                  const currentItem = draft.items[selectedIdx];
+                  if (!currentItem) return;
+                  setSalePriceEditValue(String(currentItem.salePrice ?? 0));
+                  setShowSalePriceEditModal(true);
+                }}
+                type="button"
+              >
+                Editar venta
+              </button>
+            ) : null}
             {selectedIdx >= 0 && draft.items.length > 0 ? (
               <button
                 className="bg-white hover:bg-zinc-50 text-rose-600 border border-rose-300 font-black px-3 py-2 rounded-lg transition-colors text-[10px] md:text-[11px] uppercase"
@@ -929,6 +1022,20 @@ export default function Compras({ user, setToast }) {
             onApply={applyCostEdit}
             title="Editar costo"
             label="Nuevo costo transaccional"
+            min="0"
+            step="0.01"
+          />
+        ) : null
+      }
+      {
+        showSalePriceEditModal ? (
+          <QtyEditModal
+            value={salePriceEditValue}
+            onChange={setSalePriceEditValue}
+            onCancel={() => setShowSalePriceEditModal(false)}
+            onApply={applySalePriceEdit}
+            title="Editar precio de venta"
+            label="Nuevo precio minorista"
             min="0"
             step="0.01"
           />

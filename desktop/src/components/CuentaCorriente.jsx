@@ -132,7 +132,7 @@ export default function CuentaCorriente({ setToast }) {
   }, [activeType, selectedId]);
 
   const registerPayment = async () => {
-    const amount = Number(paymentDraft.amount || 0);
+    const amount = Number(String(paymentDraft.amount || "").replace(",", "."));
     if (!selectedId) {
       setToast?.({
         message: `Selecciona un ${activeType === "customers" ? "cliente" : "proveedor"}`,
@@ -147,7 +147,7 @@ export default function CuentaCorriente({ setToast }) {
 
     try {
       await api.post(`/current-account/${activeType}/${selectedId}/payment`, {
-        amount: Math.round(amount),
+        amount,
         description: paymentDraft.description || null,
         paymentMethod: paymentDraft.paymentMethod,
       });
@@ -321,7 +321,8 @@ export default function CuentaCorriente({ setToast }) {
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-zinc-500">$</span>
                   <input
                     type="number"
-                    min="1"
+                    min="0.01"
+                    step="0.01"
                     className="w-full rounded-xl border border-zinc-800 bg-zinc-900 py-3.5 pl-8 pr-4 text-sm font-bold text-white outline-none transition-all focus:border-[#e85d04] focus:bg-[#1a1a1a] focus:ring-1 focus:ring-[#e85d04]/50 placeholder:text-zinc-500"
                     placeholder="Importe"
                     value={paymentDraft.amount}

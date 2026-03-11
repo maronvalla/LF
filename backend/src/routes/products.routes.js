@@ -30,7 +30,7 @@ const schema = z.object({
   iva: z.number().nonnegative().default(21),
   profitMargin: z.number().nonnegative().default(30),
   minStock: z.number().nonnegative().default(0),
-  initialStock: z.number().int().nonnegative().default(0),
+  initialStock: z.number().nonnegative().default(0),
   supplierId: z.any().optional().nullable(),
   isActive: z.boolean().default(true),
 });

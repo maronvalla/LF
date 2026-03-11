@@ -4,6 +4,7 @@ import ControlModal from "./consolidado/ControlModal";
 import Stat from "./consolidado/Stat";
 import { useConsolidadoData } from "./consolidado/useConsolidadoData";
 import { usePrint } from "./consolidado/usePrint";
+import { formatQuantity } from "./consolidado/utils";
 
 const formatMoney = (value) => `$${Number(value || 0).toFixed(2)}`;
 
@@ -294,7 +295,7 @@ export default function Consolidado({ user, setToast }) {
                             }`}
                           >
                             {section.items.length} item{section.items.length === 1 ? "" : "s"} -{" "}
-                            {section.totalQty} unidades
+                            {formatQuantity(section.totalQty)} unidades
                           </span>
                         </div>
                       </td>
@@ -330,14 +331,14 @@ export default function Consolidado({ user, setToast }) {
                             isDark ? "text-zinc-200" : "text-[#e85d04]"
                           }`}
                         >
-                          {Number(row.total_qty || 0)}
+                          {formatQuantity(row.total_qty || 0)}
                         </td>
                         <td
                           className={`px-5 py-3 text-right font-black text-base ${
                             isDark ? "text-zinc-200" : "text-emerald-600"
                           }`}
                         >
-                          {Number(row.total_returnable_units || 0)}
+                          {formatQuantity(row.total_returnable_units || 0)}
                         </td>
                       </tr>
                     ))}
@@ -428,7 +429,7 @@ export default function Consolidado({ user, setToast }) {
                                 isDark ? "text-zinc-400" : "text-zinc-500"
                               }`}
                             >
-                              {section.totalQty} unidades
+                              {formatQuantity(section.totalQty)} unidades
                             </span>
                           </div>
                         </td>
@@ -468,7 +469,7 @@ export default function Consolidado({ user, setToast }) {
                               isDark ? "text-zinc-200" : "text-[#e85d04]"
                             }`}
                           >
-                            {Number(row.total_qty || 0)}
+                            {formatQuantity(row.total_qty || 0)}
                           </td>
                         </tr>
                       ))}
@@ -539,7 +540,7 @@ export default function Consolidado({ user, setToast }) {
                                 isDark ? "text-zinc-400" : "text-zinc-500"
                               }`}
                             >
-                              {section.totalQty} unidades
+                              {formatQuantity(section.totalQty)} unidades
                             </span>
                           </div>
                         </td>
@@ -565,7 +566,7 @@ export default function Consolidado({ user, setToast }) {
                               isDark ? "text-zinc-200" : "text-[#e85d04]"
                             }`}
                           >
-                            {Number(row.total_qty || 0)}
+                            {formatQuantity(row.total_qty || 0)}
                           </td>
                           <td className="px-5 py-3 text-right">
                             <input
@@ -576,7 +577,7 @@ export default function Consolidado({ user, setToast }) {
                               }`}
                               type="number"
                               min="0"
-                              step="1"
+                              step="0.01"
                               value={row.localQty}
                               onChange={(e) =>
                                 setPlan(row.product_id, "localQty", e.target.value, row.total_qty)
@@ -592,7 +593,7 @@ export default function Consolidado({ user, setToast }) {
                               }`}
                               type="number"
                               min="0"
-                              step="1"
+                              step="0.01"
                               value={row.galponQty}
                               onChange={(e) =>
                                 setPlan(row.product_id, "galponQty", e.target.value, row.total_qty)
@@ -693,7 +694,7 @@ export default function Consolidado({ user, setToast }) {
                               isDark ? "text-zinc-400" : "text-zinc-500"
                             }`}
                           >
-                            {section.totalQty} unidades
+                            {formatQuantity(section.totalQty)} unidades
                           </span>
                         </div>
                       </td>
@@ -731,7 +732,7 @@ export default function Consolidado({ user, setToast }) {
                             isDark ? "text-zinc-200" : "text-amber-500"
                           }`}
                         >
-                          {Number(row.qty_to_return || 0)}
+                          {formatQuantity(row.qty_to_return || 0)}
                         </td>
                       </tr>
                     ))}

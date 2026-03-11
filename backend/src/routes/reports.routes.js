@@ -187,6 +187,14 @@ router.get(
         WHERE ${RETURNS_BUSINESS_DATE_SQL} = ${BUSINESS_CURRENT_DATE_SQL}
       `
     );
+    const dayTicketsPromise = pool.query(
+      `
+        SELECT COUNT(DISTINCT s.id)::int AS tickets_count
+        FROM sales s
+        ${salesBaseWhere}
+          AND ${SALES_BUSINESS_DATE_SQL} = ${BUSINESS_CURRENT_DATE_SQL}
+      `
+    );
 
     const monthProfitPromise = pool.query(
       `
@@ -216,6 +224,14 @@ router.get(
           GROUP BY sale_return_id
         ) ret ON ret.sale_return_id = sr.id
         WHERE DATE_TRUNC('month', ${RETURNS_BUSINESS_TS_SQL}) = ${BUSINESS_CURRENT_MONTH_SQL}
+      `
+    );
+    const monthTicketsPromise = pool.query(
+      `
+        SELECT COUNT(DISTINCT s.id)::int AS tickets_count
+        FROM sales s
+        ${salesBaseWhere}
+          AND DATE_TRUNC('month', ${SALES_BUSINESS_TS_SQL}) = ${BUSINESS_CURRENT_MONTH_SQL}
       `
     );
 
@@ -259,6 +275,16 @@ router.get(
       `,
       customReturnsAdjustmentsDate.params
     );
+    const rangeTicketsDate = buildDateParams(filters.dateFrom, filters.dateTo);
+    const rangeTicketsPromise = pool.query(
+      `
+        SELECT COUNT(DISTINCT s.id)::int AS tickets_count
+        FROM sales s
+        ${salesBaseWhere}
+        ${rangeTicketsDate.whereSql}
+      `,
+      rangeTicketsDate.params
+    );
 
     const [
       monthlySales,
@@ -267,10 +293,13 @@ router.get(
       clientRanking,
       dayProfit,
       dayReturnsAdjustments,
+      dayTickets,
       monthProfit,
       monthReturnsAdjustments,
+      monthTickets,
       customProfit,
       customReturnsAdjustments,
+      rangeTickets,
     ] = await Promise.all([
       monthlySalesPromise,
       monthlyBudgetsPromise,
@@ -278,10 +307,13 @@ router.get(
       clientRankingPromise,
       dayProfitPromise,
       dayReturnsAdjustmentsPromise,
+      dayTicketsPromise,
       monthProfitPromise,
       monthReturnsAdjustmentsPromise,
+      monthTicketsPromise,
       customProfitPromise,
       customReturnsAdjustmentsPromise,
+      rangeTicketsPromise,
     ]);
 
     const productRows = productRanking.rows.map((row) => ({
@@ -355,6 +387,11 @@ router.get(
         day: buildProfitBlock(dayProfit.rows[0], dayReturnsAdjustments.rows[0]),
         month: buildProfitBlock(monthProfit.rows[0], monthReturnsAdjustments.rows[0]),
         range: buildProfitBlock(customProfit.rows[0], customReturnsAdjustments.rows[0]),
+      },
+      tickets: {
+        day: toInt(dayTickets.rows[0]?.tickets_count),
+        month: toInt(monthTickets.rows[0]?.tickets_count),
+        range: toInt(rangeTickets.rows[0]?.tickets_count),
       },
     });
   })

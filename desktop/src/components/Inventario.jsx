@@ -201,7 +201,7 @@ export default function Inventario({ user, setToast }) {
       setToast?.({ message: "Seleccione un producto", type: "error" });
       return;
     }
-    if (Number(qty) <= 0) {
+    if (Number(String(qty || "").replace(",", ".")) <= 0) {
       setToast?.({ message: "La cantidad debe ser mayor a 0", type: "error" });
       return;
     }
@@ -209,13 +209,13 @@ export default function Inventario({ user, setToast }) {
     try {
       await api.post("/inventory/transfer", {
         productId: selectedProductId,
-        qty: Number(qty),
+        qty: Number(String(qty || "").replace(",", ".")),
         fromCode,
         toCode,
       });
       setToast?.({ message: "Transferencia realizada con exito", type: "success" });
       setSelectedProductId("");
-      setQty(1);
+      setQty("1");
       fetchInventory();
     } catch (err) {
       setToast?.({
@@ -294,7 +294,7 @@ export default function Inventario({ user, setToast }) {
   };
 
   const updateActualQty = (locationCode, productId, value) => {
-    const parsed = Math.max(0, Number(String(value || "").replace(/\D/g, "") || 0));
+    const parsed = Math.max(0, Number(String(value || "").replace(",", ".")) || 0);
     setControlDrafts((prev) => ({
       ...prev,
       [locationCode]: {
@@ -864,7 +864,8 @@ export default function Inventario({ user, setToast }) {
             </label>
             <input
               type="number"
-              min={1}
+              min="0.01"
+              step="0.01"
               className="w-full border rounded-lg p-3 text-sm font-bold outline-none focus:border-[#e85d04] bg-zinc-50 border-zinc-200 text-zinc-900"
               value={qty}
               onChange={(event) => setQty(event.target.value)}
@@ -952,6 +953,7 @@ export default function Inventario({ user, setToast }) {
                       <input
                         type="number"
                         min={0}
+                        step="0.01"
                         className="w-28 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-bold text-zinc-900 outline-none focus:border-[#e85d04]"
                         value={row.actualQty}
                         onChange={(event) =>
@@ -1367,6 +1369,7 @@ export default function Inventario({ user, setToast }) {
                             <input
                               type="number"
                               min={0}
+                              step="0.01"
                               className="mt-2 w-full bg-transparent text-2xl font-black text-zinc-900 outline-none"
                               value={row.actualQty}
                               onChange={(event) =>
@@ -1406,6 +1409,7 @@ export default function Inventario({ user, setToast }) {
                                 <input
                                   type="number"
                                   min={0}
+                                  step="0.01"
                                   className={`w-32 rounded-xl border-2 px-4 py-3 text-lg font-black text-center outline-none transition-all ${hasDiff
                                     ? "border-amber-400 bg-amber-50 text-amber-900 focus:border-amber-600 focus:ring-4 focus:ring-amber-400/20"
                                     : "border-zinc-200 bg-zinc-50 text-zinc-900 focus:border-[#e85d04] focus:ring-4 focus:ring-[#e85d04]/20"

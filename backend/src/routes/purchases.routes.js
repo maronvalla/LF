@@ -28,8 +28,9 @@ const createPurchaseSchema = z.object({
     items: z.array(
         z.object({
             productId: z.string().uuid(),
-            qty: z.number().int().positive(),
+            qty: z.number().positive(),
             unitCost: z.number().nonnegative().optional().default(0),
+            salePrice: z.number().nonnegative().optional().nullable(),
         })
     ).min(1),
 });
@@ -207,6 +208,38 @@ router.post(
                     await client.query(
                         `UPDATE products SET cost = $1 WHERE id = $2`,
                         [item.unitCost, item.productId]
+                    );
+                }
+
+                if (item.salePrice !== undefined && item.salePrice !== null) {
+                    const productRes = await client.query(
+                        `SELECT price_lists, price_mayorista FROM products WHERE id = $1 LIMIT 1`,
+                        [item.productId]
+                    );
+                    const currentProduct = productRes.rows[0] || {};
+                    const currentPriceLists =
+                        currentProduct.price_lists && typeof currentProduct.price_lists === "object"
+                            ? currentProduct.price_lists
+                            : {};
+                    const nextPriceLists = {
+                        ...currentPriceLists,
+                        MINORISTA: Number(item.salePrice || 0),
+                        MAYORISTA: Number(
+                            currentPriceLists.MAYORISTA ??
+                                currentProduct.price_mayorista ??
+                                currentPriceLists.MINORISTA ??
+                                item.salePrice ??
+                                0
+                        ),
+                    };
+
+                    await client.query(
+                        `
+                        UPDATE products
+                        SET price_minorista = $1, price_lists = $2::jsonb, updated_at = now()
+                        WHERE id = $3
+                        `,
+                        [Number(item.salePrice || 0), JSON.stringify(nextPriceLists), item.productId]
                     );
                 }
             }

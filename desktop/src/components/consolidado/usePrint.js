@@ -6,7 +6,7 @@ import {
   getTicketPaperWidthMm,
   loadTicketConfig,
 } from "../../utils/ticketConfig";
-import { sanitizeTicketAddress, wrapTicketText } from "./utils";
+import { formatQuantity, sanitizeTicketAddress, toAmount, wrapTicketText } from "./utils";
 
 function renderTicketLinesHtml(lines = []) {
   return (Array.isArray(lines) ? lines : [])
@@ -190,8 +190,8 @@ export function usePrint({
     );
     lines.push(leftRight("Turno", shiftLabel));
     lines.push(leftRight("Pedidos", String(pedidosEnvio.length)));
-    lines.push(leftRight("Bultos", String(totalBultos)));
-    lines.push(leftRight("Envases", String(totalEnvasesRetornables)));
+    lines.push(leftRight("Bultos", formatQuantity(totalBultos)));
+    lines.push(leftRight("Envases", formatQuantity(totalEnvasesRetornables)));
     lines.push(leftRight("Efectivo chofer", fmt(totalCashExpectedFromDriver)));
     lines.push(repeat("-", MAX));
     lines.push("MERCADERIA A SACAR");
@@ -201,19 +201,19 @@ export function usePrint({
       lines.push(repeat(".", Math.min(MAX, 20)));
       section.items.forEach((row) => {
         lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
-        lines.push(leftRight("Cant", `${Number(row.total_qty || 0)}`));
+        lines.push(leftRight("Cant", formatQuantity(row.total_qty || 0)));
         const plan = pickPlanByProduct[row.product_id] || {
           localQty: 0,
-          galponQty: Number(row.total_qty || 0),
+          galponQty: toAmount(row.total_qty || 0),
         };
         lines.push(
           leftRight(
             "Local/Galpon",
-            `${Number(plan.localQty || 0)}/${Number(plan.galponQty || 0)}`
+            `${formatQuantity(plan.localQty || 0)}/${formatQuantity(plan.galponQty || 0)}`
           )
         );
-        if (Number(row.total_returnable_units || 0) > 0) {
-          lines.push(leftRight("Envases", `${Number(row.total_returnable_units || 0)}`));
+        if (toAmount(row.total_returnable_units || 0) > 0) {
+          lines.push(leftRight("Envases", formatQuantity(row.total_returnable_units || 0)));
         }
         lines.push(repeat("-", MAX));
       });
@@ -226,7 +226,7 @@ export function usePrint({
         lines.push(repeat(".", Math.min(MAX, 20)));
         section.items.forEach((row) => {
           lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
-          lines.push(leftRight("Dev.", `${Number(row.qty_to_return || 0)}`));
+          lines.push(leftRight("Dev.", formatQuantity(row.qty_to_return || 0)));
         });
         lines.push(repeat("-", MAX));
       });
@@ -253,27 +253,7 @@ export function usePrint({
       return `${repeat(" ", left)}${t}`;
     };
     const leftRight = (left, right) => `${String(left || "")}\x1e${String(right || "")}`;
-    const toNumber = (value) => {
-      if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-      const raw = String(value ?? "")
-        .trim()
-        .replace(/\s+/g, "")
-        .replace(/[^0-9,.-]/g, "");
-      if (!raw) return 0;
-      const lastDot = raw.lastIndexOf(".");
-      const lastComma = raw.lastIndexOf(",");
-      const sepIndex = Math.max(lastDot, lastComma);
-      if (sepIndex >= 0) {
-        const intPart = raw.slice(0, sepIndex).replace(/[.,]/g, "");
-        const decPart = raw.slice(sepIndex + 1).replace(/[.,]/g, "");
-        const normalized = `${intPart || "0"}.${decPart || "0"}`;
-        const parsed = Number(normalized);
-        return Number.isFinite(parsed) ? parsed : 0;
-      }
-      const parsed = Number(raw.replace(/[.,]/g, ""));
-      return Number.isFinite(parsed) ? parsed : 0;
-    };
-    const fmt = (v) => `$${toNumber(v).toFixed(2)}`;
+    const fmt = (v) => `$${toAmount(v).toFixed(2)}`;
 
     const d = new Date(
       String(sale.created_at || sale.scheduled_date || new Date().toISOString())
@@ -315,25 +295,25 @@ export function usePrint({
     let totalQty = 0;
     let totalAmount = 0;
     items.forEach((item, idx) => {
-      const qty = toNumber(item.qty ?? item.quantity ?? 0);
-      const unitPrice = toNumber(item.unit_price ?? item.unitPrice ?? 0);
-      const explicitLineTotal = toNumber(item.line_total ?? item.lineTotal ?? 0);
+      const qty = toAmount(item.qty ?? item.quantity ?? 0);
+      const unitPrice = toAmount(item.unit_price ?? item.unitPrice ?? 0);
+      const explicitLineTotal = toAmount(item.line_total ?? item.lineTotal ?? 0);
       const lineTotal = explicitLineTotal > 0 ? explicitLineTotal : qty * unitPrice;
       totalQty += qty;
       totalAmount += lineTotal;
       lines.push(String(item.product_name || item.productName || "").toUpperCase());
-      lines.push(leftRight(`${qty} x ${fmt(unitPrice)}`, fmt(lineTotal)));
+      lines.push(leftRight(`${formatQuantity(qty)} x ${fmt(unitPrice)}`, fmt(lineTotal)));
       if (ticketConfig.includeItemSeparators && idx < items.length - 1) {
         lines.push(repeat(".", Math.min(MAX, 20)));
       }
     });
     if (totalAmount <= 0) {
-      totalAmount = toNumber(sale.total_amount ?? sale.sale_total ?? sale.total ?? 0);
+      totalAmount = toAmount(sale.total_amount ?? sale.sale_total ?? sale.total ?? 0);
     }
 
     lines.push(repeat("-", separatorLength));
     lines.push(`Total: ${fmt(totalAmount)}`);
-    lines.push(`Cantidad total: ${totalQty}`);
+    lines.push(`Cantidad total: ${formatQuantity(totalQty)}`);
     if (ticketConfig.includePaymentDetail) lines.push(leftRight("Pago", paymentLabel));
 
     const customLines = Array.isArray(ticketConfig.customLines) ? ticketConfig.customLines : [];

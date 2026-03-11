@@ -8,7 +8,7 @@ const { logAudit } = require("../services/audit");
 const router = express.Router();
 
 const paymentSchema = z.object({
-  amount: z.number().int().positive(),
+  amount: z.number().positive(),
   description: z.string().trim().min(2).max(200).optional().nullable(),
   paymentMethod: z.enum(["EFECTIVO", "TRANSFERENCIA", "OTRO"]).optional().default("EFECTIVO"),
 });

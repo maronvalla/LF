@@ -8,7 +8,7 @@ export default function QtyEditModal({
   title = "Editar cantidad",
   label = "Nueva cantidad",
   min = "1",
-  step = "1",
+  step = "0.01",
 }) {
   const inputRef = useRef(null);
 

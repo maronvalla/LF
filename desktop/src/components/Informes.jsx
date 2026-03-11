@@ -85,6 +85,11 @@ function buildEmptyReport() {
     channelRanking: { envio: [], mostrador: [] },
     clientRanking: [],
     profits: buildEmptyProfits(),
+    tickets: {
+      day: 0,
+      month: 0,
+      range: 0,
+    },
   };
 }
 
@@ -172,6 +177,11 @@ export default function Informes({ setToast }) {
           day: { ...emptyProfits.day, ...(data?.profits?.day || {}) },
           month: { ...emptyProfits.month, ...(data?.profits?.month || {}) },
           range: { ...emptyProfits.range, ...(data?.profits?.range || {}) },
+        },
+        tickets: {
+          day: Number(data?.tickets?.day || 0),
+          month: Number(data?.tickets?.month || 0),
+          range: Number(data?.tickets?.range || 0),
         },
       });
     } catch (error) {
@@ -275,6 +285,30 @@ export default function Informes({ setToast }) {
           meta={rangeLabel}
           value={formatMoney(report.profits.range.profit)}
           subtitle={<ProfitSubtitle block={report.profits.range} />}
+          accentClass="text-[#e85d04]"
+        />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <StatCard
+          title="Tickets del dia"
+          meta={`Fecha operativa ${operationalDateLabel}`}
+          value={formatCount(report.tickets.day)}
+          subtitle="Ventas cobradas cerradas en la fecha operativa actual."
+          accentClass="text-sky-700"
+        />
+        <StatCard
+          title="Tickets del mes"
+          meta={`Mes operativo ${monthLabel}`}
+          value={formatCount(report.tickets.month)}
+          subtitle="Cantidad de tickets cerrados en el mes actual."
+          accentClass="text-zinc-900"
+        />
+        <StatCard
+          title="Tickets del rango"
+          meta={rangeLabel}
+          value={formatCount(report.tickets.range)}
+          subtitle="Cantidad de tickets dentro del filtro seleccionado."
           accentClass="text-[#e85d04]"
         />
       </div>

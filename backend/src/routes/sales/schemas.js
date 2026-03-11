@@ -32,7 +32,7 @@ const createSaleSchema = z.object({
       z.object({
         productId: z.string().uuid(),
         qty: z.number().positive(),
-        unitPrice: z.number().int().nonnegative(),
+        unitPrice: z.number().nonnegative(),
       })
     )
     .min(1),
@@ -95,7 +95,7 @@ const createBudgetSchema = z.object({
       z.object({
         productId: z.string().uuid(),
         qty: z.number().positive(),
-        unitPrice: z.number().int().nonnegative(),
+        unitPrice: z.number().nonnegative(),
       })
     )
     .min(1),
