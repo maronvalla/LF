@@ -23,13 +23,23 @@
       "build-resources/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"
     },
     "win": {
-      "icon": "icon.ico",
-      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": true,
       "target": [
         {
           "target": "nsis",
@@ -80,3 +90,5 @@
     "wait-on": "^9.0.4"
   }
 }
+
+

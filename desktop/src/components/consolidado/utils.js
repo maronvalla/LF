@@ -33,8 +33,8 @@ export function buildRowsByRubro(rows, priorityRubros) {
     }
     const group = groups.get(rubroKey);
     group.items.push(row);
-    group.totalQty += Number(row?.total_qty ?? row?.qty_to_return ?? 0);
-    group.totalReturnableUnits += Number(row?.total_returnable_units || 0);
+    group.totalQty += toAmount(row?.total_qty ?? row?.qty_to_return ?? 0);
+    group.totalReturnableUnits += toAmount(row?.total_returnable_units || 0);
   }
 
   return Array.from(groups.values())

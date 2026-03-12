@@ -8,6 +8,34 @@ import {
 } from "../../utils/ticketConfig";
 import { formatQuantity, sanitizeTicketAddress, toAmount, wrapTicketText } from "./utils";
 
+function isMarkedAsCigarrillo(row) {
+  const normalized = String(row?.name || "").trim();
+  return /[\u00B7\u2022\u2219\u22C5\u25E6]$/.test(normalized);
+}
+
+function formatFixedQuantity(value) {
+  return toAmount(value).toLocaleString("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
+}
+
+function splitConsolidadoSections(sections) {
+  const regularSections = [];
+  const cigarrilloItems = [];
+
+  for (const section of Array.isArray(sections) ? sections : []) {
+    const regularItems = [];
+    for (const row of Array.isArray(section?.items) ? section.items : []) {
+      if (isMarkedAsCigarrillo(row)) cigarrilloItems.push(row);
+      else regularItems.push(row);
+    }
+    if (regularItems.length) regularSections.push({ ...section, items: regularItems });
+  }
+
+  return { regularSections, cigarrilloItems };
+}
+
 function renderTicketLinesHtml(lines = []) {
   return (Array.isArray(lines) ? lines : [])
     .map((line) => {
@@ -172,66 +200,90 @@ export function usePrint({
       const left = Math.max(0, Math.floor((MAX - t.length) / 2));
       return `${repeat(" ", left)}${t}`;
     };
-    const leftRight = (left, right) => `${String(left || "")}\x1e${String(right || "")}`;
+    const leftRight = (left, right) => `${String(left || "")}${String(right || "")}`;
     const fmt = (v) => `$${Number(v || 0).toFixed(2)}`;
     const now = new Date();
     const shiftLabel = slot === "19" ? "TARDE 19:00" : "MANANA 11:00";
+    const { regularSections, cigarrilloItems } = splitConsolidadoSections(consolidatedSections);
+    const regularItems = regularSections.flatMap((section) => section.items);
+    const regularBultos = regularItems.reduce((acc, row) => acc + toAmount(row.total_qty || 0), 0);
+    const cigarrilloBultos = cigarrilloItems.reduce((acc, row) => acc + toAmount(row.total_qty || 0), 0);
     const lines = [];
     if (ticketConfig.businessName) lines.push(center(ticketConfig.businessName));
     if (ticketConfig.addressLine) lines.push(center(ticketConfig.addressLine));
-    lines.push(center("BOLETA DE CONSOLIDADO"));
-    lines.push(repeat("-", MAX));
-    lines.push(leftRight("Fecha", now.toLocaleDateString("es-AR")));
-    lines.push(
-      leftRight(
-        "Hora",
-        now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })
-      )
-    );
+    lines.push(center("CONSOLIDADO"));
+    lines.push(repeat("-", MAX - 2));
+    lines.push(leftRight(now.toLocaleDateString("es-AR"), now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })));
     lines.push(leftRight("Turno", shiftLabel));
     lines.push(leftRight("Pedidos", String(pedidosEnvio.length)));
-    lines.push(leftRight("Bultos", formatQuantity(totalBultos)));
-    lines.push(leftRight("Envases", formatQuantity(totalEnvasesRetornables)));
+    lines.push(leftRight("Bultos", formatFixedQuantity(regularBultos)));
+    lines.push(leftRight("Envases", formatFixedQuantity(totalEnvasesRetornables)));
     lines.push(leftRight("Efectivo chofer", fmt(totalCashExpectedFromDriver)));
-    lines.push(repeat("-", MAX));
-    lines.push("MERCADERIA A SACAR");
-    lines.push(repeat("-", MAX));
-    consolidatedSections.forEach((section) => {
-      lines.push(String(section.label || "SIN RUBRO").toUpperCase().slice(0, MAX));
-      lines.push(repeat(".", Math.min(MAX, 20)));
-      section.items.forEach((row) => {
-        lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
-        lines.push(leftRight("Cant", formatQuantity(row.total_qty || 0)));
+    lines.push(repeat("-", MAX - 2));
+    lines.push("MERCADERIA");
+    lines.push(repeat("-", MAX - 2));
+    regularItems.forEach((row) => {
+      const qtyLabel = formatFixedQuantity(row.total_qty || 0);
+      lines.push(`${qtyLabel} ${String(row.name || "").toUpperCase()}`.slice(0, MAX));
+      const plan = pickPlanByProduct[row.product_id] || {
+        localQty: 0,
+        galponQty: toAmount(row.total_qty || 0),
+      };
+      if (toAmount(plan.galponQty || 0) > 0) {
+        lines.push(
+          leftRight(
+            "Local/Galpon",
+            `${formatFixedQuantity(plan.localQty || 0)}/${formatFixedQuantity(plan.galponQty || 0)}`
+          )
+        );
+      }
+      if (toAmount(row.total_returnable_units || 0) > 0) {
+        lines.push(leftRight("Envases", formatFixedQuantity(row.total_returnable_units || 0)));
+      }
+      lines.push(repeat("-", MAX - 2));
+    });
+    if (cigarrilloItems.length) {
+      lines.push("CIGARRILLOS");
+      lines.push(repeat("-", MAX - 2));
+      lines.push(leftRight("Bultos", formatFixedQuantity(cigarrilloBultos)));
+      lines.push(repeat("-", MAX - 2));
+      cigarrilloItems.forEach((row) => {
+        const qtyLabel = formatFixedQuantity(row.total_qty || 0);
+        lines.push(`${qtyLabel} ${String(row.name || "").toUpperCase()}`.slice(0, MAX));
         const plan = pickPlanByProduct[row.product_id] || {
           localQty: 0,
           galponQty: toAmount(row.total_qty || 0),
         };
-        lines.push(
-          leftRight(
-            "Local/Galpon",
-            `${formatQuantity(plan.localQty || 0)}/${formatQuantity(plan.galponQty || 0)}`
-          )
-        );
-        if (toAmount(row.total_returnable_units || 0) > 0) {
-          lines.push(leftRight("Envases", formatQuantity(row.total_returnable_units || 0)));
+        if (toAmount(plan.galponQty || 0) > 0) {
+          lines.push(
+            leftRight(
+              "Local/Galpon",
+              `${formatFixedQuantity(plan.localQty || 0)}/${formatFixedQuantity(plan.galponQty || 0)}`
+            )
+          );
         }
-        lines.push(repeat("-", MAX));
+        if (toAmount(row.total_returnable_units || 0) > 0) {
+          lines.push(leftRight("Envases", formatFixedQuantity(row.total_returnable_units || 0)));
+        }
+        lines.push(repeat("-", MAX - 2));
       });
-    });
+    }
     if (rejectedReturnSections.length) {
       lines.push("DEVOLUCIONES POR RECHAZO");
-      lines.push(repeat("-", MAX));
+      lines.push(repeat("-", MAX - 2));
       rejectedReturnSections.forEach((section) => {
         lines.push(String(section.label || "SIN RUBRO").toUpperCase().slice(0, MAX));
         lines.push(repeat(".", Math.min(MAX, 20)));
         section.items.forEach((row) => {
           lines.push(String(row.name || "").toUpperCase().slice(0, MAX));
-          lines.push(leftRight("Dev.", formatQuantity(row.qty_to_return || 0)));
+          lines.push(leftRight("Dev.", formatFixedQuantity(row.qty_to_return || 0)));
         });
-        lines.push(repeat("-", MAX));
+        lines.push(repeat("-", MAX - 2));
       });
     }
-    lines.push(center("Control: ____ / Chofer: ____"));
+    lines.push("");
+    lines.push("");
+    lines.push("Chofer: _______________");
     lines.push("");
     lines.push("");
     return lines;
@@ -401,7 +453,7 @@ export function usePrint({
             <td>${String(item.name || "")}</td>
             <td>${Number(item.minStock || 0)}</td>
             <td>${Number(item.existingStock || 0)}</td>
-            <td>${Number(item.qtyToOrder || 0)}</td>
+            <td>${formatQuantity(item.qtyToOrder || 0)}</td>
             <td>$${Number(item.unitCost || 0).toFixed(2)}</td>
             <td>$${Number(item.lineTotalCost || 0).toFixed(2)}</td>
           </tr>

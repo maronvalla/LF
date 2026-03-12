@@ -5,8 +5,8 @@ export const DEFAULT_DELIVERY_SHIFT_CONFIG = {
   morningDepartureTime: "11:00",
   afternoonLabel: "TARDE",
   afternoonDepartureTime: "19:00",
-  morningToAfternoonAt: "11:00",
-  rolloverToNextDayAt: "19:30",
+  morningToAfternoonAt: "12:00",
+  rolloverToNextDayAt: "20:00",
 };
 
 function normalizeLabel(value, fallback) {
@@ -64,7 +64,26 @@ export function loadDeliveryShiftConfig() {
   try {
     const raw = localStorage.getItem(DELIVERY_SHIFT_CONFIG_KEY);
     if (!raw) return { ...DEFAULT_DELIVERY_SHIFT_CONFIG };
-    return normalizeDeliveryShiftConfig(JSON.parse(raw));
+
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeDeliveryShiftConfig(parsed);
+
+    const usesLegacyMorningCutoff =
+      normalized.morningToAfternoonAt === "11:00" &&
+      normalized.morningDepartureTime === DEFAULT_DELIVERY_SHIFT_CONFIG.morningDepartureTime;
+    const usesLegacyAfternoonCutoff =
+      (normalized.rolloverToNextDayAt === "19:00" || normalized.rolloverToNextDayAt === "19:30") &&
+      normalized.afternoonDepartureTime === DEFAULT_DELIVERY_SHIFT_CONFIG.afternoonDepartureTime;
+
+    if (!parsed?.morningToAfternoonAt || usesLegacyMorningCutoff) {
+      normalized.morningToAfternoonAt = DEFAULT_DELIVERY_SHIFT_CONFIG.morningToAfternoonAt;
+    }
+
+    if (!parsed?.rolloverToNextDayAt || usesLegacyAfternoonCutoff) {
+      normalized.rolloverToNextDayAt = DEFAULT_DELIVERY_SHIFT_CONFIG.rolloverToNextDayAt;
+    }
+
+    return normalized;
   } catch {
     return { ...DEFAULT_DELIVERY_SHIFT_CONFIG };
   }

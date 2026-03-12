@@ -30,6 +30,7 @@ const createPurchaseSchema = z.object({
             productId: z.string().uuid(),
             qty: z.number().positive(),
             unitCost: z.number().nonnegative().optional().default(0),
+            mayoristaPrice: z.number().nonnegative().optional().nullable(),
             salePrice: z.number().nonnegative().optional().nullable(),
         })
     ).min(1),
@@ -236,10 +237,10 @@ router.post(
                     await client.query(
                         `
                         UPDATE products
-                        SET price_minorista = $1, price_lists = $2::jsonb, updated_at = now()
+                        SET price_minorista = $1, price_lists = $2::jsonb
                         WHERE id = $3
                         `,
-                        [Number(item.salePrice || 0), JSON.stringify(nextPriceLists), item.productId]
+                        [Number(item.salePrice || 0), nextMayoristaPrice, JSON.stringify(nextPriceLists), item.productId]
                     );
                 }
             }
@@ -390,3 +391,7 @@ router.patch(
 );
 
 module.exports = router;
+
+
+
+

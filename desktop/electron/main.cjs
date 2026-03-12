@@ -2,17 +2,24 @@ const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const path = require("path");
 
 const isDev = process.env.ELECTRON_DEV === "1";
+let mainWindow = null;
 Menu.setApplicationMenu(null);
-if (process.platform === "win32") {
-  app.setAppUserModelId("com.lafamilia.desktop");
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
 }
 
 function createWindow() {
-  const windowIcon =
-    process.platform === "win32"
-      ? path.join(__dirname, "..", "build-resources", "icon.ico")
-      : path.join(__dirname, "..", "build-resources", "icon.png");
+  const windowIcon = isDev
+    ? process.platform === "win32"
+      ? path.join(__dirname, "..", "build", "icon.ico")
+      : path.join(__dirname, "..", "build", "icon.png")
+    : process.platform === "win32"
+      ? path.join(process.resourcesPath, "icon.ico")
+      : path.join(process.resourcesPath, "icon.png");
   const win = new BrowserWindow({
+    show: false,
     width: 1366,
     height: 860,
     backgroundColor: "#111315",
@@ -32,11 +39,17 @@ function createWindow() {
     }
   });
 
+  win.maximize();
+  win.once("ready-to-show", () => {
+    if (!win.isDestroyed()) win.show();
+  });
+
   if (isDev) {
     win.loadURL("http://localhost:5173");
-    return;
+    return win;
   }
   win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  return win;
 }
 
 function escapeHtml(value) {
@@ -183,7 +196,23 @@ ipcMain.handle("ticket:print", async (_, payload) => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.on("second-instance", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+});
+
+app.whenReady().then(() => {
+  mainWindow = createWindow();
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+
+
+
+
